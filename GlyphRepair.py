@@ -1,487 +1,551 @@
 import csv
-from hashlib import md5
 import os
 import sys
 import webbrowser
-from numpy import asarray
+from hashlib import md5
 from io import BytesIO
 
-import fitz
+# Third-party libraries for PDF handling, plotting, and numerical operations
+import fitz  # PyMuPDF
 import matplotlib.patches as patches
-from PySide6 import QtCore, QtWidgets, QtGui
-from PySide6.QtGui import QImage, QPixmap, QIcon
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog, QToolButton
-)
-from fontTools.agl import UV2AGL
-from fontTools.cffLib import CFFFontSet
-from fontTools.pens.basePen import BasePen
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.path import Path
+from numpy import asarray
+
+# GUI Libraries (PySide6) for the application interface
+from PySide6 import QtCore, QtGui
+from PySide6.QtGui import QImage, QPixmap, QIcon
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
+    QToolButton, QMessageBox
+)
+
+# FontTools libraries for parsing font data (CFF format)
+from fontTools.agl import UV2AGL
+from fontTools.cffLib import CFFFontSet
+from fontTools.pens.basePen import BasePen
 
 
-# SECTION Extraction from pdf
-# Function extracts raw font data from pdf file
+# Function to extract raw font data from a specific page in a PDF
+# It looks for a font with a specific name in CFF format and returns its binary buffer
 def extract_cff_fonts(pdf_path, page, font_name):
-    # Open file using PyMuPDF
+    # Open the PDF file using PyMuPDF
     with fitz.open(pdf_path) as doc:
-        page_obj = doc.load_page(page)  # Load page as object
-        fonts = page_obj.get_fonts(full=True)  # Extract fonts from page
-        # Loop through every font extracted
+        # Load the specific page object
+        page_obj = doc.load_page(page)
+        # Get a list of all fonts referenced on this page
+        fonts = page_obj.get_fonts(full=True)
+
+        # Iterate through the found fonts to find the one matching font_name
         for font in fonts:
-            name, ext, _, buffer = doc.extract_font(font[0])  # Extract name, type, and raw binary data of the font
-            # Filter only fonts saved in cff format with the desired name
+            # Extract font metadata and the binary content (buffer)
+            name, ext, _, buffer = doc.extract_font(font[0])
+
+            # We only care about CFF (Compact Font Format) files that match our target name
             if ext and ext.lower() == "cff" and name == font_name:
-                # Return extracted data
                 return buffer
-        # Raise error if no font with the given name in CFF format was found
-        raise ValueError(f"Font '{font_name}' not found or not CFF.")
+
+        # If the loop finishes without returning, the font was not found
+        raise ValueError(f"Font '{font_name}' not found or not in CFF format.")
 
 
-# Function extracts font data and matches pages and fonts used
+# Function to scan the entire PDF document structure
+# It builds a dictionary mapping page numbers to lists of CFF fonts found on them
 def extract_pdf_data(pdf_path):
-    font_map = {}  # Initialize a dictionary for page number and fonts used
-    # Open file using PyMuPDF
+    font_map = {}  # Dictionary to store results: { page_number: [font_names] }
+
     with fitz.open(pdf_path) as doc:
-        # Loop through pages in documents
+        # Loop through every page in the document
         for page in doc:
-            cff_names = []  # Initialize list of font names in each page
-            fonts = page.get_fonts(full=True)  # Extract fonts from page
-            # Loop through every font
+            cff_names = []
+            # Get all fonts on the current page
+            fonts = page.get_fonts(full=True)
+
             for font in fonts:
-                name, ext, _, buffer = doc.extract_font(font[0])  # Extract name, font format, and raw binary data of the font
-                # Add only fonts in cff format to cff_name list
+                name, ext, _, buffer = doc.extract_font(font[0])
+                # Filter only CFF fonts
                 if ext and ext.lower() == "cff":
                     cff_names.append(name)
-            # If there are any names in list, match them to page number
+
+            # If we found any CFF fonts on this page, add them to the map
             if cff_names:
                 font_map[page.number] = cff_names
-        return font_map  # Return complete map of pages and fonts used
+
+    return font_map
 
 
-# SECTION MatplotlibPen
-# Custom pen that inherits from fontTools' BasePen to record outlines as Matplotlib Path data
+# Class representing a custom drawing pen compatible with FontTools
+# This pen translates font glyph commands (move, line, curve) into Matplotlib Path codes
 class MatplotlibPen(BasePen):
-    # Initializing variables to store vertices and Matplotlib path codes
     def __init__(self, glyphset):
         super().__init__(glyphset)
-        self.vertices = []
-        self.codes = []
+        self.vertices = []  # List of (x, y) coordinates
+        self.codes = []  # List of Matplotlib path commands (MOVETO, LINETO, etc.)
 
-    # Defining a moveTo method which adds a point to vertices list and path code MOVETO to codes list
+    # Handles the 'move to' command (starting a new contour)
     def _moveTo(self, p):
         self.vertices.append(p)
         self.codes.append(Path.MOVETO)
 
-    # Defining a lineTo method which adds a point to vertices list and path code LINETO to codes list
+    # Handles the 'line to' command (straight line)
     def _lineTo(self, p):
         self.vertices.append(p)
         self.codes.append(Path.LINETO)
 
-    # Defining a curveToOne method which adds list of 3 points to vertices list and list of 3 CURVE4 path code to codes list
+    # Handles cubic Bezier curves
+    # p1, p2 are control points, p3 is the end point
     def _curveToOne(self, p1, p2, p3):
         self.vertices.extend([p1, p2, p3])
+        # Matplotlib requires CURVE4 repeated 3 times for cubic beziers
         self.codes.extend([Path.CURVE4, Path.CURVE4, Path.CURVE4])
 
-    # Defining a closePath method
+    # Handles closing the shape (connecting last point to start point)
     def _closePath(self):
-        # Check if there are any points in vertices list
+        # We only close the path if there are vertices present
         if self.vertices:
-            self.vertices.append(self.vertices[0])  # Add first point to vertices list
-            self.codes.append(Path.CLOSEPOLY)  # Add path code CLOSEPOLY to codes list
+            self.vertices.append(self.vertices[0])
+            self.codes.append(Path.CLOSEPOLY)
 
 
-# SECTION Matplotlib canvas
-# Custom canvas that inherits from matplotlib's FigureCanvas to display individual glyphs
+# Class representing a pen that generates a string signature of a glyph
+# This is used for identification/hashing. It records the sequence of commands
+# but ignores specific coordinates if needed (though here we include them)
+class SignaturePen(BasePen):
+    def __init__(self, glyphset):
+        super().__init__(glyphset)
+        self.signature = []
+
+    def _moveTo(self, p):
+        self.signature.append(f"M{p}")
+
+    def _lineTo(self, p):
+        self.signature.append(f"L{p}")
+
+    def _curveToOne(self, p1, p2, p3):
+        self.signature.append(f"C{p1}{p2}{p3}")
+
+    def _closePath(self):
+        self.signature.append("Z")
+
+    # Returns the complete string representation of the shape
+    def get_signature(self):
+        return "".join(self.signature)
+
+
+# Custom widget that integrates Matplotlib figure into the PySide6 GUI
+# Used to render the glyph visualization
 class GlyphCanvas(FigureCanvas):
-    # Initializing variables for use in other methods
     def __init__(self, font):
-        self.font = font  # Store the font object for later use
-        self.fig = Figure(figsize=(4, 4))  # Defining size of figure and creating it
-        super().__init__(self.fig)  # Initializing FigureCanvas using created figure
-        self.ax = self.fig.add_subplot()  # Create an Axes object used for drawing glyphs
+        self.font = font
+        # Create a square figure
+        self.fig = Figure(figsize=(4, 4))
+        super().__init__(self.fig)
+        self.ax = self.fig.add_subplot()
 
-    # Method used to draw glyph from a set of glyphs defined by its name,
+    # Main method to draw a specific glyph onto the canvas
+    # Requires the glyphset, glyph name, and vertical metrics for alignment
     def draw_glyph(self, glyphset, glyph_name, notdef_max_y, notdef_min_y):
-        ax = self.ax  # Using initialized Axes object
-        ax.clear()  # Clear previously drawn glyphs
-        ax.axis('off')  # Hide axes
+        ax = self.ax
+        ax.clear()  # Clear previous drawing
+        ax.axis('off')  # Hide X/Y axis ticks and labels
 
-        # Check whether the glyph set exists and contains the requested glyph
+        # Handle case where font or glyph is missing
         if not glyphset or glyph_name not in glyphset:
-            # Add text to canvas describing that there is no glyph to draw
-            ax.text(0.5, 0.5, "No glyph", ha='center', va='center', fontsize=48, color='dimgray', weight='bold',
-                    style='italic')
-            self.draw()  # Render text
-            return  # Exit the method early
+            ax.text(0.5, 0.5, "No glyph", ha='center', va='center', fontsize=48,
+                    color='dimgray', weight='bold', style='italic')
+            self.draw()
+            return
 
-        glyph = glyphset[glyph_name]  # Retrieve the glyph object corresponding to the given name
-        pen = MatplotlibPen(glyphset)  # Create a MatplotlibPen to record the glyph's outlines
-        glyph.draw(pen)  # Use the pen to draw the glyph's outline data into vertices and path codes
+        # Retrieve the glyph object and draw it into our custom MatplotlibPen
+        glyph = glyphset[glyph_name]
+        pen = MatplotlibPen(glyphset)
+        glyph.draw(pen)
 
-        # Check, if the glyph is empty
+        # Handle empty glyphs (like space character)
         if not pen.vertices:
-            # Add text to canvas describing that there is empty glyph
-            ax.text(0.5, 0.5, "Empty glyph,\nmost likely space", ha='center', va='center', fontsize=48, color='dimgray',
-                    weight='bold', style='italic')
-            self.draw()  # Render text
-            return  # Exit the method early
+            ax.text(0.5, 0.5, "Empty glyph\n(likely space)", ha='center', va='center',
+                    fontsize=30, color='dimgray', weight='bold', style='italic')
+            self.draw()
+            return
 
-        xs, ys = zip(*pen.vertices)  # Separate vertices into x and y coordinate arrays
-        min_x, max_x = min(xs), max(xs)  # Get minimum and maximum coordinates on x-axis
-        width = max_x - min_x  # Calculate glyph width
+        # Separate X and Y coordinates to calculate bounding box
+        xs, ys = zip(*pen.vertices)
+        min_x, max_x = min(xs), max(xs)
+        width = max_x - min_x
 
-        ascent = getattr(self.font, 'FontBBox', [0, 0, 0, 1000])[
-            3]  # Get top y-coordinate from FontBoundingBox; fallback to 1000 if missing
-        descent = getattr(self.font, 'FontBBox', [0, -200, 0, 0])[
-            1]  # Get bottom y-coordinate from FontBBox; fallback to -200 if missing
-        font_height = ascent - descent  # Calculate maximum height of all glyphs in font
-        scale = 0.8 / font_height  # Scale glyph to 80% of the canvas height
-        bottom_margin = 0.05 * font_height * scale  # Add bottom margin
+        # Calculate font metrics to scale the glyph properly to the canvas
+        # We try to get the FontBBox from the font object, otherwise use defaults
+        ascent = getattr(self.font, 'FontBBox', [0, 0, 0, 1000])[3]
+        descent = getattr(self.font, 'FontBBox', [0, -200, 0, 0])[1]
+        font_height = ascent - descent
 
-        # Check, if there are baseline values given to method
+        # Scale factor calculation: fit glyph within 80% of canvas height
+        scale = 0.8 / font_height
+        bottom_margin = 0.05 * font_height * scale
+
+        # Draw baseline reference lines
+        # Uses .notdef dimensions if available (passed as arguments)
         if notdef_min_y is not None and notdef_max_y is not None:
-            # Convert .notdef baseline coordinates into scaled canvas positions
             min_y = (notdef_min_y - descent) * scale + bottom_margin
             max_y = (notdef_max_y - descent) * scale + bottom_margin
-            # Draw horizontal reference lines based on the .notdef glyph
             ax.axhline(y=min_y, color='blue', linestyle=':', linewidth=1.5)
             ax.axhline(y=max_y, color='blue', linestyle=':', linewidth=1.5)
         else:
-            # Draw a fallback baseline at the bottom margin
+            # Fallback red line if .notdef metrics are missing
             ax.axhline(y=bottom_margin, color='red', linestyle=':', linewidth=1.5)
 
-        vertices = []  # New list of transformed vertices
+        # Apply transformation to every vertex (Scaling and Centering)
+        vertices = []
         for x, y in pen.vertices:
-            x_transformed = (x - min_x - width / 2) * scale  # Center the glyph horizontally and scale
-            y_transformed = (y - descent) * scale + bottom_margin  # Shift vertically and scale
-            vertices.append((x_transformed, y_transformed))  # Add transformed point to the new list
+            # Center horizontally: (x - min_x - width/2)
+            x_transformed = (x - min_x - width / 2) * scale
+            # Position vertically relative to descent and margin
+            y_transformed = (y - descent) * scale + bottom_margin
+            vertices.append((x_transformed, y_transformed))
 
-        path = Path(vertices, pen.codes)  # Use new vertices list and codes to define a path object
-        patch = patches.PathPatch(path, facecolor='black', lw=1)  # Create a glyph image
-        ax.add_patch(patch)  # Add glyph to canvas
+        # Create the PathPatch and add it to the plot
+        path = Path(vertices, pen.codes)
+        patch = patches.PathPatch(path, facecolor='black', lw=1)
+        ax.add_patch(patch)
 
-        ax.set_xlim(-0.5, 0.5)  # Limit horizontal drawing range
-        ax.set_ylim(0, font_height * scale * 1.1)  # Limit vertical drawing range
-        ax.set_aspect('equal')  # Keep equal scaling for x and y axes to preserve glyph proportions
-        self.draw()  # Render glyph
+        # Set fixed limits to ensure consistent view across different glyphs
+        ax.set_xlim(-0.5, 0.5)
+        ax.set_ylim(0, font_height * scale * 1.1)
+        ax.set_aspect('equal')  # Ensure aspect ratio is preserved (no stretching)
+        self.draw()  # Trigger render
 
 
-# SECTION Main window
-# Custom window that inherits from PySide6 QMainWindow
+# Main Application Window Class
 class FontWidget(QMainWindow):
-    ICON_SIZE = 64  # Size of icons in glyph list in pixels
-    CSV_PATH = "glyph_mappings.csv"
+    ICON_SIZE = 64
+    CSV_PATH = "glyph_mappings.csv"  # Database file path
 
-    # Initializing variables for use in other methods
     def __init__(self):
-        super().__init__()  # Initializing QMainWindow
-        self.pdf_path = None  # Path to the currently loaded PDF file
-        self.current_page = None  # Currently selected page number
-        self.current_font_name = None  # Currently selected font name
-        self.current_font = None  # Current font object
-        self.current_glyph_set = None  # Dictionary of glyph objects (topDict)
-        self.current_font_glyph_names = []  # List of glyph names (CharStrings)
-        self.current_index = 0  # Index of currently visible glyph
-        self.user_glyph_to_char = {}  # Dictionary of glyph names and character information
-        self.font_cache = {}  # Cached font data
-        self.db_cache = {}  # Cached glyph-to-character mappings from database
+        super().__init__()
+        # Initialize internal state variables
+        self.pdf_path = None
+        self.current_page = None
+        self.current_font_name = None
+        self.current_font = None
+        self.current_glyph_set = None
+        self.current_font_glyph_names = []
+        self.current_index = 0
 
-        self._setup_menus()  # Initialize application menus
-        self._setup_ui()  # Set up main UI layout and widgets
+        # Dictionaries for data storage
+        self.user_glyph_to_char = {}  # Stores current session mappings
+        self.font_cache = {}  # Caches extracted font data to avoid re-parsing
+        self.db_cache = {}
+        self.known_glyph_hashes = set()  # Stores hashes already in the CSV database
 
-        self.clear_ui_state()  # Reset UI
-        self.setMinimumSize(1000, 700)  # Set minimum window size
-        self.setWindowTitle("Glyph Repair")  # Set application window title
-        self.statusBar().showMessage("Select PDF to repair")  # Add message to status bar
+        # Setup GUI components
+        self._setup_menus()
+        self._setup_ui()
+        self.clear_ui_state()
 
-    # Initialize menu bar
+        # Window configuration
+        self.setMinimumSize(1000, 700)
+        self.setWindowTitle("Glyph Repair Tool")
+        self.statusBar().showMessage("Select PDF to repair")
+
+    # Creates the top menu bar (File, Pages, Fonts)
     def _setup_menus(self):
-        menubar = self.menuBar()  # Create menuBar object
-        pdf_menu = menubar.addMenu("PDF")  # Add pdf menu
+        menubar = self.menuBar()
 
-        open_action = pdf_menu.addAction("Open PDF")  # Add action Open PDF to pdf menu
-        open_action.setIcon(QIcon.fromTheme("folder-open"))  # Set icon for action
-        open_action.triggered.connect(self.open_pdf)  # Connect the action to open_pdf method
+        # PDF File Menu
+        pdf_menu = menubar.addMenu("PDF")
 
-        self.export_action = pdf_menu.addAction("Save PDF")  # Add action Save PDF to pdf menu
-        self.export_action.setIcon(QIcon.fromTheme("document-save"))  # Set icon for action
-        self.export_action.setEnabled(False)  # Disable action initially
-        self.export_action.triggered.connect(self.save_pdf)  # Connect the action to save_pdf method
+        open_action = pdf_menu.addAction("Open PDF")
+        open_action.setIcon(QIcon.fromTheme("folder-open"))
+        open_action.triggered.connect(self.open_pdf)
 
-        exit_action = pdf_menu.addAction("Exit")  # Add action Exit to pdf menu
-        exit_action.setIcon(QIcon.fromTheme("window-close"))  # Set icon for action
-        exit_action.triggered.connect(self.close)  # Close window
+        self.export_action = pdf_menu.addAction("Save PDF")
+        self.export_action.setIcon(QIcon.fromTheme("document-save"))
+        self.export_action.setEnabled(False)
+        self.export_action.triggered.connect(self.save_pdf)
 
-        self.pages_menu = menubar.addMenu("Pages")  # Add pages menu
-        self.fonts_menu = menubar.addMenu("Fonts")  # Add fonts menu
-        self._menu_placeholder(self.pages_menu)  # Add placeholder item for Pages menu
-        self._menu_placeholder(self.fonts_menu)  # Add placeholder item for Pages menu
+        exit_action = pdf_menu.addAction("Exit")
+        exit_action.setIcon(QIcon.fromTheme("window-close"))
+        exit_action.triggered.connect(self.close)
 
-    # Create placeholder actions
+        # Create placeholders for dynamic menus (Pages and Fonts)
+        self.pages_menu = menubar.addMenu("Pages")
+        self.fonts_menu = menubar.addMenu("Fonts")
+        self._menu_placeholder(self.pages_menu)
+        self._menu_placeholder(self.fonts_menu)
+
+    # Helper to add a disabled item when a menu is empty
     def _menu_placeholder(self, menu):
-        placeholder = menu.addAction("No file loaded")  # Add text as action
-        placeholder.setIcon(QIcon.fromTheme("sync-error"))  # Set icon for action
-        placeholder.setEnabled(False)  # Disable action
+        placeholder = menu.addAction("No file loaded")
+        placeholder.setIcon(QIcon.fromTheme("sync-error"))
+        placeholder.setEnabled(False)
 
-    # Initialize UI elements
+    # initializes all widgets and layouts
     def _setup_ui(self):
-        central = QWidget()  # Create QWidget
-        self.setCentralWidget(central)  # Add widget as Central Widget
+        central = QWidget()
+        self.setCentralWidget(central)
 
-        glyph_list = self.glyph_list = QListWidget()  # Glyph list widget
-        canvas = self.canvas = GlyphCanvas(None)  # Canvas for displaying glyphs
-        label = self.label = QLabel("Select glyph")  # Label showing glyph information
-        user_input = self.user_input = QLineEdit()  # Character input field
-        btn_special = self.btn_special = QPushButton("Special chars")  # Button for special characters
-        btn_glyph = self.btn_glyph = QPushButton("Save glyph")  # Button for saving individual glyphs
-        btn_font = self.btn_font = QPushButton("Update font")  # Button for updating whole font
-        btn_prev = self.btn_prev_font = QToolButton()  # Button for switching to previous font
-        btn_next = self.btn_next_font = QToolButton()  # Button for switching to next font
-        lbl_font = self.lbl_font = QLabel("No font loaded")  # Label showing current font name
+        # Create main widgets
+        self.glyph_list = QListWidget()  # Left sidebar list
+        self.canvas = GlyphCanvas(None)  # Center plotting area
+        self.label = QLabel("Select glyph")  # Info text
+        self.user_input = QLineEdit()  # Input for character char
+        self.btn_special = QPushButton("Special Chars")  # Link to unicode table
+        self.btn_glyph = QPushButton("Save Glyph")
+        self.btn_font = QPushButton("Update Font")
+        self.btn_prev_font = QToolButton()
+        self.btn_next_font = QToolButton()
+        self.lbl_font = QLabel("No font loaded")
 
-        # Glyph list
-        glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))  # Set icon size of menu items
-        glyph_list.setSpacing(0)  # Remove spacing between list items
-        font = glyph_list.font()  # Use default font
-        font.setPointSize(20)  # Set font size
-        font.setBold(True)  # Make text bold
-        glyph_list.setFont(font)  # Apply font to list
+        # Configure Glyph List Appearance
+        self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
+        self.glyph_list.setSpacing(0)
+        font = self.glyph_list.font()
+        font.setPointSize(20)
+        font.setBold(True)
+        self.glyph_list.setFont(font)
+        self.glyph_list.itemClicked.connect(self.on_glyph_clicked)
 
-        # Information label
-        label.setStyleSheet("font-weight: bold; font-size: 48px; color: white;")  # Label weight, size and color
-        label.setAlignment(QtCore.Qt.AlignCenter)  # Center label text
+        # Configure Info Label
+        self.label.setStyleSheet("font-weight: bold; font-size: 32px; color: white;")
+        self.label.setAlignment(QtCore.Qt.AlignCenter)
 
-        # Character input field
-        user_input.setPlaceholderText("Enter glyph")  # Placeholder text
-        user_input.setMaxLength(1)  # Limit to one character
-        user_input.returnPressed.connect(self.save_glyph)  # Enter triggers saving the glyph
+        # Configure Input Field
+        self.user_input.setPlaceholderText("Enter char")
+        self.user_input.setMaxLength(1)
+        self.user_input.returnPressed.connect(self.save_glyph)
 
-        # Buttons
-        btn_special.clicked.connect(self.open_special)  # Connect character button to open_special
-        btn_glyph.clicked.connect(self.save_glyph)  # Connect save glyph button to save_glyph
-        btn_font.clicked.connect(self.submit_ToUnicode)  # Connect update font button to submit_ToUnicode
-        btn_prev.clicked.connect(self.go_to_prev_font)  # Connect previous font button to go_to_prev_font
-        btn_next.clicked.connect(self.go_to_next_font)  # Connect next font button to go_to_next_font
+        # Connect Button Signals
+        self.btn_special.clicked.connect(self.open_special)
+        self.btn_glyph.clicked.connect(self.save_glyph)
+        self.btn_font.clicked.connect(self.submit_ToUnicode)
+        self.btn_prev_font.clicked.connect(self.go_to_prev_font)
+        self.btn_next_font.clicked.connect(self.go_to_next_font)
 
-        # Previous and next buttons
-        btn_prev.setArrowType(QtCore.Qt.LeftArrow)  # Left arrow
-        btn_next.setArrowType(QtCore.Qt.RightArrow)  # Right arrow
-        btn_prev.setFixedSize(40, 40)  # Button size
-        btn_next.setFixedSize(40, 40)  # Button size
-        btn_prev.setToolTip("Previous font")  # Set tooltip
-        btn_next.setToolTip("Next font")  # Set tooltip
+        # Configure Navigation Buttons
+        self.btn_prev_font.setArrowType(QtCore.Qt.LeftArrow)
+        self.btn_next_font.setArrowType(QtCore.Qt.RightArrow)
+        self.btn_prev_font.setFixedSize(40, 40)
+        self.btn_next_font.setFixedSize(40, 40)
+        self.btn_prev_font.setToolTip("Previous font")
+        self.btn_next_font.setToolTip("Next font")
 
-        # Current font label
-        font = lbl_font.font()  # Use default font
-        font.setPointSize(14)  # Size of font in list
-        font.setBold(True)  # Text weight
-        lbl_font.setFont(font)  # Use defined font information
-        lbl_font.setAlignment(QtCore.Qt.AlignCenter)  # Align label to center
-        lbl_font.setMinimumWidth(180)  # Set minimum width of label
+        # Configure Font Name Label
+        lbl_font_style = self.lbl_font.font()
+        lbl_font_style.setPointSize(14)
+        lbl_font_style.setBold(True)
+        self.lbl_font.setFont(lbl_font_style)
+        self.lbl_font.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_font.setMinimumWidth(180)
 
-        # Build layout
-        # Font navigation
-        nav = QHBoxLayout()  # Horizontal layout
-        nav.addWidget(btn_prev)  # Add previous font button
-        nav.addWidget(lbl_font)  # Add font name label
-        nav.addWidget(btn_next)  # Add next font button
-        nav.setSpacing(6)  # Set spacing between elements
+        # Layout Construction
+        # Navigation Row
+        nav = QHBoxLayout()
+        nav.addWidget(self.btn_prev_font)
+        nav.addWidget(self.lbl_font)
+        nav.addWidget(self.btn_next_font)
+        nav.setSpacing(6)
 
-        # User input and save buttons
-        inputs = QHBoxLayout()  # Horizontal layout
-        inputs.addWidget(user_input)  # Add user input field
-        inputs.addWidget(btn_special)  # Add special characters button
-        inputs.addWidget(btn_glyph)  # Add save individual glyph button
-        inputs.addWidget(btn_font)  # Add update font button
+        # Input Row
+        inputs = QHBoxLayout()
+        inputs.addWidget(self.user_input)
+        inputs.addWidget(self.btn_special)
+        inputs.addWidget(self.btn_glyph)
+        inputs.addWidget(self.btn_font)
 
-        # Right side of layout
-        right = QVBoxLayout()  # Vertical layout
-        right.addLayout(nav)  # Add font navigation layout
-        right.addWidget(canvas)  # Add glyph canvas
-        right.addWidget(label)  # Add font info label
-        right.addLayout(inputs)  # Add User input layout
+        # Right Column (Canvas + Controls)
+        right = QVBoxLayout()
+        right.addLayout(nav)
+        right.addWidget(self.canvas)
+        right.addWidget(self.label)
+        right.addLayout(inputs)
 
-        # Main window layout
-        main = QHBoxLayout(central)  # Horizontal layout
-        main.addWidget(glyph_list, 2)  # Add glyph list as 2/7 of window width
-        main.addLayout(right, 5)  # Add right side layout as 5/7 of window width
+        # Main Layout (List + Right Column)
+        main = QHBoxLayout(central)
+        main.addWidget(self.glyph_list, 2)  # Ratio 2:5
+        main.addLayout(right, 5)
 
-    # Clear UI
+    # Resets the UI elements when no font is loaded
     def clear_ui_state(self):
-        self.glyph_list.clear()  # Remove all items from glyph list
-        self.label.setText("No font loaded")  # Label text
-        self.canvas.draw_glyph(None, None, None, None)  # Clear glyph canvas
-        self.user_input.clear()  # Clear user input field
-        self.user_input.setEnabled(False)  # Disable user input field
-        self.btn_glyph.setEnabled(False)  # Diable save glyph button
-        self.btn_font.setEnabled(False)  # Diable update font button
-        self.lbl_font.setText("No font loaded")  # Current font text
+        self.glyph_list.clear()
+        self.label.setText("No font loaded")
+        self.canvas.draw_glyph(None, None, None, None)
+        self.user_input.clear()
+        self.user_input.setEnabled(False)
+        self.btn_glyph.setEnabled(False)
+        self.btn_font.setEnabled(False)
+        self.lbl_font.setText("No font loaded")
 
-    # Navigate through fonts
+    # Font Navigation Logic
     def go_to_prev_font(self):
-        self._navigate_font(-1)  # Move to previous font
+        self._navigate_font(-1)
 
     def go_to_next_font(self):
-        self._navigate_font(1)  # Move to next font
+        self._navigate_font(1)
 
-    # Cycle through fonts
+    # Finds current font index in the menu list and jumps to prev/next
     def _navigate_font(self, step):
-        # Skip if there is no pdf selected
         if not self.pdf_path:
             return
 
-        fontList = []  # New list of all fonts, for indexing
-        # For each action (font name) in fonts menu
+        # Gather available font actions from the menu
+        fontList = []
         for font in self.fonts_menu.actions():
-            # If action is enabled (check for placeholders)
             if font.isEnabled():
-                fontList.append(font)  # Add action (font name) tp actions
+                fontList.append(font)
 
-        # If there are no fonts, exit
         if not fontList:
             return
 
-        cur_page = self.current_page  # Currently showing page index
-        cur_name = self.current_font_name  # Currently showing font name
+        # Find index of current font
+        cur_page = self.current_page
+        cur_name = self.current_font_name
 
-        idx = 0  # Placeholder index
-        # Loop through each font and find id of currently shown font in fontList
+        idx = 0
         for i, font in enumerate(fontList):
             if font.data() == (cur_page, cur_name):
                 idx = i
                 break
 
-        next_idx = (idx + step) % len(fontList)  # Calculate the next index, wrapping around if necessary
-
-        # Get page and font name for the next font and load it
+        # Calculate next index (modulo for wrapping around)
+        next_idx = (idx + step) % len(fontList)
         page, name = fontList[next_idx].data()
         self.load_font(page, name)
 
-    # Helper method to move to the next glyph
+    # Moves selection to the next glyph in the list
     def show_next(self):
-        # Only proceed if there are glyphs loaded
         if self.current_font_glyph_names:
-            self.current_index = (self.current_index + 1) % len(
-                self.current_font_glyph_names)  # Increment current glyph index, wrap around to 0 if at the end
-            self.show_glyph()  # Display the glyph at the new index
+            self.current_index = (self.current_index + 1) % len(self.current_font_glyph_names)
+            self.show_glyph()
 
-    # Helper method to select a glyph when clicked in the glyph list
+    # Callback when user clicks a glyph in the list widget
     def on_glyph_clicked(self, item):
-        name = item.data(QtCore.Qt.UserRole)  # Retrieve glyph name from built-in UserRole variable
-        # Check if name is in list of names
+        name = item.data(QtCore.Qt.UserRole)
         if name in self.current_font_glyph_names:
-            self.current_index = self.current_font_glyph_names.index(
-                name)  # Update the current glyph index to match the clicked glyph
-            self.show_glyph()  # Display the newly selected glyph
+            self.current_index = self.current_font_glyph_names.index(name)
+            self.show_glyph()
 
-    # Save current glyph to user_glyph_to_char dict
+    # Core Logic: Saves the mapping for a single glyph
     def save_glyph(self):
-        char = self.user_input.text().strip() or " "  # Get char from user input field, or set to space if empty
+        char = self.user_input.text().strip() or " "
+        glyph_name = self.current_font_glyph_names[self.current_index]
 
-        glyph_name = self.current_font_glyph_names[self.current_index]  # Get the name of the currently displayed glyph
-        unicode_hex = format(ord(char),
-                             '04x')  # Convert the user-entered character to a 4-digit hexadecimal Unicode string
-        agn = UV2AGL.get(ord(char),
-                         "")  # Look up the Adobe Glyph List name for this character, or return empty string if not found
+        # Convert character to Hex Unicode (4 digits)
+        unicode_hex = format(ord(char), '04x')
+        # Get Adobe Glyph List name (standard name for the char)
+        agn = UV2AGL.get(ord(char), "")
+        # Calculate visual hash of the glyph
+        g_hash = self.get_glyph_hash(glyph_name)
 
-        # Save data to user_glyph_to_char
+        # Store in local dictionary
         self.user_glyph_to_char[glyph_name] = {
-            "font_hash": self.get_font_hash(),  # Save a font hash
-            "font_name": self.current_font_name,  # Save font name
-            "unicode_hex": unicode_hex,  # Save hexadecimal unicode representation
-            "AGN": agn  # Save adobe glyph list name
+            "glyph_hash": g_hash,
+            "unicode_hex": unicode_hex,
+            "AGN": agn
         }
 
-        item = self.glyph_list.item(self.current_index)  # Item object of currently selected glyph in list
-        display = "[space]" if char == " " else char  # Set message to user-defined character
-        item.setText(f" → {display}")  # Set text of item in list
-        item.setForeground(QtGui.QColor("#228B22"))  # Set color of item in list
+        # Update UI List Item
+        item = self.glyph_list.item(self.current_index)
+        display = "[space]" if char == " " else char
+        item.setText(f" → {display}")
+        item.setForeground(QtGui.QColor("#228B22"))  # Set to green
 
-        self.user_input.clear()  # Clear user input field
-        self.show_next()  # Skip to next glyph
+        self.user_input.clear()
+        self.show_next()  # Auto-advance
 
-    # Method for opening website with special characters for now TODO
+    # Opens a web helper for finding symbols
     def open_special(self):
         webbrowser.open_new_tab("https://www.vertex42.com/ExcelTips/unicode-symbols.html")
 
-    # Get hast from font data
-    def get_font_hash(self):
-        # Check if there are any font_data to hash
-        if not hasattr(self, 'font_data') or not self.font_data:
-            return "unknown"
-        return md5(self.font_data).hexdigest()  # User MD5 algorithm
-
-    # Method to save mappings to database
-    def submit_ToUnicode(self):
-        self.save_to_db()  # Save to database
-        total = len(self.current_font_glyph_names)  # Get statistic of all glyphs in font
-        # Get statistic of all glyphs mapped
-        mapped = 0
-        for g in self.current_font_glyph_names:
-            if g in self.user_glyph_to_char:
-                mapped += 1
-        self.statusBar().showMessage(f"Saved: {mapped}/{total} glyphs", 3000)  # Show statistics in status bar
-        self.go_to_next_font()  # Skip to next font
-
-    # Method for loading fonts
-    def load_font(self, page, font_name):
-        self.current_page = page  # Set current page
-        self.current_font_name = font_name  # Set current font name
-        self.lbl_font.setText(font_name)  # Set current font label
-
-        cache = self.font_cache.get((page, font_name))  # Load cache data for page and font name
-        # Check if there is anything in cache, or there is any unknow hash
-        if not cache or cache['hash'] == "unknown":
-            QtWidgets.QMessageBox.critical(self, "Error", "Font cant be loaded from cache.")  # Show error box
-            return  # Exit the method early
+    # Calculates MD5 hash of the glyph shape
+    # This allows us to recognize the same glyph shape even if the font name changes
+    def get_glyph_hash(self, glyph_name):
+        if not hasattr(self, 'current_glyph_set') or glyph_name not in self.current_glyph_set:
+            return None
 
         try:
-            font_data = cache.get('data') or extract_cff_fonts(self.pdf_path, page,
-                                                               font_name)  # Get data from cache or extract from pdf
-            # Fill variables
-            self.font_data = font_data  # Set font data
-            self.reload_font(font_data)  # Reload font using font data
+            glyph = self.current_glyph_set[glyph_name]
+            pen = SignaturePen(self.current_glyph_set)
+            glyph.draw(pen)  # Trace the shape into the pen
 
-            self.user_glyph_to_char = {}  # Initialize user_glyph_to_char dict
-            self.load_mappings_for_current_font()  # Load mapping
-            self.populate_glyph_list()  # Populate glyph list
-            self.show_glyph()  # Render first glyph
+            shape_signature = pen.get_signature()
+            if not shape_signature:
+                shape_signature = "EMPTY_SPACE"
 
-            self.user_input.setEnabled(True)  # Enable user input field
-            self.btn_glyph.setEnabled(True)  # Enable save glyph button
-            self.btn_font.setEnabled(True)  # Enable update font button
-            self.statusBar().showMessage(f"Loaded: {font_name} (Page {page + 1})",
-                                         5000)  # Show information on status bar
+            # Return MD5 hash string
+            return md5(shape_signature.encode('utf-8')).hexdigest()
+
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error while loading font:\n{e}")  # Error box
+            return None
 
-    # Method for reloading font
+    # Saves all mappings to the database file
+    def submit_ToUnicode(self):
+        self.save_to_db()
+        # Calculate stats for status bar
+        total = len(self.current_font_glyph_names)
+        mapped = sum(1 for g in self.current_font_glyph_names if g in self.user_glyph_to_char)
+        self.statusBar().showMessage(f"Saved: {mapped}/{total} glyphs", 3000)
+        self.go_to_next_font()
+
+    # Loads a specific font from the PDF into memory and UI
+    def load_font(self, page, font_name):
+        self.current_page = page
+        self.current_font_name = font_name
+        self.lbl_font.setText(font_name)
+
+        # Check cache first to avoid slow PDF extraction
+        cache = self.font_cache.get((page, font_name))
+        if not cache:
+            QMessageBox.critical(self, "Error", "Font could not be loaded from cache.")
+            return
+
+        try:
+            # Get binary data from cache or extract if missing
+            font_data = cache.get('data') or extract_cff_fonts(self.pdf_path, page, font_name)
+            self.reload_font(font_data)
+
+            # Load existing mappings from database
+            self.user_glyph_to_char = {}
+            self.load_mappings_for_current_font()
+
+            # Update UI
+            self.populate_glyph_list()
+            self.show_glyph()
+
+            # Enable controls
+            self.user_input.setEnabled(True)
+            self.btn_glyph.setEnabled(True)
+            self.btn_font.setEnabled(True)
+            self.statusBar().showMessage(f"Loaded: {font_name} (Page {page + 1})", 5000)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error while loading font:\n{e}")
+
+    # Decompiles raw binary CFF data into FontTools objects
     def reload_font(self, font_data):
-        font = CFFFontSet()  # Initialize library
-        font.decompile(BytesIO(font_data), None)  # Add data to font variable
-        topDict = font.topDictIndex[0]  # Get topDict information
-        glyphSet = topDict.CharStrings  # Get glyphset using charstrings table
-        glyph_names = list(glyphSet.keys())  # Get list of names from glyphset
+        font = CFFFontSet()
+        font.decompile(BytesIO(font_data), None)
+        topDict = font.topDictIndex[0]
+        glyphSet = topDict.CharStrings
+        glyph_names = list(glyphSet.keys())
 
-        notdef_baseline = notdef_topline = None  # Initialize notdef vertical size variables
-        # Check if .notdef name is in glyphset
+        # Determine baseline from .notdef glyph if possible
+        # .notdef usually represents the "unknown character" box and gives good vertical metrics
+        notdef_baseline = notdef_topline = None
         if '.notdef' in glyphSet:
-            pen = MatplotlibPen(glyphSet)  # Create a MatplotlibPen
-            glyphSet['.notdef'].draw(pen)  # Use pen to get information about .notdef glyph
-            # If .notdef is not empty character
+            pen = MatplotlibPen(glyphSet)
+            glyphSet['.notdef'].draw(pen)
             if pen.vertices:
-                _, ys = zip(*pen.vertices)  # Add all points y values to list
-                notdef_baseline = min(ys)  # Determine minimum y value as baseline
-                notdef_topline = max(ys)  # Determine maximum y value as reference point
+                _, ys = zip(*pen.vertices)
+                notdef_baseline = min(ys)
+                notdef_topline = max(ys)
 
-        glyph_names = [name for name in glyph_names if
-                       name != '.notdef']  # Do not add .notdef to font_glyph_names to be rendered
+        # Filter out .notdef from the list shown to user
+        glyph_names = [name for name in glyph_names if name != '.notdef']
 
-        # Fill variables
+        # Update state
         self.current_font = topDict
         self.current_glyph_set = glyphSet
         self.current_font_glyph_names = glyph_names
@@ -490,442 +554,403 @@ class FontWidget(QMainWindow):
         self.notdef_topline = notdef_topline
         self.current_index = 0
 
-    # Generate status icon used for menus in given color
+    # Helper: Creates a colored circle icon for menus
     def create_status_icon(self, color):
-        size = 12  # Size of the icon
-        pix = QPixmap(size, size)  # Creation of pixmap
-        pix.fill(QtCore.Qt.transparent)  # Transparent background
-        p = QtGui.QPainter(pix)  # Using pixmap as a base for painter
-        p.setRenderHint(QtGui.QPainter.Antialiasing)  # Enable antialiasing
-        p.setBrush(QtGui.QBrush(QtGui.QColor(color)))  # Add brush in desired color
-        p.drawEllipse(2, 2, size - 4, size - 4)  # Draw a circle icon
-        p.end()  # End painter
-        return QIcon(pix)  # Return pixmap as icon
+        size = 12
+        pix = QPixmap(size, size)
+        pix.fill(QtCore.Qt.transparent)
+        p = QtGui.QPainter(pix)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setBrush(QtGui.QBrush(QtGui.QColor(color)))
+        p.drawEllipse(2, 2, size - 4, size - 4)
+        p.end()
+        return QIcon(pix)
 
-    # Generate glyphs as icons for menu list
+    # Generates a thumbnail image of a glyph for the list widget
     def generate_glyph_pixmap(self, glyph_name, size=(64, 64)):
-        fig = Figure(figsize=(1.0, 1.0), dpi=200)  # Defining size of figure and creating it
-        ax = fig.add_subplot()  # Create an Axes object used for drawing glyphs
-        ax.axis('off')  # Hide axes
+        # Create a small Matplotlib figure
+        fig = Figure(figsize=(1.0, 1.0), dpi=200)
+        ax = fig.add_subplot()
+        ax.axis('off')
 
-        glyph = self.current_glyph_set[glyph_name]  # Get desired glyph as object
-        pen = MatplotlibPen(self.current_glyph_set)  # Create a MatplotlibPen to record the glyph's outlines
-        glyph.draw(pen)  # Convert data into vertices and codes
+        glyph = self.current_glyph_set[glyph_name]
+        pen = MatplotlibPen(self.current_glyph_set)
+        glyph.draw(pen)
 
-        # If the glyph isn't empty
+        # If glyph has data, draw it
         if pen.vertices:
-            xs, ys = zip(*pen.vertices)  # Separate vertices into x and y coordinate lists
-            min_x, max_x = min(xs), max(xs)  # Get minimum and maximum coordinates on x-axis
-            min_y, max_y = min(ys), max(ys)  # Get minimum and maximum coordinates on y-axis
-            width = max_x - min_x  # Calculate glyph width
-            height = max_y - min_y  # Calculate glyph height
-            scale = min(0.8 / max(width, height, 1), 0.8)  # Calculate scale of object, fall back to 0.8 if greater
+            xs, ys = zip(*pen.vertices)
+            min_x, max_x = min(xs), max(xs)
+            min_y, max_y = min(ys), max(ys)
+            width = max_x - min_x
+            height = max_y - min_y
+            # Scale to fit comfortably in the icon square
+            scale = min(0.8 / max(width, height, 1), 0.8)
 
-            vertices = []  # New list of transformed vertices
+            vertices = []
             for x, y in pen.vertices:
-                x_transformed = (x - min_x - width / 2) * scale  # Center the glyph horizontally and scale
-                y_transformed = (y - min_y - height / 2) * scale  # Center the glyph vertically and scale
-                vertices.append((x_transformed, y_transformed))  # Add transformed point to the new list
-            path = Path(vertices, pen.codes)  # Use new vertices list and codes to define a path object
-            patch = patches.PathPatch(path, facecolor='black', lw=0.5)  # Create a glyph image
-            ax.add_patch(patch)  # Add glyph on the axes
-            ax.set_xlim(-1.0, 1.0)  # Limit horizontal drawing range
-            ax.set_ylim(-1.0, 1.0)  # Limit vertical drawing range
-            ax.set_aspect('equal')  # Keep equal scaling for x and y axes to preserve glyph proportions
+                x_transformed = (x - min_x - width / 2) * scale
+                y_transformed = (y - min_y - height / 2) * scale
+                vertices.append((x_transformed, y_transformed))
 
-        canvas = FigureCanvasAgg(fig)  # Create canvas on figure
-        canvas.draw()  # Render glyph
-        buf = canvas.buffer_rgba()  # Saving image as data
-        arr = asarray(buf)  # Saves buffer data as array
-        img = QImage(arr.data, arr.shape[1], arr.shape[0], QImage.Format_RGBA8888)  # Use array data to create image
-        pix = QPixmap.fromImage(img)  # Create pixmap from image
-        return pix.scaled(*size, QtCore.Qt.KeepAspectRatio,
-                          QtCore.Qt.SmoothTransformation)  # Return scaled down version of pixmap
+            path = Path(vertices, pen.codes)
+            patch = patches.PathPatch(path, facecolor='black', lw=0.5)
+            ax.add_patch(patch)
+            ax.set_xlim(-1.0, 1.0)
+            ax.set_ylim(-1.0, 1.0)
+            ax.set_aspect('equal')
 
-    # Fill glyph list with glyph icons
+        # Convert Figure to QPixmap
+        canvas = FigureCanvasAgg(fig)
+        canvas.draw()
+        buf = canvas.buffer_rgba()
+        arr = asarray(buf)
+        img = QImage(arr.data, arr.shape[1], arr.shape[0], QImage.Format_RGBA8888)
+        pix = QPixmap.fromImage(img)
+        return pix.scaled(*size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+
+    # Fills the QListWidget with glyph thumbnails
     def populate_glyph_list(self):
-        w = self.glyph_list  # Reference to the QListWidget
-        w.clear()  # Clear list
-        # For each name in list, add a glyph icon
+        w = self.glyph_list
+        w.clear()
+
         for name in self.current_font_glyph_names:
-            pix = self.generate_glyph_pixmap(name, size=(self.ICON_SIZE, self.ICON_SIZE))  # Generating glyph icon
-            item = QListWidgetItem(QIcon(pix), "")  # Creating each item with icon and empty label
-            item.setData(QtCore.Qt.UserRole, name)  # Adding glyph name to internal variable
-            item.setSizeHint(QtCore.QSize(0, self.ICON_SIZE + 4))  # Sizing the item
+            pix = self.generate_glyph_pixmap(name, size=(self.ICON_SIZE, self.ICON_SIZE))
+            item = QListWidgetItem(QIcon(pix), "")
+            item.setData(QtCore.Qt.UserRole, name)
+            item.setSizeHint(QtCore.QSize(0, self.ICON_SIZE + 4))
 
-            # If the glyph is mapped
+            # If already mapped in database, show result
             if name in self.user_glyph_to_char:
-                ch = chr(int(self.user_glyph_to_char[name]["unicode_hex"], 16))  # Decode unicode character
-                disp = "[space]" if ch == " " else ch  # Display [space] if the character is empty
-                item.setText(f" → {disp}")  # Set text
-                item.setForeground(QtGui.QColor("#228B22"))  # Set color to green
+                ch = chr(int(self.user_glyph_to_char[name]["unicode_hex"], 16))
+                disp = "[space]" if ch == " " else ch
+                item.setText(f" → {disp}")
+                item.setForeground(QtGui.QColor("#228B22"))
             else:
-                item.setText(f" {name}")  # Add only glyph name
-                item.setForeground(QtGui.QColor("#888888"))  # Set color to gray
+                item.setText(f" {name}")
+                item.setForeground(QtGui.QColor("#888888"))
 
-            w.addItem(item)  # Add item to list
-        w.itemClicked.connect(self.on_glyph_clicked)  # Connect clicking to on_glyph_clicked
+            w.addItem(item)
 
-    # Glyph canvas and label handler
+    # Updates the main canvas area with the selected glyph
     def show_glyph(self):
-        name = self.current_font_glyph_names[self.current_index]  # Current glyph name
-        self.canvas.draw_glyph(self.current_glyph_set, name, self.notdef_topline,
-                               self.notdef_baseline)  # Render desired glyph
+        name = self.current_font_glyph_names[self.current_index]
+        self.canvas.draw_glyph(self.current_glyph_set, name, self.notdef_topline, self.notdef_baseline)
 
-        mapping = self.user_glyph_to_char.get(name, {})  # Get desired mapping
-        uhex = mapping.get("unicode_hex", "None")  # Retrieve hex code
-        agn = mapping.get("AGN", "None")  # Retrieve Adobe Glyph List name
-        ch = chr(int(uhex, 16)) if uhex != "None" else "None"  # Convert hex to character, unless missing
+        # Retrieve mapping info if available
+        mapping = self.user_glyph_to_char.get(name, {})
+        uhex = mapping.get("unicode_hex", "None")
+        agn = mapping.get("AGN", "None")
+        ch = chr(int(uhex, 16)) if uhex != "None" else "None"
 
-        if ch == " ": ch = "[space]"  # Set to [space] if empty
+        if ch == " ": ch = "[space]"
 
-        # Build label text
-        lines = [f"<b>Gcode:</b> {name}", f"<b>Znak:</b> {ch}",
-                 f"<b>Unicode:</b> {uhex}", f"<b>AGL:</b> {agn}"]
-        self.label.setText("<br>".join(lines))  # Set label text
+        # Update Information Label using HTML formatting
+        lines = [
+            f"<b>Glyph Name:</b> {name}",
+            f"<b>Char:</b> {ch}",
+            f"<b>Unicode:</b> {uhex}",
+            f"<b>AGL:</b> {agn}"
+        ]
+        self.label.setText("<br>".join(lines))
 
-        item = self.glyph_list.item(self.current_index)  # Retrieve current item
-        # If it exists
+        # Ensure the item is selected and visible in list
+        item = self.glyph_list.item(self.current_index)
         if item:
-            self.glyph_list.setCurrentItem(item)  # Set current item as selected in list
-            self.glyph_list.scrollToItem(item, QListWidget.EnsureVisible)  # Always visible glyph in list
+            self.glyph_list.setCurrentItem(item)
+            self.glyph_list.scrollToItem(item, QListWidget.EnsureVisible)
 
-    # Build pages menu
+    # Builds the "Pages" menu structure
     def build_pages_menu(self, menu_data):
-        menu = self.pages_menu  # QMenu variable
-        menu.clear()  # Reset menu
-        # Check if there are any data
+        menu = self.pages_menu
+        menu.clear()
         if not menu_data:
-            a = menu.addAction("No CFF font")  # Add action as text
-            a.setEnabled(False)  # Disable action
-            return  # Exit method early
+            menu.addAction("No CFF font").setEnabled(False)
+            return
 
-        # Loop through pages
         for page_num in sorted(menu_data.keys()):
-            font_names = menu_data[page_num]  # Get names of all fonts on page
-            if not font_names:  # Skip if no fonts
-                continue
+            font_names = menu_data[page_num]
+            if not font_names: continue
 
-            page_mapped = page_total = 0  # Initialize counters for page statistics
-            # Calculate page statistics
+            # Calculate completion percentage for the page
+            page_mapped = 0
+            page_total = 0
             for name in font_names:
-                info = self.font_cache.get((page_num, name), {})  # Get font info from cache
-                total = info.get('glyph_count', 0)  # Count all fonts for statistics
-                hash_val = info.get('hash', "unknown")  # Retrieve font hash from cache
-                mapped = len(self.db_cache.get(hash_val, set()))  # Count mapped glyphs
+                info = self.font_cache.get((page_num, name), {})
+                page_total += info.get('glyph_count', 0)
+                page_mapped += info.get('mapped_count', 0)
 
-                # If this font is currently loaded, count mapped glyphs directly from current_glyph_set
-                if (self.current_page == page_num and self.current_font_name == name and hasattr(self,
-                                                                                                 'current_glyph_set') and self.current_glyph_set):
-                    mapped = sum(1 for g in self.current_glyph_set.keys() if g in self.user_glyph_to_char)
+            status, color = self._get_status_text_color(page_mapped, page_total)
+            icon = self.create_status_icon(color)
+            page_menu = menu.addMenu(icon, f"Page {page_num + 1} [{status}]")
 
-                page_mapped += mapped  # Add to page statistics
-                page_total += total  # Add to page statistics
-
-            # Create icon and status based on mapping percentage
-            if page_total == 0:
-                icon = self.create_status_icon("#888888")  # Gray status icon
-                status = "—"  # Set status information
-            else:
-                perc = page_mapped / page_total * 100  # Calculate percentage
-                if perc >= 100:
-                    icon = self.create_status_icon("#228B22")  # Green status icon
-                    status = "100%"  # Set fill percentage
-                elif perc > 0:
-                    icon = self.create_status_icon("#FF8C00")  # Amber status icon
-                    status = f"{int(perc)}%"  # Set fill percentage
-                else:
-                    icon = self.create_status_icon("#888888")  # Gray status icon
-                    status = "—"  # Set status information
-
-            page_menu = menu.addMenu(icon, f"Page {page_num + 1} [{status}]")  # Set pages icon and label
-
-            # Filling page submenus
+            # Add individual fonts to page submenu
             for name in font_names:
-                info = self.font_cache.get((page_num, name), {})  # Get font info from cache
-                total = info.get('glyph_count', 0)  # Count all fonts for statistics
-                hash_val = info.get('hash', "unknown")  # Retrieve font hash from cache
-                mapped = len(self.db_cache.get(hash_val, set()))  # Count mapped glyphs
+                info = self.font_cache.get((page_num, name), {})
+                mapped = info.get('mapped_count', 0)
+                total = info.get('glyph_count', 0)
 
-                # If this font is currently loaded, count mapped glyphs directly from current_glyph_set
-                if self.current_page == page_num and self.current_font_name == name and hasattr(self,
-                                                                                                'current_glyph_set') and self.current_glyph_set:
-                    mapped = sum(1 for g in self.current_glyph_set.keys() if g in self.user_glyph_to_char)
+                status, color = self._get_status_text_color(mapped, total)
+                action = page_menu.addAction(self.create_status_icon(color), f"{name} [{status}]")
+                action.setData((page_num, name))
+                action.triggered.connect(lambda checked, p=page_num, f=name: self.load_font(p, f))
 
-                # Create icon and status based on mapping percentage for fonts
-                if total == 0:
-                    icon = self.create_status_icon("#888888")  # Gray status icon
-                    status = "—"  # Set status information
-                else:
-                    perc = mapped / total * 100  # Calculate percentage
-                    if perc >= 100:
-                        icon = self.create_status_icon("#228B22")  # Green status icon
-                        status = "100%"  # Set fill percentage
-                    elif perc > 0:
-                        icon = self.create_status_icon("#FF8C00")  # Amber status icon
-                        status = f"{int(perc)}%"  # Set fill percentage
-                    else:
-                        icon = self.create_status_icon("#888888")  # Gray status icon
-                        status = "—"  # Set status information
-
-                action = page_menu.addAction(icon, f"{name} [{status}]")  # Set pages icon and label
-                action.setData((page_num, name))  # Store data for loading fonts
-                action.triggered.connect(
-                    lambda checked, p=page_num, f=name: self.load_font(p, f))  # Connect clicking to loading font
-
-    # Build fonts menu
+    # Builds the "Fonts" menu (Grouped by font name)
     def build_fonts_menu(self, menu_data):
-        menu = self.fonts_menu  # QMenu variable
-        menu.clear()  # Reset menu
+        menu = self.fonts_menu
+        menu.clear()
 
-        unique = {}  # Dictionary to store unique valid fonts
-        # Collect unique fonts across all pages
+        unique = {}
+        # Aggregate stats for fonts with same name
         for page_num, names in menu_data.items():
             for name in names:
-                if name in unique:  # Skip if font already added
-                    continue
-                info = self.font_cache.get((page_num, name), {})  # Get font info from cache
-                if info.get('glyph_count', 0) == 0:  # Skip fonts with no glyphs
-                    continue
-                # Store font info for later use
-                unique[name] = {
-                    'page': page_num,
-                    'hash': info.get('hash'),
-                    'glyph_count': info.get('glyph_count')
-                }
+                info = self.font_cache.get((page_num, name), {})
+                total = info.get('glyph_count', 0)
+                if total == 0: continue
 
-        # If no valid fonts found, show disabled message
+                mapped = info.get('mapped_count', 0)
+                if name not in unique:
+                    unique[name] = {'total': total, 'mapped': mapped, 'page': page_num, 'count': 0}
+                unique[name]['count'] += 1
+
         if not unique:
-            a = menu.addAction("No valid CFF fonts")  # Add action as text
-            a.setEnabled(False)  # Disable action
-            return  # Exit method early
+            menu.addAction("No valid CFF fonts").setEnabled(False)
+            return
 
-        # Loop through unique fonts
         for name, data in unique.items():
-            h = data['hash']  # Font hash
-            total = data['glyph_count']  # Total glyphs in font
-            mapped = len(self.db_cache.get(h, set()))  # Count mapped glyphs from DB cache
+            mapped = data['mapped']
+            total = data['total']
+            status, color = self._get_status_text_color(mapped, total)
 
-            # If this font is currently loaded, compute mapped using actual current_glyph_set (includes .notdef)
-            if self.current_font_name == name and hasattr(self, 'current_glyph_set') and self.current_glyph_set:
-                mapped = sum(1 for g in self.current_glyph_set.keys() if g in self.user_glyph_to_char)
+            action = menu.addAction(self.create_status_icon(color), f"{name} [{status}]")
+            action.setData((data['page'], name))
+            action.setToolTip(f"Mapped: {mapped}/{total} glyphs | Occurrences: {data['count']}")
+            action.triggered.connect(lambda checked, p=data['page'], f=name: self.load_font(p, f))
 
-            # Calculate mapping percentage
-            perc = mapped / total * 100 if total else 0
-            # Determine status icon and text based on mapping percentage
-            if perc >= 100:
-                icon = self.create_status_icon("#228B22")  # Green status icon
-                status = "100%"
-            elif perc > 0:
-                icon = self.create_status_icon("#FF8C00")  # Amber status icon
-                status = f"{perc:.0f}%"  # Rounded percentage
-            else:
-                icon = self.create_status_icon("#888888")  # Gray status icon
-                status = "—"
+    # Helper to determine status text and color based on completion percentage
+    def _get_status_text_color(self, mapped, total):
+        if total == 0:
+            return "—", "#888888"
+        perc = (mapped / total) * 100
+        if perc >= 100:
+            return "100%", "#228B22"
+        elif perc > 0:
+            return f"{int(perc)}%", "#FF8C00"
+        else:
+            return "—", "#888888"
 
-            # Count how many times this font occurs across all pages
-            occurrences = sum(1 for ns in menu_data.values() for n in ns if n == name)
-            # Add action to menu
-            action = menu.addAction(icon, f"{name} [{status}]")  # Font name with status
-            action.setData((data['page'], name))  # Store page and font name for loading
-            action.setToolTip(f"Mapped: {mapped}/{total} glyphs | Occurrences: {occurrences}")  # Tooltip info
-            action.triggered.connect(
-                lambda checked, p=data['page'], f=name: self.load_font(p, f))  # Connect action click to load font
-
-    # Opening pdf file
+    # Opens PDF file, scans structure, calculates hashes, and populates menus
     def open_pdf(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select PDF file to repair", "",
-                                                   "PDF Files (*.pdf)")  # Use PySide6 to get file path
-        # Exit if no file selected
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select PDF file to repair", "", "PDF Files (*.pdf)")
         if not file_path:
             return
 
-        self.pdf_path = file_path  # Save to variable
-        self.statusBar().showMessage("Loading PDF and fonts...", 0)  # Show message on status bar
-        QApplication.processEvents()  # Continues to load gui
+        self.pdf_path = file_path
+        self.statusBar().showMessage("Analyzing PDF and calculating statistics...", 0)
+        QApplication.processEvents()
 
         try:
-            menu_data = extract_pdf_data(file_path)  # Get data from pdf
-            self.font_cache.clear()  # Clear cache
-            # Open file using PyMuPDF
+            self.load_db_cache()
+            self.menu_structure = extract_pdf_data(file_path)
+            self.font_cache.clear()
+
             with fitz.open(file_path) as doc:
-                first_page = first_name = None  # Initialize variables
-                # Loop through each page
+                first_page = first_name = None
+
+                # Iterate through all pages
                 for page_num in range(len(doc)):
-                    page = doc.load_page(page_num)  # Get page object
-                    # Loop through each font on page
+                    page = doc.load_page(page_num)
+
+                    # Analyze fonts on each page
                     for font in page.get_fonts(full=True):
                         try:
-                            name, ext, _, buffer = doc.extract_font(
-                                font[0])  # Extract name, font format, and raw binary data of the _font
-                            # Is the font in cff format
+                            name, ext, _, buffer = doc.extract_font(font[0])
+                            # Only process CFF fonts
                             if ext and ext.lower() == "cff":
-                                font_hash = md5(buffer).hexdigest()  # Hash font data
-                                tmp = CFFFontSet()  # Initialize library
-                                tmp.decompile(BytesIO(buffer), None)  # Add data to temporary variable
-                                glyph_count = len(tmp.topDictIndex[0].CharStrings)  # Count number of glyphs
+                                tmp_font = CFFFontSet()
+                                tmp_font.decompile(BytesIO(buffer), None)
+                                glyph_set = tmp_font.topDictIndex[0].CharStrings
+                                total_glyphs = len(glyph_set)
 
-                                # Add information to cache
+                                # Calculate hashes for all glyphs in this font instance
+                                current_font_hashes = []
+                                for gname in glyph_set.keys():
+                                    try:
+                                        glyph = glyph_set[gname]
+                                        pen = SignaturePen(glyph_set)
+                                        glyph.draw(pen)
+                                        sig = pen.get_signature() or "EMPTY_SPACE"
+                                        ghash = md5(sig.encode('utf-8')).hexdigest()
+                                        current_font_hashes.append(ghash)
+                                    except:
+                                        pass
+
+                                # Count how many hashes are already in our DB
+                                mapped_count = sum(1 for h in current_font_hashes if h in self.known_glyph_hashes)
+
+                                # Cache the data
                                 self.font_cache[(page_num, name)] = {
-                                    'hash': font_hash,
-                                    'glyph_count': glyph_count,
+                                    'glyph_count': total_glyphs,
+                                    'mapped_count': mapped_count,
+                                    'glyph_hashes': current_font_hashes,
                                     'data': buffer
                                 }
-                                # Check if first page was changed
+
                                 if first_page is None:
-                                    first_page, first_name = page_num, name  # Set variables to first occurrences
-                                self.export_action.setEnabled(True)  # Enable Save PDF action
-                        except:
-                            # Error fallback
+                                    first_page, first_name = page_num, name
+                                self.export_action.setEnabled(True)
+                        except Exception as e:
+                            print(f"Error parsing font {name}: {e}")
                             self.font_cache[(page_num, name)] = {
-                                'hash': "unknown", 'glyph_count': 0
+                                'glyph_count': 0, 'mapped_count': 0, 'glyph_hashes': []
                             }
 
-            self.load_db_cache()  # Load data from DB cache
-            self.build_pages_menu(menu_data)  # Build pages menu
-            self.build_fonts_menu(menu_data)  # Build fonts menu
+            # Build menus with the gathered data
+            self.build_pages_menu(self.menu_structure)
+            self.build_fonts_menu(self.menu_structure)
 
-            # Check if first page is set
             if first_page is not None:
-                self.load_font(first_page, first_name)  # Load first font saved on first page
+                self.load_font(first_page, first_name)
             else:
-                self.clear_ui_state()  # Clear UI
-                self.statusBar().showMessage("No CFF fonts in PDF", 3000)  # Set status bar message
+                self.clear_ui_state()
+                self.statusBar().showMessage("No CFF fonts found", 3000)
 
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error while loading PDF:\n{e}")  # Error box
-            self.clear_ui_state()  # Clear UI
+            QMessageBox.critical(self, "Error", f"Error while loading PDF:\n{e}")
+            self.clear_ui_state()
 
-    # Method which will save data to new PDF document
+    # Placeholder for future save functionality
     def save_pdf(self):
-        QtWidgets.QMessageBox.information(self, "Save PDF", "TBD")
+        QMessageBox.information(self, "Save PDF", "Feature coming soon (TBD)")
         return
 
-    # Load data from DB to cache
+    # Refreshes menu statistics after a DB update
+    def update_statistics(self):
+        self.load_db_cache()
+        for key, info in self.font_cache.items():
+            hashes = info.get('glyph_hashes', [])
+            if not hashes: continue
+            new_mapped_count = sum(1 for h in hashes if h in self.known_glyph_hashes)
+            info['mapped_count'] = new_mapped_count
+
+        if hasattr(self, 'menu_structure'):
+            self.build_pages_menu(self.menu_structure)
+            self.build_fonts_menu(self.menu_structure)
+
+    # Loads known hashes from CSV into a Set for fast lookup
     def load_db_cache(self):
-        self.db_cache.clear()  # Clear cache
-        path = "glyph_mappings.csv"  # Path to csv DB
-        # Check if DB exists, end early if not
+        self.known_glyph_hashes = set()
+        path = self.CSV_PATH
         if not os.path.exists(path):
             return
+
         try:
-            # Open DB
             with open(path, 'r', encoding='utf-8', newline='') as f:
-                # Loop through data
-                for row in csv.DictReader(f, delimiter='|', quotechar='"'):
-                    h = row["font_hash"]  # Set hash to variable
-                    g = row["Gcode"]  # Set glyph name to variable
-                    self.db_cache.setdefault(h, set()).add(g)  # Add hash and glyph name to db_cache
+                reader = csv.DictReader(f, delimiter='|', quotechar='"')
+                if "glyph_hash" in reader.fieldnames:
+                    for row in reader:
+                        self.known_glyph_hashes.add(row["glyph_hash"])
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error while loading DB cache:\n{e}")  # Error box
+            print(f"DB Cache Error: {e}")
 
-    # Save gathered data to DB
+    # Saves current session work to the CSV file
     def save_to_db(self):
-        path = self.CSV_PATH  # Path to DB
-        fieldnames = ["font_hash", "font_name", "Gcode", "unicode_hex", "AGN"]  # Predefined DB column names
+        path = self.CSV_PATH
+        fieldnames = ["glyph_hash", "font_name", "Gcode", "unicode_hex", "AGN"]
 
-        existing = {}  # Initialize dictionary
-        # Check, if DB exists
+        existing_data = {}
+        # Read existing data first to preserve it
         if os.path.exists(path):
             try:
-                # Open DB
                 with open(path, 'r', encoding='utf-8', newline='') as f:
-                    # Loop through data
-                    for row in csv.DictReader(f, delimiter='|', quotechar='"'):
-                        key = (row["font_hash"], row["Gcode"])  # Get tuple of hash and glyph name
-                        existing[key] = row  # Add whole row with tuple as a key
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Error while loading DB:\n{e}")  # Error box
+                    reader = csv.DictReader(f, delimiter='|', quotechar='"')
+                    if "glyph_hash" in reader.fieldnames:
+                        for row in reader:
+                            existing_data[row["glyph_hash"]] = row
+            except Exception:
+                pass
 
-        font_hash = self.get_font_hash()  # Get hash of font
-        font_name = self.current_font_name or "unknown"  # Get name of font
+        count_new = 0
+        current_font_name = self.current_font_name or "unknown"
 
-        # Check, if notdef is in glyphset
-        if hasattr(self, 'current_glyph_set') and self.current_glyph_set and '.notdef' in self.current_glyph_set:
-            # Check if notdef is in mapping
-            if '.notdef' not in self.user_glyph_to_char:
-                # Add information to mapping
+        # Update existing data with new mappings
+        for gname, data in self.user_glyph_to_char.items():
+            g_hash = data.get("glyph_hash") or self.get_glyph_hash(gname)
+
+            if g_hash:
+                existing_data[g_hash] = {
+                    "glyph_hash": g_hash,
+                    "font_name": current_font_name,
+                    "Gcode": gname,
+                    "unicode_hex": data["unicode_hex"],
+                    "AGN": data["AGN"]
+                }
+                count_new += 1
+
+        try:
+            # Write back to file
+            with open(path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='|', quotechar='"',
+                                        quoting=csv.QUOTE_MINIMAL)
+                writer.writeheader()
+                for row in existing_data.values():
+                    writer.writerow(row)
+
+            # Refresh application state
+            self.db_cache.clear()
+            self.load_db_cache()
+            self.update_statistics()
+            self.statusBar().showMessage(f"Saved. Total DB size: {len(existing_data)}", 3000)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
+
+    # Checks the database for any glyphs in the current font that we already know
+    def load_mappings_for_current_font(self):
+        self.user_glyph_to_char = {}
+        db_map = {}
+
+        # Load DB into memory
+        if os.path.exists(self.CSV_PATH):
+            try:
+                with open(self.CSV_PATH, 'r', encoding='utf-8', newline='') as f:
+                    reader = csv.DictReader(f, delimiter='|', quotechar='"')
+                    if "glyph_hash" in reader.fieldnames:
+                        for row in reader:
+                            db_map[row["glyph_hash"]] = row
+            except Exception:
+                pass
+
+        # Check each glyph in current font against DB
+        for name in self.current_font_glyph_names:
+            g_hash = self.get_glyph_hash(name)
+            if g_hash and g_hash in db_map:
+                row = db_map[g_hash]
+                self.user_glyph_to_char[name] = {
+                    "glyph_hash": g_hash,
+                    "unicode_hex": row["unicode_hex"],
+                    "AGN": row["AGN"]
+                }
+
+        # Special handling for .notdef (default missing character)
+        if '.notdef' in self.current_glyph_set:
+            nhash = self.get_glyph_hash('.notdef')
+            if nhash in db_map:
+                row = db_map[nhash]
                 self.user_glyph_to_char['.notdef'] = {
-                    "font_hash": font_hash,
-                    "font_name": font_name,
+                    "glyph_hash": nhash,
+                    "unicode_hex": row["unicode_hex"],
+                    "AGN": row["AGN"]
+                }
+            elif '.notdef' not in self.user_glyph_to_char:
+                self.user_glyph_to_char['.notdef'] = {
+                    "glyph_hash": nhash,
                     "unicode_hex": "FFFD",
                     "AGN": "notdef"
                 }
 
-        # Loop through mapping
-        for gname, data in self.user_glyph_to_char.items():
-            key = (font_hash, gname)  # Get a key
-            # Add items to existing dictionary
-            existing[key] = {
-                "font_hash": font_hash,
-                "font_name": font_name,
-                "Gcode": gname,
-                "unicode_hex": data["unicode_hex"],
-                "AGN": data["AGN"]
-            }
-
-        try:
-            # Open DB
-            with open(path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='|', quotechar='"',
-                                        quoting=csv.QUOTE_MINIMAL)  # Set up csv writer
-                writer.writeheader()  # Add header to csv
-                # Write all data in existing dictionary to file
-                for row in existing.values():
-                    writer.writerow(row)
-
-            # refresh in-memory db cache and menus
-            self.db_cache.clear()
-            self.load_db_cache()
-
-            data = extract_pdf_data(self.pdf_path)  # Get data from pdf
-            self.build_pages_menu(data)  # Rebuild pages menu
-            self.build_fonts_menu(data)  # Rebuild fonts menu
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
-
-    # Load mappings from DB for current font
-    def load_mappings_for_current_font(self):
-        font_hash = self.get_font_hash()  # Get hash of current font
-        # End if there are no data
-        if font_hash == "unknown":
-            return
-
-        self.user_glyph_to_char = {}  # Initialize mapping dictionary
-
-        csv_path = self.CSV_PATH  # Path to DB
-        # Check if there is DB
-        if os.path.exists(csv_path):
-            try:
-                # Open DB
-                with open(csv_path, 'r', encoding='utf-8', newline='') as f:
-                    # Loop through rows
-                    for row in csv.DictReader(f, delimiter='|', quotechar='"'):
-                        # Check if hash and glyph name are in glyphset
-                        if row["font_hash"] == font_hash and row["Gcode"] in self.current_glyph_set:
-                            # Add data to user_glyph_to_char mapping
-                            self.user_glyph_to_char[row["Gcode"]] = {
-                                "font_hash": font_hash,
-                                "font_name": row["font_name"],
-                                "unicode_hex": row["unicode_hex"],
-                                "AGN": row["AGN"]
-                            }
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Error while loading DB:\n{e}")
-
-        # Add notdef to user_glyph_to_char if not there already
-        if '.notdef' in self.current_glyph_set and '.notdef' not in self.user_glyph_to_char:
-            self.user_glyph_to_char['.notdef'] = {
-                "font_hash": font_hash,
-                "font_name": self.current_font_name,
-                "unicode_hex": "FFFD",
-                "AGN": "notdef"
-            }
-
-
-# Main application starter
 if __name__ == "__main__":
-    app = QApplication()  # QApplication initialization
-    window = FontWidget()  # FontWidget initialization
-    window.show()  # Rendering main window
-    sys.exit(app.exec())  # Close app on exit
+    app = QApplication()
+    window = FontWidget()
+    window.show()
+    sys.exit(app.exec())
