@@ -172,7 +172,7 @@ class GlyphCanvas(FigureCanvas):
             return
 
         # Separate X and Y coordinates to calculate bounding box
-        xs, ys = zip(*pen.vertices)
+        xs, _ = zip(*pen.vertices)
         min_x, max_x = min(xs), max(xs)
         width = max_x - min_x
 
@@ -184,7 +184,7 @@ class GlyphCanvas(FigureCanvas):
 
         # Scale factor calculation: fit glyph within 80% of canvas height
         scale = 0.8 / font_height
-        bottom_margin = 0.05 * font_height * scale
+        bottom_margin = 0.05 * scale
 
         # Draw baseline reference lines
         # Uses .notdef dimensions if available (passed as arguments)
@@ -213,7 +213,6 @@ class GlyphCanvas(FigureCanvas):
 
         # Set fixed limits to ensure consistent view across different glyphs
         ax.set_xlim(-0.5, 0.5)
-        ax.set_ylim(0, font_height * scale * 1.1)
         ax.set_aspect('equal')  # Ensure aspect ratio is preserved (no stretching)
         self.draw()  # Trigger render
 
@@ -247,7 +246,7 @@ class FontWidget(QMainWindow):
 
         # Window configuration
         self.setMinimumSize(1000, 700)
-        self.setWindowTitle("Glyph Repair Tool")
+        self.setWindowTitle("GlyphRepair")
         self.statusBar().showMessage("Select PDF to repair")
 
     # Creates the top menu bar (File, Pages, Fonts)
@@ -498,8 +497,7 @@ class FontWidget(QMainWindow):
         # Check cache first to avoid slow PDF extraction
         cache = self.font_cache.get((page, font_name))
         if not cache:
-            QMessageBox.critical(self, "Error", "Font could not be loaded from cache.")
-            return
+            self.statusBar().showMessage(f"Cache empty", 5000)
 
         try:
             # Get binary data from cache or extract if missing
@@ -567,7 +565,7 @@ class FontWidget(QMainWindow):
         return QIcon(pix)
 
     # Generates a thumbnail image of a glyph for the list widget
-    def generate_glyph_pixmap(self, glyph_name, size=(64, 64)):
+    def generate_icon(self, glyph_name, size=(64, 64)):
         # Create a small Matplotlib figure
         fig = Figure(figsize=(1.0, 1.0), dpi=200)
         ax = fig.add_subplot()
@@ -615,7 +613,7 @@ class FontWidget(QMainWindow):
         w.clear()
 
         for name in self.current_font_glyph_names:
-            pix = self.generate_glyph_pixmap(name, size=(self.ICON_SIZE, self.ICON_SIZE))
+            pix = self.generate_icon(name, size=(self.ICON_SIZE, self.ICON_SIZE))
             item = QListWidgetItem(QIcon(pix), "")
             item.setData(QtCore.Qt.UserRole, name)
             item.setSizeHint(QtCore.QSize(0, self.ICON_SIZE + 4))
@@ -841,22 +839,22 @@ class FontWidget(QMainWindow):
     def load_db_cache(self):
         self.known_glyph_hashes = set()
         path = self.CSV_PATH
-        if not os.path.exists(path):
-            return
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8', newline='') as f:
+                    reader = csv.DictReader(f, delimiter='|', quotechar='"')
+                    if "glyph_hash" in reader.fieldnames:
+                        for row in reader:
+                            self.known_glyph_hashes.add(row["glyph_hash"])
+            except Exception as e:
+                print(f"DB Cache Error: {e}")
 
-        try:
-            with open(path, 'r', encoding='utf-8', newline='') as f:
-                reader = csv.DictReader(f, delimiter='|', quotechar='"')
-                if "glyph_hash" in reader.fieldnames:
-                    for row in reader:
-                        self.known_glyph_hashes.add(row["glyph_hash"])
-        except Exception as e:
-            print(f"DB Cache Error: {e}")
+
 
     # Saves current session work to the CSV file
     def save_to_db(self):
         path = self.CSV_PATH
-        fieldnames = ["glyph_hash", "font_name", "Gcode", "unicode_hex", "AGN"]
+        fieldnames = ["glyph_hash", "font_name", "GlyphName", "unicode_hex", "AGN"]
 
         existing_data = {}
         # Read existing data first to preserve it
@@ -881,7 +879,7 @@ class FontWidget(QMainWindow):
                 existing_data[g_hash] = {
                     "glyph_hash": g_hash,
                     "font_name": current_font_name,
-                    "Gcode": gname,
+                    "GlyphName": gname,
                     "unicode_hex": data["unicode_hex"],
                     "AGN": data["AGN"]
                 }
