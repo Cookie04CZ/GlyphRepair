@@ -693,7 +693,7 @@ class FontWidget(QMainWindow):
                 action.setData((page_num, name))
                 action.triggered.connect(lambda checked, p=page_num, f=name: self.load_font(p, f))
 
-    # Builds the "Fonts" menu (Grouped by font name)
+    # Builds the "Fonts" menu
     def build_fonts_menu(self, menu_data):
         menu = self.fonts_menu
         menu.clear()
