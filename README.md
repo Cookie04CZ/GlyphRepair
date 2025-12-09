@@ -1,5 +1,15 @@
 **This script was originally created to repair encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#before-you-start).**
 
+
+# GlyphRepair
+Used libraries:
+- NumPy https://numpy.org/
+- PyMuPDF https://pymupdf.readthedocs.io/en/latest/#
+- PySide6 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
+- Matplotlib https://matplotlib.org/
+- fontTools https://fonttools.readthedocs.io/en/latest/
+
+
 # Keywords
 
 PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnicode table, Python, Windows executable
