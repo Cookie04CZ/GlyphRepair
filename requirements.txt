@@ -1,0 +1,5 @@
+PyMuPDF
+PySide6
+matplotlib
+fonttools
+numpy
