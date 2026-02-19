@@ -146,7 +146,6 @@ class GlyphCanvas(FigureCanvas):
         self.ax = self.fig.add_subplot()
 
     # Main method to draw a specific glyph onto the canvas
-    # Requires the glyphset, glyph name, and vertical metrics for alignment
     def draw_glyph(self, glyphset, glyph_name, notdef_max_y, notdef_min_y):
         ax = self.ax
         ax.clear()  # Clear previous drawing
@@ -159,19 +158,16 @@ class GlyphCanvas(FigureCanvas):
             self.draw()
             return
 
-        # Retrieve the glyph object and draw it into our custom MatplotlibPen
         glyph = glyphset[glyph_name]
         pen = MatplotlibPen(glyphset)
         glyph.draw(pen)
 
-        # Handle empty glyphs (like space character)
         if not pen.vertices:
             ax.text(0.5, 0.5, "Empty glyph\n(likely space)", ha='center', va='center',
                     fontsize=30, color='dimgray', weight='bold', style='italic')
             self.draw()
             return
 
-        # Separate X and Y coordinates to calculate bounding box
         xs, _ = zip(*pen.vertices)
         min_x, max_x = min(xs), max(xs)
         width = max_x - min_x
@@ -182,12 +178,9 @@ class GlyphCanvas(FigureCanvas):
         descent = getattr(self.font, 'FontBBox', [0, -200, 0, 0])[1]
         font_height = ascent - descent
 
-        # Scale factor calculation: fit glyph within 80% of canvas height
         scale = 0.8 / font_height
         bottom_margin = 0.05 * scale
 
-        # Draw baseline reference lines
-        # Uses .notdef dimensions if available (passed as arguments)
         if notdef_min_y is not None and notdef_max_y is not None:
             min_y = (notdef_min_y - descent) * scale + bottom_margin
             max_y = (notdef_max_y - descent) * scale + bottom_margin
@@ -197,21 +190,16 @@ class GlyphCanvas(FigureCanvas):
             # Fallback red line if .notdef metrics are missing
             ax.axhline(y=bottom_margin, color='red', linestyle=':', linewidth=1.5)
 
-        # Apply transformation to every vertex (Scaling and Centering)
         vertices = []
         for x, y in pen.vertices:
-            # Center horizontally: (x - min_x - width/2)
             x_transformed = (x - min_x - width / 2) * scale
-            # Position vertically relative to descent and margin
             y_transformed = (y - descent) * scale + bottom_margin
             vertices.append((x_transformed, y_transformed))
 
-        # Create the PathPatch and add it to the plot
         path = Path(vertices, pen.codes)
         patch = patches.PathPatch(path, facecolor='black', lw=1)
         ax.add_patch(patch)
 
-        # Set fixed limits to ensure consistent view across different glyphs
         ax.set_xlim(-0.5, 0.5)
         ax.set_aspect('equal')  # Ensure aspect ratio is preserved (no stretching)
         self.draw()  # Trigger render
@@ -246,8 +234,45 @@ class FontWidget(QMainWindow):
 
         # Window configuration
         self.setMinimumSize(1000, 700)
-        self.setWindowTitle("GlyphRepair")
+        self._update_window_title()
         self.statusBar().showMessage("Select PDF to repair")
+
+    def closeEvent(self, event):
+        if not self.unsaved_changes:
+            event.accept()
+            return
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Unsaved changes")
+        box.setText("You have unsaved glyph mappings.")
+        box.setInformativeText("Do you want to save before closing?")
+        save_btn = box.addButton("Save", QMessageBox.AcceptRole)
+        discard_btn = box.addButton("Discard", QMessageBox.DestructiveRole)
+        cancel_btn = box.addButton("Cancel", QMessageBox.RejectRole)
+        box.setDefaultButton(save_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+
+        if clicked == discard_btn:
+            event.accept()
+            return
+
+        if clicked == save_btn:
+            self.save_to_db()
+            event.accept()
+            return
+
+        # Cancel OR user closed the dialog with the "X"
+        event.ignore()
+
+    def _update_window_title(self):
+        app_name = "GlyphRepair"
+
+        pdf_name = os.path.basename(self.pdf_path) if self.pdf_path else "select file to repair"
+
+        self.setWindowTitle(app_name + " - " + pdf_name)
 
     # Creates the top menu bar (File, Pages, Fonts)
     def _setup_menus(self):
@@ -293,7 +318,7 @@ class FontWidget(QMainWindow):
         self.user_input = QLineEdit()  # Input for character char
         self.btn_special = QPushButton("Special Chars")  # Link to unicode table
         self.btn_glyph = QPushButton("Save Glyph")
-        self.btn_font = QPushButton("Update Font")
+        self.btn_font = QPushButton("Save mappings")
         self.btn_prev_font = QToolButton()
         self.btn_next_font = QToolButton()
         self.lbl_font = QLabel("No font loaded")
@@ -376,6 +401,8 @@ class FontWidget(QMainWindow):
         self.btn_glyph.setEnabled(False)
         self.btn_font.setEnabled(False)
         self.lbl_font.setText("No font loaded")
+        self.unsaved_changes = False
+        self._update_window_title()
 
     # Font Navigation Logic
     def go_to_prev_font(self):
@@ -445,6 +472,8 @@ class FontWidget(QMainWindow):
             "AGN": agn
         }
 
+        self.unsaved_changes = True
+
         # Update UI List Item
         item = self.glyph_list.item(self.current_index)
         display = "[space]" if char == " " else char
@@ -493,6 +522,7 @@ class FontWidget(QMainWindow):
         self.current_page = page
         self.current_font_name = font_name
         self.lbl_font.setText(font_name)
+        self._update_window_title()
 
         # Check cache first to avoid slow PDF extraction
         cache = self.font_cache.get((page, font_name))
@@ -644,13 +674,27 @@ class FontWidget(QMainWindow):
         if ch == " ": ch = "[space]"
 
         # Update Information Label using HTML formatting
-        lines = [
-            f"<b>Glyph Name:</b> {name}",
-            f"<b>Char:</b> {ch}",
-            f"<b>Unicode:</b> {uhex}",
-            f"<b>AGL:</b> {agn}"
-        ]
-        self.label.setText("<br>".join(lines))
+        html = f"""
+                <table width="100%" cellspacing="8">
+                    <tr>
+                        <td width="50%" align="right"><b>Glyph Name:</b></td>
+                        <td width="50%">{name}</td>
+                    </tr>
+                    <tr>
+                        <td width="50%" align="right"><b>Character:</b></td>
+                        <td width="50%">{ch}</td>
+                    </tr>
+                    <tr>
+                        <td width="50%" align="right"><b>Unicode:</b></td>
+                        <td width="50%">{uhex}</td>
+                    </tr>
+                    <tr>
+                        <td width="50%" align="right"><b>Adobe Glyph List:</b></td>
+                        <td width="50%">{agn}</td>
+                    </tr>
+                </table>
+                """
+        self.label.setText(html)
 
         # Ensure the item is selected and visible in list
         item = self.glyph_list.item(self.current_index)
@@ -744,6 +788,7 @@ class FontWidget(QMainWindow):
             return
 
         self.pdf_path = file_path
+        self._update_window_title()
         self.statusBar().showMessage("Analyzing PDF and calculating statistics...", 0)
         QApplication.processEvents()
 
@@ -900,6 +945,8 @@ class FontWidget(QMainWindow):
             self.update_statistics()
             self.statusBar().showMessage(f"Saved. Total DB size: {len(existing_data)}", 3000)
 
+            self.unsaved_changes = False
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
 
@@ -949,6 +996,35 @@ class FontWidget(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication()
+
+    # 1. Vynutíme styl "Fusion", který ignoruje systémové barvy Windows
+    app.setStyle("Fusion")
+
+    # 2. Nadefinujeme vlastní tmavou paletu
+    dark_palette = QtGui.QPalette()
+    dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#1e1e1e"))
+    dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#121212"))
+    dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor("#1a1a1a"))
+    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#121212"))
+    dark_palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#2a2a2a"))
+    dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
+    dark_palette.setColor(QtGui.QPalette.Link, QtGui.QColor("#3d7eff"))
+    dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
+    dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
+
+    # Aplikujeme paletu na celou aplikaci
+    app.setPalette(dark_palette)
+
+    # 3. Pojistka pro tooltipy a menu, aby byly čitelné
+    app.setStyleSheet("""
+        QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
+        QMenuBar::item:selected { background: #3d7eff; }
+    """)
+
     window = FontWidget()
     window.show()
     sys.exit(app.exec())
