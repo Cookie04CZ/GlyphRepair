@@ -210,6 +210,22 @@ class FontWidget(QMainWindow):
     ICON_SIZE = 64
     CSV_PATH = "glyph_mappings.csv"  # Database file path
 
+    KNOWN_LIGATURES = {
+        "IJ": "0132",
+        "ij": "0133",
+        "OE": "0152",
+        "oe": "0153",
+        "ff": "fb00",
+        "fi": "fb01",
+        "fl": "fb02",
+        "ffi": "fb03",
+        "ffl": "fb04",
+        "ft": "fb05",
+        "st": "fb06",
+        "AE": "00c6",
+        "ae": "00e6",
+    }
+
     def __init__(self):
         super().__init__()
         # Initialize internal state variables
@@ -338,7 +354,7 @@ class FontWidget(QMainWindow):
 
         # Configure Input Field
         self.user_input.setPlaceholderText("Enter char")
-        self.user_input.setMaxLength(1)
+        self.user_input.setMaxLength(3)
         self.user_input.returnPressed.connect(self.save_glyph)
 
         # Connect Button Signals
@@ -457,14 +473,33 @@ class FontWidget(QMainWindow):
 
     # Core Logic: Saves the mapping for a single glyph
     def save_glyph(self):
-        char = self.user_input.text().strip() or " "
+        text_input = self.user_input.text().strip()
         glyph_name = self.current_font_glyph_names[self.current_index]
 
-        # Convert character to Hex Unicode (4 digits)
-        unicode_hex = format(ord(char), '04x')
-        # Get Adobe Glyph List name (standard name for the char)
-        agn = UV2AGL.get(ord(char), "")
-        # Calculate visual hash of the glyph
+        unicode_hex = ""
+        agn = ""
+
+        if not text_input:
+            text_input = " "
+            unicode_hex = "0020"
+            agn = "space"
+
+        elif len(text_input) == 1:
+            unicode_hex = format(ord(text_input), '04x')
+            agn = UV2AGL.get(ord(text_input), "")
+
+        else:
+            if text_input in self.KNOWN_LIGATURES:
+                unicode_hex = self.KNOWN_LIGATURES[text_input]
+                agn = UV2AGL.get(int(unicode_hex, 16), text_input)
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Unknown Ligature",
+                    f"Combination '{text_input}' is not a known ligature.\n\n"
+                )
+                return
+
         g_hash = self.get_glyph_hash(glyph_name)
 
         # Store in local dictionary
@@ -478,7 +513,7 @@ class FontWidget(QMainWindow):
 
         # Update UI List Item
         item = self.glyph_list.item(self.current_index)
-        display = "[space]" if char == " " else char
+        display = "[space]" if text_input == " " else text_input
         item.setText(f" → {display}")
         item.setForeground(QtGui.QColor("#228B22"))  # Set to green
 
