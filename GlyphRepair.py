@@ -426,14 +426,16 @@ class FontWidget(QMainWindow):
             return
 
         # Find index of current font
-        cur_page = self.current_page
         cur_name = self.current_font_name
 
         idx = 0
-        for i, font in enumerate(fontList):
-            if font.data() == (cur_page, cur_name):
-                idx = i
-                break
+        if cur_name:
+            for i, font_action in enumerate(fontList):
+                # Data is stored as tuple (page, name)
+                _, name = font_action.data()
+                if name == cur_name:
+                    idx = i
+                    break
 
         # Calculate next index (modulo for wrapping around)
         next_idx = (idx + step) % len(fontList)
