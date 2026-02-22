@@ -789,8 +789,15 @@ class FontWidget(QMainWindow):
 
                 mapped = info.get('mapped_count', 0)
                 if name not in unique:
-                    unique[name] = {'total': total, 'mapped': mapped, 'page': page_num, 'count': 0}
+                    unique[name] = {
+                        'total': total,
+                        'mapped': mapped,
+                        'page': page_num,  # keep first page as default target for click
+                        'pages': set(),  # all occurrences
+                        'count': 0
+                    }
                 unique[name]['count'] += 1
+                unique[name]['pages'].add(page_num)
 
         if not unique:
             menu.addAction("No valid CFF fonts").setEnabled(False)
@@ -801,9 +808,18 @@ class FontWidget(QMainWindow):
             total = data['total']
             status, color = self._get_status_text_color(mapped, total)
 
-            action = menu.addAction(self.create_status_icon(color), f"{name} [{status}]")
+            pages_sorted = sorted(data.get('pages', []))
+            pages_text = ", ".join(str(p + 1) for p in pages_sorted)
+            pages_suffix = f"(Pages {pages_text})" if pages_text else "(Pages —)"
+
+            action = menu.addAction(
+                self.create_status_icon(color),
+                f"{name} {pages_suffix} [{status}]"
+            )
             action.setData((data['page'], name))
-            action.setToolTip(f"Mapped: {mapped}/{total} glyphs | Occurrences: {data['count']}")
+            action.setToolTip(
+                f"Mapped: {mapped}/{total} glyphs | Occurrences: {data['count']} | Pages: {pages_text}"
+            )
             action.triggered.connect(lambda checked, p=data['page'], f=name: self.load_font(p, f))
 
     # Helper to determine status text and color based on completion percentage
