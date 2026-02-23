@@ -249,7 +249,7 @@ class FontWidget(QMainWindow):
         self.clear_ui_state()
 
         # Window configuration
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(1200, 800)
         self._update_window_title()
         self.statusBar().showMessage("Select PDF to repair")
 
@@ -324,6 +324,8 @@ class FontWidget(QMainWindow):
 
         self.action_page_mode = settings_menu.addAction("Page Mode Navigation")
         self.action_page_mode.setCheckable(True)
+        # Instantly update UI when toggled
+        self.action_page_mode.toggled.connect(self.update_navigation_labels)
 
         self.action_auto_jump_glyph = settings_menu.addAction("Auto-jump to Next Glyph")
         self.action_auto_jump_glyph.setCheckable(True)
@@ -378,6 +380,13 @@ class FontWidget(QMainWindow):
         self.btn_next_font = QToolButton()
         self.lbl_font = QLabel("No font loaded")
 
+        # NEW: Page navigation and stats widgets
+        self.btn_prev_page = QToolButton()  # Prev page
+        self.btn_next_page = QToolButton()  # Next page
+        self.lbl_page = QLabel("Page: -")  # Page info text
+        self.lbl_font_stats = QLabel("Font - z -")  # Font stats text
+        self.nav_page_widget = QWidget()  # Container for page nav
+
         # Configure Glyph List Appearance
         self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.glyph_list.setSpacing(0)
@@ -404,6 +413,10 @@ class FontWidget(QMainWindow):
         self.btn_next_font.clicked.connect(self.go_to_next_font)
         self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
 
+        # NEW: Connect page buttons
+        self.btn_prev_page.clicked.connect(self.go_to_prev_page)
+        self.btn_next_page.clicked.connect(self.go_to_next_page)
+
         # Configure Navigation Buttons
         self.btn_prev_font.setArrowType(QtCore.Qt.LeftArrow)
         self.btn_next_font.setArrowType(QtCore.Qt.RightArrow)
@@ -411,6 +424,10 @@ class FontWidget(QMainWindow):
         self.btn_next_font.setFixedSize(40, 40)
         self.btn_prev_font.setToolTip("Previous font")
         self.btn_next_font.setToolTip("Next font")
+
+        # NEW: Configure Page Navigation Buttons
+        self.btn_prev_page.setArrowType(QtCore.Qt.LeftArrow)
+        self.btn_next_page.setArrowType(QtCore.Qt.RightArrow)
 
         # Configure Font Name Label
         lbl_font_style = self.lbl_font.font()
@@ -420,11 +437,37 @@ class FontWidget(QMainWindow):
         self.lbl_font.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_font.setMinimumWidth(180)
 
+        # NEW: Configure Page Info Label
+        lbl_page_style = self.lbl_page.font()
+        lbl_page_style.setPointSize(12)
+        lbl_page_style.setBold(True)
+        self.lbl_page.setFont(lbl_page_style)
+        self.lbl_page.setAlignment(QtCore.Qt.AlignCenter)
+
+        # NEW: Configure Font Stats Label
+        self.lbl_font_stats.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_font_stats.setStyleSheet("color: #aaaaaa; font-size: 12px;")
+
         # Layout Construction
+
+        # NEW: Page Navigation Row
+        nav_page_layout = QHBoxLayout(self.nav_page_widget)
+        nav_page_layout.setContentsMargins(0, 0, 0, 0)
+        nav_page_layout.addWidget(self.btn_prev_page)
+        nav_page_layout.addWidget(self.lbl_page)
+        nav_page_layout.addWidget(self.btn_next_page)
+        self.nav_page_widget.setVisible(False)  # Hidden by default
+
+        # NEW: Font labels layout (vertical)
+        labels_layout = QVBoxLayout()
+        labels_layout.addWidget(self.lbl_font)
+        labels_layout.addWidget(self.lbl_font_stats)
+        labels_layout.setSpacing(2)
+
         # Navigation Row
         nav = QHBoxLayout()
         nav.addWidget(self.btn_prev_font)
-        nav.addWidget(self.lbl_font)
+        nav.addLayout(labels_layout)  # NEW: using vertical layout instead of just lbl_font
         nav.addWidget(self.btn_next_font)
         nav.setSpacing(6)
 
@@ -438,6 +481,7 @@ class FontWidget(QMainWindow):
 
         # Right Column (Canvas + Controls)
         right = QVBoxLayout()
+        right.addWidget(self.nav_page_widget)
         right.addLayout(nav)
         right.addWidget(self.canvas)
         right.addWidget(self.label)
@@ -457,7 +501,11 @@ class FontWidget(QMainWindow):
         self.user_input.setEnabled(False)
         self.btn_glyph.setEnabled(False)
         self.btn_font.setEnabled(False)
+        # Reset navigation labels
         self.lbl_font.setText("No font loaded")
+        self.lbl_page.setText("Page: -")
+        self.lbl_font_stats.setText("Font - z -")
+        self.nav_page_widget.setVisible(False)
         self.unsaved_changes = False
         self._update_window_title()
 
@@ -470,34 +518,104 @@ class FontWidget(QMainWindow):
 
     # Finds current font index in the menu list and jumps to prev/next
     def _navigate_font(self, step):
-        if not self.pdf_path:
+        if not self.pdf_path or not hasattr(self, 'menu_structure'):
             return
 
-        # Gather available font actions from the menu
-        fontList = []
-        for font in self.fonts_menu.actions():
-            if font.isEnabled():
-                fontList.append(font)
+        if self.action_page_mode.isChecked():
+            # PAGE MODE: Točíme se jen mezi fonty na aktuální stránce
+            fonts_on_page = self.menu_structure.get(self.current_page, [])
+            if not fonts_on_page: return
 
-        if not fontList:
-            return
+            try:
+                idx = fonts_on_page.index(self.current_font_name)
+            except ValueError:
+                idx = 0
 
-        # Find index of current font
-        cur_name = self.current_font_name
+            next_idx = (idx + step) % len(fonts_on_page)
+            self.load_font(self.current_page, fonts_on_page[next_idx])
 
-        idx = 0
-        if cur_name:
-            for i, font_action in enumerate(fontList):
-                # Data is stored as tuple (page, name)
-                _, name = font_action.data()
-                if name == cur_name:
+        else:
+            # STANDARD MODE: Točíme se mezi všemi unikátními fonty
+            seq = self._get_standard_mode_sequence()
+            if not seq: return
+
+            idx = 0
+            for i, (p, f) in enumerate(seq):
+                if f == self.current_font_name:
                     idx = i
                     break
 
-        # Calculate next index (modulo for wrapping around)
-        next_idx = (idx + step) % len(fontList)
-        page, name = fontList[next_idx].data()
-        self.load_font(page, name)
+            next_idx = (idx + step) % len(seq)
+            next_page, next_font = seq[next_idx]
+            self.load_font(next_page, next_font)
+
+    # Page Navigation Logic
+    def go_to_prev_page(self):
+        self._navigate_page(-1)
+
+    def go_to_next_page(self):
+        self._navigate_page(1)
+
+    # Core logic for moving between pages
+    def _navigate_page(self, step):
+        if not self.pdf_path or not hasattr(self, 'menu_structure') or not self.menu_structure:
+            return
+        available_pages = sorted(self.menu_structure.keys())
+        if not available_pages:
+            return
+        if self.current_page is None:
+            next_page = available_pages[0]
+        else:
+            try:
+                current_idx = available_pages.index(self.current_page)
+                next_idx = (current_idx + step) % len(available_pages)
+                next_page = available_pages[next_idx]
+            except ValueError:
+                next_page = available_pages[0]
+        fonts_on_page = self.menu_structure[next_page]
+        if fonts_on_page:
+            self.load_font(next_page, fonts_on_page[0])
+
+    def update_navigation_labels(self):
+        if not self.pdf_path or not self.current_font_name or self.current_page is None:
+            return
+
+        is_page_mode = self.action_page_mode.isChecked()
+        self.nav_page_widget.setVisible(is_page_mode)
+
+        occurrences = []
+        for p_num, fonts in self.menu_structure.items():
+            if self.current_font_name in fonts:
+                occurrences.append(str(p_num + 1))
+
+        pages_str = ", ".join(occurrences)
+        self.lbl_font.setText(f"{self.current_font_name}\n(Pages: {pages_str})")
+
+        if is_page_mode:
+            fonts_on_page = self.menu_structure.get(self.current_page, [])
+            total = len(fonts_on_page)
+            try:
+                current_idx = fonts_on_page.index(self.current_font_name) + 1
+            except ValueError:
+                current_idx = 0
+
+            self.lbl_font_stats.setText(f"Font {current_idx} z {total} (na této stránce)")
+
+            all_pages = sorted(self.menu_structure.keys())
+            page_idx = all_pages.index(self.current_page) + 1
+            total_pages = len(all_pages)
+            self.lbl_page.setText(f"Page {self.current_page + 1} ({page_idx}/{total_pages})")
+
+        else:
+            unique_fonts = self._get_standard_mode_sequence()
+            total = len(unique_fonts)
+            current_idx = 0
+            for i, (p, f) in enumerate(unique_fonts):
+                if f == self.current_font_name:
+                    current_idx = i + 1
+                    break
+
+            self.lbl_font_stats.setText(f"Font {current_idx} z {total} (celkově v PDF)")
 
     # Moves selection to the next glyph in the list
     def show_next(self):
@@ -720,6 +838,9 @@ class FontWidget(QMainWindow):
             self.btn_font.setEnabled(True)
             self.statusBar().showMessage(f"Loaded: {font_name} (Page {page + 1})", 5000)
 
+            # Update dynamic navigation labels
+            self.update_navigation_labels()
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error while loading font:\n{e}")
 
@@ -907,7 +1028,11 @@ class FontWidget(QMainWindow):
                 status, color = self._get_status_text_color(mapped, total)
                 action = page_menu.addAction(self.create_status_icon(color), f"{name} [{status}]")
                 action.setData((page_num, name))
-                action.triggered.connect(lambda checked, p=page_num, f=name: self.load_font(p, f))
+                # V build_pages_menu (zapne Page Mode)
+                action.triggered.connect(lambda checked, p=page_num, f=name: (
+                    self.action_page_mode.setChecked(True),
+                    self.load_font(p, f)
+                ))
 
     # Builds the "Fonts" menu
     def build_fonts_menu(self, menu_data):
@@ -955,7 +1080,11 @@ class FontWidget(QMainWindow):
             action.setToolTip(
                 f"Mapped: {mapped}/{total} glyphs | Occurrences: {data['count']} | Pages: {pages_text}"
             )
-            action.triggered.connect(lambda checked, p=data['page'], f=name: self.load_font(p, f))
+            # V build_fonts_menu (vypne Page Mode)
+            action.triggered.connect(lambda checked, p=data['page'], f=name: (
+                self.action_page_mode.setChecked(False),
+                self.load_font(p, f)
+            ))
 
     # Helper to determine status text and color based on completion percentage
     def _get_status_text_color(self, mapped, total):
