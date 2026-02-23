@@ -20,7 +20,7 @@ from PySide6.QtGui import QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
-    QToolButton, QMessageBox, QCheckBox
+    QToolButton, QMessageBox, QCheckBox, QGroupBox
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -366,28 +366,8 @@ class FontWidget(QMainWindow):
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-
-        # Create main widgets
-        self.glyph_list = QListWidget()  # Left sidebar list
-        self.canvas = GlyphCanvas(None)  # Center plotting area
-        self.label = QLabel("Select glyph")  # Info text
-        self.user_input = QLineEdit()  # Input for character char
-        self.btn_special = QPushButton("Special Chars")  # Link to unicode table
-        self.btn_next_unmapped = QPushButton("Next unmapped")
-        self.btn_glyph = QPushButton("Save Glyph")
-        self.btn_font = QPushButton("Save mappings")
-        self.btn_prev_font = QToolButton()
-        self.btn_next_font = QToolButton()
-        self.lbl_font = QLabel("No font loaded")
-
-        # NEW: Page navigation and stats widgets
-        self.btn_prev_page = QToolButton()  # Prev page
-        self.btn_next_page = QToolButton()  # Next page
-        self.lbl_page = QLabel("Page: -")  # Page info text
-        self.lbl_font_stats = QLabel("Font - z -")  # Font stats text
-        self.nav_page_widget = QWidget()  # Container for page nav
-
-        # Configure Glyph List Appearance
+        # Create left sidebar list
+        self.glyph_list = QListWidget()
         self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.glyph_list.setSpacing(0)
         font = self.glyph_list.font()
@@ -395,102 +375,140 @@ class FontWidget(QMainWindow):
         font.setBold(True)
         self.glyph_list.setFont(font)
         self.glyph_list.itemClicked.connect(self.on_glyph_clicked)
+        # ==========================================
+        # TOP BLOCK: Navigation
+        # ==========================================
+        nav_group = QGroupBox("Navigation")
+        nav_main_layout = QVBoxLayout(nav_group)
 
-        # Configure Info Label
-        self.label.setStyleSheet("font-weight: bold; font-size: 32px; color: white;")
-        self.label.setAlignment(QtCore.Qt.AlignCenter)
+        # Page navigation widget (hidden by default)
+        self.nav_page_widget = QWidget()
+        nav_page_layout = QHBoxLayout(self.nav_page_widget)
+        nav_page_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Configure Input Field
-        self.user_input.setPlaceholderText("Enter char")
-        self.user_input.setMaxLength(3)
-        self.user_input.returnPressed.connect(self.save_glyph)
+        self.btn_prev_page = QToolButton()
+        self.btn_next_page = QToolButton()
+        self.lbl_page = QLabel("Page: -")
 
-        # Connect Button Signals
-        self.btn_special.clicked.connect(self.open_special)
-        self.btn_glyph.clicked.connect(self.save_glyph)
-        self.btn_font.clicked.connect(self.submit_ToUnicode)
-        self.btn_prev_font.clicked.connect(self.go_to_prev_font)
-        self.btn_next_font.clicked.connect(self.go_to_next_font)
-        self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
-
-        # NEW: Connect page buttons
-        self.btn_prev_page.clicked.connect(self.go_to_prev_page)
-        self.btn_next_page.clicked.connect(self.go_to_next_page)
-
-        # Configure Navigation Buttons
-        self.btn_prev_font.setArrowType(QtCore.Qt.LeftArrow)
-        self.btn_next_font.setArrowType(QtCore.Qt.RightArrow)
-        self.btn_prev_font.setFixedSize(40, 40)
-        self.btn_next_font.setFixedSize(40, 40)
-        self.btn_prev_font.setToolTip("Previous font")
-        self.btn_next_font.setToolTip("Next font")
-
-        # NEW: Configure Page Navigation Buttons
         self.btn_prev_page.setArrowType(QtCore.Qt.LeftArrow)
         self.btn_next_page.setArrowType(QtCore.Qt.RightArrow)
-
-        # Configure Font Name Label
-        lbl_font_style = self.lbl_font.font()
-        lbl_font_style.setPointSize(14)
-        lbl_font_style.setBold(True)
-        self.lbl_font.setFont(lbl_font_style)
-        self.lbl_font.setAlignment(QtCore.Qt.AlignCenter)
-        self.lbl_font.setMinimumWidth(180)
-
-        # NEW: Configure Page Info Label
         lbl_page_style = self.lbl_page.font()
         lbl_page_style.setPointSize(12)
         lbl_page_style.setBold(True)
         self.lbl_page.setFont(lbl_page_style)
         self.lbl_page.setAlignment(QtCore.Qt.AlignCenter)
 
-        # NEW: Configure Font Stats Label
-        self.lbl_font_stats.setAlignment(QtCore.Qt.AlignCenter)
-        self.lbl_font_stats.setStyleSheet("color: #aaaaaa; font-size: 12px;")
+        self.btn_prev_page.clicked.connect(self.go_to_prev_page)
+        self.btn_next_page.clicked.connect(self.go_to_next_page)
 
-        # Layout Construction
-
-        # NEW: Page Navigation Row
-        nav_page_layout = QHBoxLayout(self.nav_page_widget)
-        nav_page_layout.setContentsMargins(0, 0, 0, 0)
         nav_page_layout.addWidget(self.btn_prev_page)
         nav_page_layout.addWidget(self.lbl_page)
         nav_page_layout.addWidget(self.btn_next_page)
-        self.nav_page_widget.setVisible(False)  # Hidden by default
 
-        # NEW: Font labels layout (vertical)
-        labels_layout = QVBoxLayout()
-        labels_layout.addWidget(self.lbl_font)
-        labels_layout.addWidget(self.lbl_font_stats)
-        labels_layout.setSpacing(2)
+        # Font navigation buttons
+        self.btn_prev_font = QToolButton()
+        self.btn_next_font = QToolButton()
+        self.btn_prev_font.setArrowType(QtCore.Qt.LeftArrow)
+        self.btn_next_font.setArrowType(QtCore.Qt.RightArrow)
+        self.btn_prev_font.setFixedSize(40, 40)
+        self.btn_next_font.setFixedSize(40, 40)
 
-        # Navigation Row
-        nav = QHBoxLayout()
-        nav.addWidget(self.btn_prev_font)
-        nav.addLayout(labels_layout)  # NEW: using vertical layout instead of just lbl_font
-        nav.addWidget(self.btn_next_font)
-        nav.setSpacing(6)
+        self.btn_prev_font.clicked.connect(self.go_to_prev_font)
+        self.btn_next_font.clicked.connect(self.go_to_next_font)
 
-        # Input Row
-        inputs = QHBoxLayout()
-        inputs.addWidget(self.user_input)
-        inputs.addWidget(self.btn_next_unmapped)
-        inputs.addWidget(self.btn_special)
-        inputs.addWidget(self.btn_glyph)
-        inputs.addWidget(self.btn_font)
+        # Font name label (clean, single line)
+        self.lbl_font = QLabel("No font loaded")
+        lbl_font_style = self.lbl_font.font()
+        lbl_font_style.setPointSize(16)
+        lbl_font_style.setBold(True)
+        self.lbl_font.setFont(lbl_font_style)
+        self.lbl_font.setAlignment(QtCore.Qt.AlignCenter)
 
-        # Right Column (Canvas + Controls)
-        right = QVBoxLayout()
-        right.addWidget(self.nav_page_widget)
-        right.addLayout(nav)
-        right.addWidget(self.canvas)
-        right.addWidget(self.label)
-        right.addLayout(inputs)
+        # Secondary info label (Pages and Stats combined)
+        self.lbl_font_info = QLabel("Pages: -  |  Font - of -")
+        self.lbl_font_info.setAlignment(QtCore.Qt.AlignCenter)
+        self.lbl_font_info.setStyleSheet("color: #aaaaaa; font-size: 13px;")
 
-        # Main Layout (List + Right Column)
-        main = QHBoxLayout(central)
-        main.addWidget(self.glyph_list, 2)  # Ratio 2:5
-        main.addLayout(right, 5)
+        # Font navigation row (< Font Name >)
+        nav_font_row = QHBoxLayout()
+        nav_font_row.addWidget(self.btn_prev_font)
+        nav_font_row.addWidget(self.lbl_font, 1)  # Adding stretch to keep it centered
+        nav_font_row.addWidget(self.btn_next_font)
+
+        # Assemble navigation block
+        nav_main_layout.addWidget(self.nav_page_widget)
+        nav_main_layout.addLayout(nav_font_row)
+        nav_main_layout.addWidget(self.lbl_font_info)
+        self.nav_page_widget.setVisible(False)
+
+        # ==========================================
+        # MIDDLE BLOCK: Glyph Preview
+        # ==========================================
+        preview_group = QGroupBox("Glyph Preview")
+        preview_layout = QVBoxLayout(preview_group)
+
+        self.canvas = GlyphCanvas(None)
+        self.label = QLabel("Select glyph")
+        self.label.setStyleSheet("font-weight: bold; font-size: 24px; color: white;")
+        self.label.setAlignment(QtCore.Qt.AlignCenter)
+
+        preview_layout.addWidget(self.canvas)
+        preview_layout.addWidget(self.label)
+
+        # ==========================================
+        # BOTTOM BLOCK: Mapping Tools
+        # ==========================================
+        mapping_group = QGroupBox("Mapping Tools")
+        mapping_layout = QVBoxLayout(mapping_group)
+
+        self.btn_next_unmapped = QPushButton("Next Unmapped (F3)")
+        self.btn_next_unmapped.setShortcut("F3")
+        self.btn_next_unmapped.setStyleSheet(
+            "background-color: #2b5b84; color: white; font-weight: bold; padding: 5px;")
+        self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
+
+        self.user_input = QLineEdit()
+        self.user_input.setPlaceholderText("Enter char or ligature")
+        self.user_input.setMaxLength(3)
+        self.user_input.returnPressed.connect(self.save_glyph)
+        self.user_input.setEnabled(False)
+        self.user_input.setStyleSheet("font-size: 16px; padding: 5px;")
+
+        self.btn_special = QPushButton("Special Chars")
+        self.btn_glyph = QPushButton("Save Glyph")
+        self.btn_font = QPushButton("Save DB")
+        self.btn_glyph.setEnabled(False)
+        self.btn_font.setEnabled(False)
+
+        self.btn_special.clicked.connect(self.open_special)
+        self.btn_glyph.clicked.connect(self.save_glyph)
+        self.btn_font.clicked.connect(self.submit_ToUnicode)
+
+        # Action row (Inputs and buttons)
+        action_layout = QHBoxLayout()
+        action_layout.addWidget(self.user_input)
+        action_layout.addWidget(self.btn_glyph)
+        action_layout.addWidget(self.btn_special)
+        action_layout.addWidget(self.btn_font)
+
+        mapping_layout.addWidget(self.btn_next_unmapped)
+        mapping_layout.addLayout(action_layout)
+
+        # ==========================================
+        # MAIN LAYOUT ASSEMBLY
+        # ==========================================
+        right_layout = QVBoxLayout()
+        right_layout.addWidget(nav_group, 0)
+        right_layout.addWidget(preview_group, 1)
+        right_layout.addWidget(mapping_group, 0)
+
+        main_layout = QHBoxLayout(central)
+
+        # Lock max width of the left list so it doesn't take too much space
+        self.glyph_list.setMaximumWidth(320)
+
+        main_layout.addWidget(self.glyph_list, 1)
+        main_layout.addLayout(right_layout, 4)
 
     # Resets the UI elements when no font is loaded
     def clear_ui_state(self):
@@ -504,7 +522,7 @@ class FontWidget(QMainWindow):
         # Reset navigation labels
         self.lbl_font.setText("No font loaded")
         self.lbl_page.setText("Page: -")
-        self.lbl_font_stats.setText("Font - z -")
+        self.lbl_font_info.setText("Pages: -  |  Font - of -")
         self.nav_page_widget.setVisible(False)
         self.unsaved_changes = False
         self._update_window_title()
@@ -583,14 +601,17 @@ class FontWidget(QMainWindow):
         is_page_mode = self.action_page_mode.isChecked()
         self.nav_page_widget.setVisible(is_page_mode)
 
+        # Update pure font name
+        self.lbl_font.setText(self.current_font_name)
+
+        # Gather pages list
         occurrences = []
         for p_num, fonts in self.menu_structure.items():
             if self.current_font_name in fonts:
                 occurrences.append(str(p_num + 1))
-
         pages_str = ", ".join(occurrences)
-        self.lbl_font.setText(f"{self.current_font_name}\n(Pages: {pages_str})")
 
+        # Build the combined info string based on current mode
         if is_page_mode:
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             total = len(fonts_on_page)
@@ -599,7 +620,7 @@ class FontWidget(QMainWindow):
             except ValueError:
                 current_idx = 0
 
-            self.lbl_font_stats.setText(f"Font {current_idx} z {total} (na této stránce)")
+            self.lbl_font_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Current Page)")
 
             all_pages = sorted(self.menu_structure.keys())
             page_idx = all_pages.index(self.current_page) + 1
@@ -615,7 +636,7 @@ class FontWidget(QMainWindow):
                     current_idx = i + 1
                     break
 
-            self.lbl_font_stats.setText(f"Font {current_idx} z {total} (celkově v PDF)")
+            self.lbl_font_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Global)")
 
     # Moves selection to the next glyph in the list
     def show_next(self):
@@ -771,7 +792,7 @@ class FontWidget(QMainWindow):
                     self.show_glyph()
                     return
 
-        QMessageBox.information(self, "Hotovo", "Výborně! Nenašel jsem žádné další neopravené glyfy.")
+        QMessageBox.information(self, "Finished", "Great! No more unmapped glyphs found.")
 
     # Opens a web helper for finding symbols
     def open_special(self):
