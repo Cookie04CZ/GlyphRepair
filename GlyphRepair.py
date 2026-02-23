@@ -20,7 +20,7 @@ from PySide6.QtGui import QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
-    QToolButton, QMessageBox
+    QToolButton, QMessageBox, QCheckBox
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -253,6 +253,9 @@ class FontWidget(QMainWindow):
         self._update_window_title()
         self.statusBar().showMessage("Select PDF to repair")
 
+        self.auto_save_timer = QtCore.QTimer(self)
+        self.auto_save_timer.timeout.connect(self.auto_save_interval_triggered)
+
     def closeEvent(self, event):
         if not self.unsaved_changes:
             event.accept()
@@ -316,6 +319,41 @@ class FontWidget(QMainWindow):
         self._menu_placeholder(self.pages_menu)
         self._menu_placeholder(self.fonts_menu)
 
+        # --- Settings Menu ---
+        settings_menu = menubar.addMenu("Settings")
+
+        self.action_page_mode = settings_menu.addAction("Page Mode Navigation")
+        self.action_page_mode.setCheckable(True)
+
+        self.action_auto_jump_glyph = settings_menu.addAction("Auto-jump to Next Glyph")
+        self.action_auto_jump_glyph.setCheckable(True)
+        self.action_auto_jump_glyph.setChecked(True)
+
+        self.action_auto_jump_font = settings_menu.addAction("Auto-jump Font at 100%")
+        self.action_auto_jump_font.setCheckable(True)
+        self.action_auto_jump_font.setChecked(True)
+
+        self.action_auto_save_100 = settings_menu.addAction("Auto-save Database at 100% Font")
+        self.action_auto_save_100.setCheckable(True)
+        self.action_auto_save_100.setChecked(True)
+
+        self.action_auto_save_timer = settings_menu.addAction("Auto-save every 5 mins")
+        self.action_auto_save_timer.setCheckable(True)
+        self.action_auto_save_timer.toggled.connect(self.toggle_auto_save_timer)
+
+    def toggle_auto_save_timer(self, checked):
+        if checked:
+            self.auto_save_timer.start(5 * 60 * 1000)  # 5 minut v milisekundách
+            self.statusBar().showMessage("Auto-save timer enabled (5 mins)", 3000)
+        else:
+            self.auto_save_timer.stop()
+            self.statusBar().showMessage("Auto-save timer disabled", 3000)
+
+    def auto_save_interval_triggered(self):
+        if self.unsaved_changes:
+            self.save_to_db()
+            self.statusBar().showMessage("Auto-saved (5 min interval)", 3000)
+
     # Helper to add a disabled item when a menu is empty
     def _menu_placeholder(self, menu):
         placeholder = menu.addAction("No file loaded")
@@ -333,6 +371,7 @@ class FontWidget(QMainWindow):
         self.label = QLabel("Select glyph")  # Info text
         self.user_input = QLineEdit()  # Input for character char
         self.btn_special = QPushButton("Special Chars")  # Link to unicode table
+        self.btn_next_unmapped = QPushButton("Next unmapped")
         self.btn_glyph = QPushButton("Save Glyph")
         self.btn_font = QPushButton("Save mappings")
         self.btn_prev_font = QToolButton()
@@ -363,6 +402,7 @@ class FontWidget(QMainWindow):
         self.btn_font.clicked.connect(self.submit_ToUnicode)
         self.btn_prev_font.clicked.connect(self.go_to_prev_font)
         self.btn_next_font.clicked.connect(self.go_to_next_font)
+        self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
 
         # Configure Navigation Buttons
         self.btn_prev_font.setArrowType(QtCore.Qt.LeftArrow)
@@ -391,6 +431,7 @@ class FontWidget(QMainWindow):
         # Input Row
         inputs = QHBoxLayout()
         inputs.addWidget(self.user_input)
+        inputs.addWidget(self.btn_next_unmapped)
         inputs.addWidget(self.btn_special)
         inputs.addWidget(self.btn_glyph)
         inputs.addWidget(self.btn_font)
@@ -518,7 +559,101 @@ class FontWidget(QMainWindow):
         item.setForeground(QtGui.QColor("#228B22"))  # Set to green
 
         self.user_input.clear()
-        self.show_next()  # Auto-advance
+        mapped_count = sum(1 for g in self.current_font_glyph_names if g in self.user_glyph_to_char)
+        total_count = len(self.current_font_glyph_names)
+        is_100_percent = (mapped_count == total_count)
+
+        if is_100_percent:
+            if self.action_auto_save_100.isChecked():
+                self.save_to_db()
+                self.statusBar().showMessage("Font 100% completed - Auto-saved", 4000)
+
+            if self.action_auto_jump_font.isChecked():
+                self.jump_to_next_unmapped()
+                return
+
+        if self.action_auto_jump_glyph.isChecked():
+            self.jump_to_next_unmapped()
+        else:
+            self.show_next()
+
+    def _get_page_mode_sequence(self):
+        sequence = []
+        if hasattr(self, 'menu_structure') and self.menu_structure:
+            for p in sorted(self.menu_structure.keys()):
+                for f in self.menu_structure[p]:
+                    sequence.append((p, f))
+        return sequence
+
+    def _get_standard_mode_sequence(self):
+        sequence = []
+        if hasattr(self, 'fonts_menu'):
+            for action in self.fonts_menu.actions():
+                if action.isEnabled() and isinstance(action.data(), tuple):
+                    sequence.append(action.data())
+        return sequence
+
+    def jump_to_next_unmapped(self):
+        if not self.pdf_path or not hasattr(self, 'menu_structure'):
+            return
+
+        if self.current_font_glyph_names:
+            for i in range(self.current_index + 1, len(self.current_font_glyph_names)):
+                if self.current_font_glyph_names[i] not in self.user_glyph_to_char:
+                    self.current_index = i
+                    self.show_glyph()
+                    return
+
+        if self.action_page_mode.isChecked():
+            seq = self._get_page_mode_sequence()
+        else:
+            seq = self._get_standard_mode_sequence()
+
+        if not seq: return
+
+        cur_idx = -1
+        current_pair = (self.current_page, self.current_font_name)
+
+        if not self.action_page_mode.isChecked():
+            for i, (p, f) in enumerate(seq):
+                if f == self.current_font_name:
+                    cur_idx = i
+                    break
+        else:
+            for i, item in enumerate(seq):
+                if item == current_pair:
+                    cur_idx = i
+                    break
+
+        if cur_idx != -1:
+            ordered_seq = seq[cur_idx + 1:] + seq[:cur_idx + 1]
+        else:
+            ordered_seq = seq
+
+        for p, fname in ordered_seq:
+            if p == self.current_page and fname == self.current_font_name:
+                continue
+
+            info = self.font_cache.get((p, fname), {})
+            mapped = info.get('mapped_count', 0)
+            total = info.get('glyph_count', 0)
+
+            if mapped < total:
+                self.load_font(p, fname)
+                for i, gname in enumerate(self.current_font_glyph_names):
+                    if gname not in self.user_glyph_to_char:
+                        self.current_index = i
+                        self.show_glyph()
+                        return
+
+        if self.current_font_glyph_names:
+            for i in range(0, self.current_index):
+                if self.current_font_glyph_names[i] not in self.user_glyph_to_char:
+                    self.current_index = i
+                    self.show_glyph()
+                    return
+
+        QMessageBox.information(self, "Hotovo", "Výborně! Nenašel jsem žádné další neopravené glyfy.")
 
     # Opens a web helper for finding symbols
     def open_special(self):
@@ -1050,10 +1185,8 @@ class FontWidget(QMainWindow):
 if __name__ == "__main__":
     app = QApplication()
 
-    # 1. Vynutíme styl "Fusion", který ignoruje systémové barvy Windows
     app.setStyle("Fusion")
 
-    # 2. Nadefinujeme vlastní tmavou paletu
     dark_palette = QtGui.QPalette()
     dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#1e1e1e"))
     dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#f0f0f0"))
@@ -1069,10 +1202,8 @@ if __name__ == "__main__":
     dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
     dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
 
-    # Aplikujeme paletu na celou aplikaci
     app.setPalette(dark_palette)
 
-    # 3. Pojistka pro tooltipy a menu, aby byly čitelné
     app.setStyleSheet("""
         QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
         QMenuBar::item:selected { background: #3d7eff; }
