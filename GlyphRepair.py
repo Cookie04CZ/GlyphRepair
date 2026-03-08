@@ -2,6 +2,7 @@ import csv
 import os
 import sys
 import webbrowser
+import difflib
 from hashlib import md5
 from io import BytesIO
 
@@ -20,7 +21,7 @@ from PySide6.QtGui import QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
-    QToolButton, QMessageBox, QCheckBox, QGroupBox
+    QToolButton, QMessageBox, QGroupBox, QSizePolicy
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -268,7 +269,7 @@ class FontWidget(QMainWindow):
         box.setInformativeText("Do you want to save before closing?")
         save_btn = box.addButton("Save", QMessageBox.AcceptRole)
         discard_btn = box.addButton("Discard", QMessageBox.DestructiveRole)
-        cancel_btn = box.addButton("Cancel", QMessageBox.RejectRole)
+        box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(save_btn)
         box.exec()
 
@@ -283,7 +284,6 @@ class FontWidget(QMainWindow):
             event.accept()
             return
 
-        # Cancel OR user closed the dialog with the "X"
         event.ignore()
 
     def _update_window_title(self):
@@ -324,6 +324,7 @@ class FontWidget(QMainWindow):
 
         self.action_page_mode = settings_menu.addAction("Page Mode Navigation")
         self.action_page_mode.setCheckable(True)
+
         # Instantly update UI when toggled
         self.action_page_mode.toggled.connect(self.update_navigation_labels)
 
@@ -375,9 +376,6 @@ class FontWidget(QMainWindow):
         font.setBold(True)
         self.glyph_list.setFont(font)
         self.glyph_list.itemClicked.connect(self.on_glyph_clicked)
-        # ==========================================
-        # TOP BLOCK: Navigation
-        # ==========================================
         nav_group = QGroupBox("Navigation")
         nav_main_layout = QVBoxLayout(nav_group)
 
@@ -441,9 +439,6 @@ class FontWidget(QMainWindow):
         nav_main_layout.addWidget(self.lbl_font_info)
         self.nav_page_widget.setVisible(False)
 
-        # ==========================================
-        # MIDDLE BLOCK: Glyph Preview
-        # ==========================================
         preview_group = QGroupBox("Glyph Preview")
         preview_layout = QVBoxLayout(preview_group)
 
@@ -455,48 +450,85 @@ class FontWidget(QMainWindow):
         preview_layout.addWidget(self.canvas)
         preview_layout.addWidget(self.label)
 
-        # ==========================================
-        # BOTTOM BLOCK: Mapping Tools
-        # ==========================================
         mapping_group = QGroupBox("Mapping Tools")
-        mapping_layout = QVBoxLayout(mapping_group)
+        mapping_layout = QHBoxLayout(mapping_group)
 
-        self.btn_next_unmapped = QPushButton("Next Unmapped (F3)")
-        self.btn_next_unmapped.setShortcut("F3")
-        self.btn_next_unmapped.setStyleSheet(
-            "background-color: #2b5b84; color: white; font-weight: bold; padding: 5px;")
-        self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
+        left_panel = QVBoxLayout()
+        left_panel.setContentsMargins(0, 0, 0, 0)
+
+        self.suggestions_layout = QHBoxLayout()
+        self.suggestions_layout.setAlignment(QtCore.Qt.AlignLeft)
+        self.suggestions_layout.setContentsMargins(0, 0, 0, 0)
+        self.suggestions_layout.setSpacing(6)
+
+        self.suggestion_buttons = []
+        for _ in range(5):
+            btn = QPushButton("")
+            btn.setFixedSize(40, 40)
+            font_sug = btn.font()
+            font_sug.setPointSize(16)
+            font_sug.setBold(True)
+            btn.setFont(font_sug)
+            btn.setStyleSheet("font-family: 'Consolas', monospace; border: 1px solid #555; border-radius: 4px;")
+            btn.setEnabled(False)
+            btn.setVisible(False)
+
+            btn.suggestion_char = ""
+            btn.clicked.connect(lambda checked=False, b=btn: self.apply_suggestion(b.suggestion_char))
+
+            self.suggestions_layout.addWidget(btn)
+            self.suggestion_buttons.append(btn)
+
+        self.suggestions_layout.addStretch()  # Natlačí návrhy doleva
 
         self.user_input = QLineEdit()
-        self.user_input.setPlaceholderText("Enter char or ligature")
+        self.user_input.setPlaceholderText("Enter character")
         self.user_input.setMaxLength(3)
         self.user_input.returnPressed.connect(self.save_glyph)
         self.user_input.setEnabled(False)
         self.user_input.setStyleSheet("font-size: 16px; padding: 5px;")
+        self.user_input.setMinimumHeight(35)
 
-        self.btn_special = QPushButton("Special Chars")
-        self.btn_glyph = QPushButton("Save Glyph")
-        self.btn_font = QPushButton("Save DB")
-        self.btn_glyph.setEnabled(False)
-        self.btn_font.setEnabled(False)
+        left_panel.addLayout(self.suggestions_layout)
+        left_panel.addWidget(self.user_input)
 
+        right_panel = QVBoxLayout()
+        right_panel.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_special = QPushButton("Special Characters")
+        self.btn_special.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
         self.btn_special.clicked.connect(self.open_special)
+        self.btn_special.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        bottom_right_layout = QHBoxLayout()
+        bottom_right_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_glyph = QPushButton("Save Glyph")
+        self.btn_glyph.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
+        self.btn_glyph.setEnabled(False)
         self.btn_glyph.clicked.connect(self.save_glyph)
+
+        self.btn_next_unmapped = QPushButton("Next Unmapped")
+        self.btn_next_unmapped.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
+        self.btn_next_unmapped.setEnabled(False)
+        self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
+
+        self.btn_font = QPushButton("Save all to DB")
+        self.btn_font.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
+        self.btn_font.setEnabled(False)
         self.btn_font.clicked.connect(self.submit_ToUnicode)
 
-        # Action row (Inputs and buttons)
-        action_layout = QHBoxLayout()
-        action_layout.addWidget(self.user_input)
-        action_layout.addWidget(self.btn_glyph)
-        action_layout.addWidget(self.btn_special)
-        action_layout.addWidget(self.btn_font)
+        bottom_right_layout.addWidget(self.btn_glyph)
+        bottom_right_layout.addWidget(self.btn_special)
+        bottom_right_layout.addWidget(self.btn_font)
 
-        mapping_layout.addWidget(self.btn_next_unmapped)
-        mapping_layout.addLayout(action_layout)
+        right_panel.addWidget(self.btn_next_unmapped)
+        right_panel.addLayout(bottom_right_layout)
 
-        # ==========================================
-        # MAIN LAYOUT ASSEMBLY
-        # ==========================================
+
+        mapping_layout.addLayout(left_panel, 1)
+        mapping_layout.addLayout(right_panel, 0)
+
         right_layout = QVBoxLayout()
         right_layout.addWidget(nav_group, 0)
         right_layout.addWidget(preview_group, 1)
@@ -507,7 +539,7 @@ class FontWidget(QMainWindow):
         # Lock max width of the left list so it doesn't take too much space
         self.glyph_list.setMaximumWidth(320)
 
-        main_layout.addWidget(self.glyph_list, 1)
+        main_layout.addWidget(self.glyph_list, 0)
         main_layout.addLayout(right_layout, 4)
 
     # Resets the UI elements when no font is loaded
@@ -519,6 +551,10 @@ class FontWidget(QMainWindow):
         self.user_input.setEnabled(False)
         self.btn_glyph.setEnabled(False)
         self.btn_font.setEnabled(False)
+        if hasattr(self, 'suggestion_buttons'):
+            for btn in self.suggestion_buttons:
+                btn.setEnabled(False)
+
         # Reset navigation labels
         self.lbl_font.setText("No font loaded")
         self.lbl_page.setText("Page: -")
@@ -526,6 +562,12 @@ class FontWidget(QMainWindow):
         self.nav_page_widget.setVisible(False)
         self.unsaved_changes = False
         self._update_window_title()
+
+        if hasattr(self, 'suggestion_buttons'):
+            for btn in self.suggestion_buttons:
+                btn.setText("")
+                btn.setEnabled(False)
+                btn.setVisible(False)
 
     # Font Navigation Logic
     def go_to_prev_font(self):
@@ -540,7 +582,6 @@ class FontWidget(QMainWindow):
             return
 
         if self.action_page_mode.isChecked():
-            # PAGE MODE: Točíme se jen mezi fonty na aktuální stránce
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             if not fonts_on_page: return
 
@@ -553,7 +594,6 @@ class FontWidget(QMainWindow):
             self.load_font(self.current_page, fonts_on_page[next_idx])
 
         else:
-            # STANDARD MODE: Točíme se mezi všemi unikátními fonty
             seq = self._get_standard_mode_sequence()
             if not seq: return
 
@@ -601,17 +641,14 @@ class FontWidget(QMainWindow):
         is_page_mode = self.action_page_mode.isChecked()
         self.nav_page_widget.setVisible(is_page_mode)
 
-        # Update pure font name
         self.lbl_font.setText(self.current_font_name)
 
-        # Gather pages list
         occurrences = []
         for p_num, fonts in self.menu_structure.items():
             if self.current_font_name in fonts:
                 occurrences.append(str(p_num + 1))
         pages_str = ", ".join(occurrences)
 
-        # Build the combined info string based on current mode
         if is_page_mode:
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             total = len(fonts_on_page)
@@ -857,6 +894,12 @@ class FontWidget(QMainWindow):
             self.user_input.setEnabled(True)
             self.btn_glyph.setEnabled(True)
             self.btn_font.setEnabled(True)
+            self.btn_next_unmapped.setEnabled(True)
+
+            if hasattr(self, 'suggestion_buttons'):
+                for btn in self.suggestion_buttons:
+                    btn.setEnabled(True)
+
             self.statusBar().showMessage(f"Loaded: {font_name} (Page {page + 1})", 5000)
 
             # Update dynamic navigation labels
@@ -992,19 +1035,19 @@ class FontWidget(QMainWindow):
                 <table width="100%" cellspacing="8">
                     <tr>
                         <td width="50%" align="right"><b>Glyph Name:</b></td>
-                        <td width="50%">{name}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{name}</td>
                     </tr>
                     <tr>
                         <td width="50%" align="right"><b>Character:</b></td>
-                        <td width="50%">{ch}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{ch}</td>
                     </tr>
                     <tr>
                         <td width="50%" align="right"><b>Unicode:</b></td>
-                        <td width="50%">{uhex}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{uhex}</td>
                     </tr>
                     <tr>
                         <td width="50%" align="right"><b>Adobe Glyph List:</b></td>
-                        <td width="50%">{agn}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{agn}</td>
                     </tr>
                 </table>
                 """
@@ -1015,6 +1058,8 @@ class FontWidget(QMainWindow):
         if item:
             self.glyph_list.setCurrentItem(item)
             self.glyph_list.scrollToItem(item, QListWidget.EnsureVisible)
+
+        self.update_suggestions_ui(name, self.current_font_name)
 
     # Builds the "Pages" menu structure
     def build_pages_menu(self, menu_data):
@@ -1221,6 +1266,7 @@ class FontWidget(QMainWindow):
     # Loads known hashes from CSV into a Set for fast lookup
     def load_db_cache(self):
         self.known_glyph_hashes = set()
+        self.db_records = []
         path = self.CSV_PATH
         if os.path.exists(path):
             try:
@@ -1229,10 +1275,66 @@ class FontWidget(QMainWindow):
                     if "glyph_hash" in reader.fieldnames:
                         for row in reader:
                             self.known_glyph_hashes.add(row["glyph_hash"])
+                            self.db_records.append(row)
             except Exception as e:
                 print(f"DB Cache Error: {e}")
 
+        # Generates suggestions based on GlyphName and fuzzy matching of font_name
+    def get_suggestions(self, glyph_name, font_name):
+        if not hasattr(self, 'db_records') or not self.db_records or not glyph_name or not font_name:
+            return []
 
+        # Strip PDF subset prefix (e.g., "GKCLND+Arial" -> "Arial")
+        current_clean_font = font_name.split('+', 1)[-1] if '+' in font_name else font_name
+
+        matches = []
+        for row in self.db_records:
+            if row.get("GlyphName") == glyph_name:
+                db_font = row.get("font_name", "")
+                db_clean_font = db_font.split('+', 1)[-1] if '+' in db_font else db_font
+
+                # Calculate string similarity ratio (0.0 to 1.0)
+                similarity = difflib.SequenceMatcher(None, current_clean_font, db_clean_font).ratio()
+                matches.append((similarity, row.get("unicode_hex")))
+
+        # Sort matches by highest similarity first
+        matches.sort(key=lambda x: x[0], reverse=True)
+
+        suggestions = []
+        for _, hex_val in matches:
+            try:
+                char = chr(int(hex_val, 16))
+                # Add unique characters until we have 6 (for our 6 buttons)
+                if char not in suggestions:
+                    suggestions.append(char)
+                if len(suggestions) >= 6:
+                    break
+            except (ValueError, TypeError):
+                pass
+
+        return suggestions
+
+    # Refreshes the suggestion buttons above the text input
+    def update_suggestions_ui(self, glyph_name, font_name):
+        suggestions = self.get_suggestions(glyph_name, font_name)
+
+        for i, btn in enumerate(self.suggestion_buttons):
+            if i < len(suggestions):
+                char = suggestions[i]
+                btn.setText(char)
+                btn.suggestion_char = char  # Update the stored character
+                btn.setEnabled(True)
+                btn.setVisible(True)  # Show button if we have a suggestion
+            else:
+                btn.setText("")
+                btn.suggestion_char = ""
+                btn.setEnabled(False)
+                btn.setVisible(False)  # Hide unused button
+
+    # Automatically fills input and triggers the save mechanism
+    def apply_suggestion(self, char):
+        self.user_input.setText(char)
+        self.save_glyph()
 
     # Saves current session work to the CSV file
     def save_to_db(self):
@@ -1348,7 +1450,6 @@ if __name__ == "__main__":
     dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#2a2a2a"))
     dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
     dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
-    dark_palette.setColor(QtGui.QPalette.Link, QtGui.QColor("#3d7eff"))
     dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
     dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
 
