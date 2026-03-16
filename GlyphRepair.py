@@ -221,6 +221,7 @@ class SettingsDialog(QDialog):
         # Create standard checkboxes for each setting without default text
         # (Text will be handled by the custom row layout)
         self.chk_page_mode = QCheckBox()
+        self.chk_auto_highlight = QCheckBox()
         self.chk_auto_jump_glyph = QCheckBox()
         self.chk_auto_jump_font = QCheckBox()
         self.chk_auto_save_100 = QCheckBox()
@@ -229,6 +230,7 @@ class SettingsDialog(QDialog):
         # Load current values from the parent (FontWidget)
         if parent:
             self.chk_page_mode.setChecked(parent.setting_page_mode)
+            self.chk_auto_highlight.setChecked(parent.setting_auto_highlight)
             self.chk_auto_jump_glyph.setChecked(parent.setting_auto_jump_glyph)
             self.chk_auto_jump_font.setChecked(parent.setting_auto_jump_font)
             self.chk_auto_save_100.setChecked(parent.setting_auto_save_100)
@@ -239,6 +241,11 @@ class SettingsDialog(QDialog):
             "Page Mode Navigation",
             "Restrict font navigation to the current page only.",
             self.chk_page_mode
+        )
+        self._add_setting_row(
+            "Auto-highlight Suggestions",
+            "Automatically select the first suggestion. Use Left/Right arrows to choose.",
+            self.chk_auto_highlight
         )
         self._add_setting_row(
             "Auto-jump to Next Glyph",
@@ -531,10 +538,14 @@ class FontWidget(QMainWindow):
 
         # Load settings from system or set default values
         self.setting_page_mode = self.settings_db.value("page_mode", False, type=bool)
+        self.setting_auto_highlight = self.settings_db.value("auto_highlight", True, type=bool)
         self.setting_auto_jump_glyph = self.settings_db.value("auto_jump_glyph", True, type=bool)
         self.setting_auto_jump_font = self.settings_db.value("auto_jump_font", True, type=bool)
         self.setting_auto_save_100 = self.settings_db.value("auto_save_100", True, type=bool)
         self.setting_auto_save_timer = self.settings_db.value("auto_save_timer", False, type=bool)
+
+        self.current_suggestion_idx = -1
+        self.active_suggestions_count = 0
 
         if self.setting_auto_save_timer:
             self.toggle_auto_save_timer(True)
@@ -775,6 +786,8 @@ class FontWidget(QMainWindow):
         self.user_input.setEnabled(False)
         self.user_input.setStyleSheet("font-size: 16px; padding: 5px;")
         self.user_input.setMinimumHeight(35)
+        self.user_input.installEventFilter(self)
+        self.user_input.textChanged.connect(self.on_user_input_changed)
 
         left_panel.addLayout(self.suggestions_layout)
         left_panel.addWidget(self.user_input)
@@ -839,6 +852,7 @@ class FontWidget(QMainWindow):
 
             # Update state variables
             self.setting_page_mode = dialog.chk_page_mode.isChecked()
+            self.setting_auto_highlight = dialog.chk_auto_highlight.isChecked()
             self.setting_auto_jump_glyph = dialog.chk_auto_jump_glyph.isChecked()
             self.setting_auto_jump_font = dialog.chk_auto_jump_font.isChecked()
             self.setting_auto_save_100 = dialog.chk_auto_save_100.isChecked()
@@ -846,6 +860,7 @@ class FontWidget(QMainWindow):
 
             # Persist the new settings to the system
             self.settings_db.setValue("page_mode", self.setting_page_mode)
+            self.settings_db.setValue("auto_highlight", self.setting_auto_highlight)
             self.settings_db.setValue("auto_jump_glyph", self.setting_auto_jump_glyph)
             self.settings_db.setValue("auto_jump_font", self.setting_auto_jump_font)
             self.settings_db.setValue("auto_save_100", self.setting_auto_save_100)
@@ -1267,6 +1282,8 @@ class FontWidget(QMainWindow):
             # Update dynamic navigation labels
             self.update_navigation_labels()
 
+            self.user_input.setFocus()
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error while loading font:\n{e}")
 
@@ -1423,6 +1440,8 @@ class FontWidget(QMainWindow):
 
         self.update_suggestions_ui(name, self.current_font_name)
 
+        self.user_input.setFocus()
+
     # Helper to determine status text and color based on completion percentage
     def _get_status_text_color(self, mapped, total):
         if total == 0:
@@ -1526,10 +1545,6 @@ class FontWidget(QMainWindow):
             new_mapped_count = sum(1 for h in hashes if h in self.known_glyph_hashes)
             info['mapped_count'] = new_mapped_count
 
-        if hasattr(self, 'menu_structure'):
-            self.build_pages_menu(self.menu_structure)
-            self.build_fonts_menu(self.menu_structure)
-
     # Loads known hashes from CSV into a Set for fast lookup
     def load_db_cache(self):
         self.known_glyph_hashes = set()
@@ -1584,6 +1599,7 @@ class FontWidget(QMainWindow):
     # Refreshes the suggestion buttons above the text input
     def update_suggestions_ui(self, glyph_name, font_name):
         suggestions = self.get_suggestions(glyph_name, font_name)
+        self.active_suggestions_count = len(suggestions)
 
         for i, btn in enumerate(self.suggestion_buttons):
             if i < len(suggestions):
@@ -1597,6 +1613,83 @@ class FontWidget(QMainWindow):
                 btn.suggestion_char = ""
                 btn.setEnabled(False)
                 btn.setVisible(False)  # Hide unused button
+
+        # Auto-highlight logic
+        if self.setting_auto_highlight and self.active_suggestions_count > 0:
+            self.set_suggestion_highlight(0)
+        else:
+            self.set_suggestion_highlight(-1)
+
+    # Visually highlights a specific suggestion button with a blue border
+    def set_suggestion_highlight(self, index):
+        self.current_suggestion_idx = index
+        for i, btn in enumerate(self.suggestion_buttons):
+            if i == index and btn.isVisible():
+                # Highlighted style - transparent background, prominent blue border
+                btn.setStyleSheet(
+                    "font-family: 'Consolas', monospace; border: 2px solid #3d7eff; background-color: transparent; border-radius: 4px; color: white;")
+            else:
+                # Default style - dark gray border
+                btn.setStyleSheet(
+                    "font-family: 'Consolas', monospace; border: 1px solid #555; background-color: transparent; border-radius: 4px; color: #f0f0f0;")
+
+    # Removes highlight if the user starts typing manually
+    def on_user_input_changed(self, text):
+        if text and self.current_suggestion_idx != -1:
+            self.set_suggestion_highlight(-1)
+        elif not text and self.setting_auto_highlight and self.active_suggestions_count > 0:
+            # Re-highlight the first button if the user deletes their text
+            self.set_suggestion_highlight(0)
+
+        # Catches keyboard events in the user_input field for suggestion navigation
+    def eventFilter(self, obj, event):
+        if obj == self.user_input and event.type() == QtCore.QEvent.KeyPress:
+
+            if not self.setting_auto_highlight:
+                return super().eventFilter(obj, event)
+
+            # Left arrow
+            if event.key() == QtCore.Qt.Key_Left:
+                # Allow normal left movement if there is text in the box
+                if self.user_input.text():
+                    return False
+
+                if self.active_suggestions_count > 0:
+                    new_idx = max(0, self.current_suggestion_idx - 1)
+                    if self.current_suggestion_idx == -1: new_idx = 0
+                    self.set_suggestion_highlight(new_idx)
+                    return True  # Block the event
+
+            # Right arrow
+            elif event.key() == QtCore.Qt.Key_Right:
+                # Allow normal right movement if there is text in the box
+                if self.user_input.text():
+                    return False
+
+                if self.active_suggestions_count > 0:
+                    new_idx = min(self.active_suggestions_count - 1, self.current_suggestion_idx + 1)
+                    if self.current_suggestion_idx == -1: new_idx = 0
+                    self.set_suggestion_highlight(new_idx)
+                    return True  # Block the event
+
+            # Enter or Return key
+            elif event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
+                # Apply highlighted suggestion ONLY if the text box is completely empty
+                # AND a valid suggestion is currently highlighted
+                if not self.user_input.text().strip() and self.current_suggestion_idx >= 0:
+                    try:
+                        btn = self.suggestion_buttons[self.current_suggestion_idx]
+                        if btn.isVisible():
+                            self.apply_suggestion(btn.suggestion_char)
+                            return True  # Block the event, we handled it
+                    except IndexError:
+                        pass  # Failsafe in case active_suggestions_count is out of sync
+
+                # If text box is NOT empty, let the normal returnPressed signal handle it
+                return False
+
+                # Pass any unhandled events to the base class
+        return super().eventFilter(obj, event)
 
     # Automatically fills input and triggers the save mechanism
     def apply_suggestion(self, char):
