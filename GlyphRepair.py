@@ -295,6 +295,214 @@ class SettingsDialog(QDialog):
 
         self.main_layout.addLayout(row_layout)
 
+
+# Dialog window for selecting a specific page from the loaded PDF
+# It displays a list of pages and includes a search bar for quick filtering
+class PageSelectionDialog(QDialog):
+    def __init__(self, menu_data, font_cache, current_page, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Page")
+        self.setMinimumSize(350, 450)
+        layout = QVBoxLayout(self)
+
+        # Search bar setup
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search page (e.g., '12')...")
+        self.search_input.setStyleSheet("padding: 5px; font-size: 14px;")
+        self.search_input.textChanged.connect(self.apply_filters)
+        layout.addWidget(self.search_input)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setAlternatingRowColors(True)
+
+        for page_num in sorted(menu_data.keys()):
+            font_names = menu_data[page_num]
+            if not font_names: continue
+
+            # Calculate completion percentage for the page
+            page_mapped = 0
+            page_total = 0
+            for name in font_names:
+                info = font_cache.get((page_num, name), {})
+                page_total += info.get('glyph_count', 0)
+                page_mapped += info.get('mapped_count', 0)
+
+            status = self._get_status_text(page_mapped, page_total)
+            item = QListWidgetItem(f"Page {page_num + 1} [{status}]")
+            item.setData(QtCore.Qt.UserRole, page_num)
+
+            # Highlight currently selected page
+            if page_num == current_page:
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+                item.setBackground(QtGui.QColor("#3d7eff"))
+                item.setForeground(QtGui.QColor("#ffffff"))
+
+            self.list_widget.addItem(item)
+
+        self.list_widget.itemDoubleClicked.connect(self.accept)
+        layout.addWidget(self.list_widget)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        # Set focus to search bar by default
+        self.search_input.setFocus()
+
+    # Helper to format status text
+    def _get_status_text(self, mapped, total):
+        if total == 0: return "—"
+        perc = (mapped / total) * 100
+        if perc >= 100:
+            return "100%"
+        elif perc > 0:
+            return f"{int(perc)}%"
+        return "—"
+
+    # Filters the displayed pages based on the search input
+    def apply_filters(self):
+        search_text = self.search_input.text().lower()
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            matches_text = search_text in item.text().lower()
+            item.setHidden(not matches_text)
+
+    # Retrieves the selected page number
+    def get_selected_page(self):
+        item = self.list_widget.currentItem()
+        return item.data(QtCore.Qt.UserRole) if item else None
+
+
+# Dialog window for selecting a specific font from the loaded PDF
+# It lists fonts, provides a search bar, and allows filtering by the current page
+class FontSelectionDialog(QDialog):
+    def __init__(self, menu_data, font_cache, current_font_name, current_page, parent=None):
+        super().__init__(parent)
+        self.current_page = current_page
+        self.setWindowTitle("Select Font")
+        self.setMinimumSize(450, 500)
+        layout = QVBoxLayout(self)
+
+        # Search and filter layout
+        filter_layout = QHBoxLayout()
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search font name...")
+        self.search_input.setStyleSheet("padding: 5px; font-size: 14px;")
+        self.search_input.textChanged.connect(self.apply_filters)
+
+        self.chk_current_page = QCheckBox("Current page only")
+        # Enable checking only if we have a valid current page
+        self.chk_current_page.setEnabled(self.current_page is not None)
+        self.chk_current_page.stateChanged.connect(self.apply_filters)
+
+        filter_layout.addWidget(self.search_input)
+        filter_layout.addWidget(self.chk_current_page)
+        layout.addLayout(filter_layout)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setAlternatingRowColors(True)
+
+        unique = {}
+        # Aggregate stats for fonts with same name
+        for page_num, names in menu_data.items():
+            for name in names:
+                info = font_cache.get((page_num, name), {})
+                total = info.get('glyph_count', 0)
+                if total == 0: continue
+
+                mapped = info.get('mapped_count', 0)
+                if name not in unique:
+                    unique[name] = {
+                        'total': total,
+                        'mapped': mapped,
+                        'page': page_num,
+                        'pages': set(),
+                        'count': 0
+                    }
+                unique[name]['count'] += 1
+                unique[name]['pages'].add(page_num)
+
+        for name, data in unique.items():
+            mapped = data['mapped']
+            total = data['total']
+            status = self._get_status_text(mapped, total)
+
+            pages_sorted = sorted(data.get('pages', []))
+            pages_text = ", ".join(str(p + 1) for p in pages_sorted)
+
+            item = QListWidgetItem(f"{name} (Pages {pages_text}) [{status}]")
+
+            # Store all necessary data in UserRole for filtering and navigation
+            item_data = {
+                'target_page': data['page'],
+                'name': name,
+                'all_pages': pages_sorted
+            }
+            item.setData(QtCore.Qt.UserRole, item_data)
+
+            # Highlight currently selected font
+            if name == current_font_name:
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+                item.setBackground(QtGui.QColor("#3d7eff"))
+                item.setForeground(QtGui.QColor("#ffffff"))
+
+            self.list_widget.addItem(item)
+
+        self.list_widget.itemDoubleClicked.connect(self.accept)
+        layout.addWidget(self.list_widget)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        # Set focus to search bar by default
+        self.search_input.setFocus()
+
+    # Helper to format status text
+    def _get_status_text(self, mapped, total):
+        if total == 0: return "—"
+        perc = (mapped / total) * 100
+        if perc >= 100:
+            return "100%"
+        elif perc > 0:
+            return f"{int(perc)}%"
+        return "—"
+
+    # Applies both text search and page constraints to the font list
+    def apply_filters(self):
+        search_text = self.search_input.text().lower()
+        show_current_only = self.chk_current_page.isChecked()
+
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            data = item.data(QtCore.Qt.UserRole)
+
+            # Check text match
+            matches_text = search_text in item.text().lower()
+
+            # Check page constraint match
+            matches_page = True
+            if show_current_only and self.current_page is not None:
+                matches_page = self.current_page in data['all_pages']
+
+            # Hide item if it fails either condition
+            item.setHidden(not (matches_text and matches_page))
+
+    # Retrieves a tuple of (page_number, font_name)
+    def get_selected_font(self):
+        item = self.list_widget.currentItem()
+        if item:
+            data = item.data(QtCore.Qt.UserRole)
+            return (data['target_page'], data['name'])
+        return None
+
 # Main Application Window Class
 class FontWidget(QMainWindow):
     ICON_SIZE = 64
@@ -419,12 +627,6 @@ class FontWidget(QMainWindow):
         exit_action.setIcon(QIcon.fromTheme("window-close"))
         exit_action.triggered.connect(self.close)
 
-        # Create placeholders for dynamic menus (Pages and Fonts)
-        self.pages_menu = menubar.addMenu("Pages")
-        self.fonts_menu = menubar.addMenu("Fonts")
-        self._menu_placeholder(self.pages_menu)
-        self._menu_placeholder(self.fonts_menu)
-
     def toggle_auto_save_timer(self, checked):
         if checked:
             self.auto_save_timer.start(5 * 60 * 1000)
@@ -437,12 +639,6 @@ class FontWidget(QMainWindow):
         if self.unsaved_changes:
             self.save_to_db()
             self.statusBar().showMessage("Auto-save successful", 3000)
-
-    # Helper to add a disabled item when a menu is empty
-    def _menu_placeholder(self, menu):
-        placeholder = menu.addAction("No file loaded")
-        placeholder.setIcon(QIcon.fromTheme("sync-error"))
-        placeholder.setEnabled(False)
 
     # initializes all widgets and layouts
     def _setup_ui(self):
@@ -459,65 +655,75 @@ class FontWidget(QMainWindow):
         self.glyph_list.itemClicked.connect(self.on_glyph_clicked)
         nav_group = QGroupBox("Navigation")
         nav_main_layout = QVBoxLayout(nav_group)
+        nav_main_layout.setSpacing(10)
 
-        # Page navigation widget (hidden by default)
+        # Page navigation widget
         self.nav_page_widget = QWidget()
         nav_page_layout = QHBoxLayout(self.nav_page_widget)
         nav_page_layout.setContentsMargins(0, 0, 0, 0)
+        nav_page_layout.setSpacing(5)
 
         self.btn_prev_page = QToolButton()
         self.btn_next_page = QToolButton()
-        self.lbl_page = QLabel("Page: -")
+        self.btn_select_page = QPushButton("Page: -")
 
+        # Hard lock for page arrows (35x35)
+        self.btn_prev_page.setFixedSize(35, 35)
+        self.btn_next_page.setFixedSize(35, 35)
         self.btn_prev_page.setArrowType(QtCore.Qt.LeftArrow)
         self.btn_next_page.setArrowType(QtCore.Qt.RightArrow)
-        lbl_page_style = self.lbl_page.font()
-        lbl_page_style.setPointSize(12)
-        lbl_page_style.setBold(True)
-        self.lbl_page.setFont(lbl_page_style)
-        self.lbl_page.setAlignment(QtCore.Qt.AlignCenter)
+
+        # Hard lock height and set shared font for main buttons
+        self.btn_select_page.setFixedHeight(35)
+        shared_btn_font = self.btn_select_page.font()
+        shared_btn_font.setPointSize(13)
+        shared_btn_font.setBold(True)
+        self.btn_select_page.setFont(shared_btn_font)
 
         self.btn_prev_page.clicked.connect(self.go_to_prev_page)
         self.btn_next_page.clicked.connect(self.go_to_next_page)
+        self.btn_select_page.clicked.connect(self.open_page_dialog)  # Connect to dialog
 
         nav_page_layout.addWidget(self.btn_prev_page)
-        nav_page_layout.addWidget(self.lbl_page)
+        nav_page_layout.addWidget(self.btn_select_page, 1)  # Added stretch factor
         nav_page_layout.addWidget(self.btn_next_page)
 
         # Font navigation buttons
+        nav_font_row = QHBoxLayout()
+        nav_font_row.setSpacing(5)
+
         self.btn_prev_font = QToolButton()
         self.btn_next_font = QToolButton()
+        self.btn_select_font = QPushButton("No font loaded")
+
+        # Hard lock for font arrows (35x35)
+        self.btn_prev_font.setFixedSize(35, 35)
+        self.btn_next_font.setFixedSize(35, 35)
         self.btn_prev_font.setArrowType(QtCore.Qt.LeftArrow)
         self.btn_next_font.setArrowType(QtCore.Qt.RightArrow)
-        self.btn_prev_font.setFixedSize(40, 40)
-        self.btn_next_font.setFixedSize(40, 40)
+
+        # Hard lock height and reuse the exact same font to ensure pixel-perfect match
+        self.btn_select_font.setFixedHeight(35)
+        self.btn_select_font.setFont(shared_btn_font)
 
         self.btn_prev_font.clicked.connect(self.go_to_prev_font)
         self.btn_next_font.clicked.connect(self.go_to_next_font)
+        self.btn_select_font.clicked.connect(self.open_font_dialog)
 
-        # Font name label (clean, single line)
-        self.lbl_font = QLabel("No font loaded")
-        lbl_font_style = self.lbl_font.font()
-        lbl_font_style.setPointSize(16)
-        lbl_font_style.setBold(True)
-        self.lbl_font.setFont(lbl_font_style)
-        self.lbl_font.setAlignment(QtCore.Qt.AlignCenter)
+        nav_font_row.addWidget(self.btn_prev_font)
+        nav_font_row.addWidget(self.btn_select_font, 1)
+        nav_font_row.addWidget(self.btn_next_font)
 
         # Secondary info label (Pages and Stats combined)
         self.lbl_font_info = QLabel("Pages: -  |  Font - of -")
         self.lbl_font_info.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_font_info.setStyleSheet("color: #aaaaaa; font-size: 13px;")
 
-        # Font navigation row (< Font Name >)
-        nav_font_row = QHBoxLayout()
-        nav_font_row.addWidget(self.btn_prev_font)
-        nav_font_row.addWidget(self.lbl_font, 1)
-        nav_font_row.addWidget(self.btn_next_font)
-
         # Assemble navigation block
         nav_main_layout.addWidget(self.nav_page_widget)
         nav_main_layout.addLayout(nav_font_row)
         nav_main_layout.addWidget(self.lbl_font_info)
+
         self.nav_page_widget.setVisible(False)
 
         preview_group = QGroupBox("Glyph Preview")
@@ -543,7 +749,7 @@ class FontWidget(QMainWindow):
         self.suggestions_layout.setSpacing(6)
 
         self.suggestion_buttons = []
-        for _ in range(5):
+        for _ in range(6):
             btn = QPushButton("")
             btn.setFixedSize(40, 40)
             font_sug = btn.font()
@@ -651,6 +857,40 @@ class FontWidget(QMainWindow):
             if timer_changed:
                 self.toggle_auto_save_timer(self.setting_auto_save_timer)
 
+    # Opens the dialog to select a specific page from the PDF
+    def open_page_dialog(self):
+        if not hasattr(self, 'menu_structure') or not self.menu_structure:
+            return
+
+        dialog = PageSelectionDialog(self.menu_structure, self.font_cache, self.current_page, self)
+        if dialog.exec():
+            selected_page = dialog.get_selected_page()
+            if selected_page is not None:
+                fonts = self.menu_structure.get(selected_page, [])
+                if fonts:
+                    self.set_page_mode(True)
+                    self.load_font(selected_page, fonts[0])
+
+    # Opens the dialog to select a specific font from the entire PDF
+    def open_font_dialog(self):
+        if not hasattr(self, 'menu_structure') or not self.menu_structure:
+            return
+
+        dialog = FontSelectionDialog(
+            self.menu_structure,
+            self.font_cache,
+            self.current_font_name,
+            self.current_page,
+            self
+        )
+
+        if dialog.exec():
+            selected_data = dialog.get_selected_font()
+            if selected_data:
+                page, font_name = selected_data
+                self.set_page_mode(False)
+                self.load_font(page, font_name)
+
     # Helper method to change page mode dynamically from the UI
     def set_page_mode(self, mode):
         self.setting_page_mode = mode
@@ -670,8 +910,8 @@ class FontWidget(QMainWindow):
                 btn.setEnabled(False)
 
         # Reset navigation labels
-        self.lbl_font.setText("No font loaded")
-        self.lbl_page.setText("Page: -")
+        self.btn_select_font.setText("No font loaded")
+        self.btn_select_page.setText("Page: -")
         self.lbl_font_info.setText("Pages: -  |  Font - of -")
         self.nav_page_widget.setVisible(False)
         self.unsaved_changes = False
@@ -754,7 +994,7 @@ class FontWidget(QMainWindow):
 
         self.nav_page_widget.setVisible(self.setting_page_mode)
 
-        self.lbl_font.setText(self.current_font_name)
+        self.btn_select_font.setText(self.current_font_name)
 
         occurrences = []
         for p_num, fonts in self.menu_structure.items():
@@ -775,7 +1015,7 @@ class FontWidget(QMainWindow):
             all_pages = sorted(self.menu_structure.keys())
             page_idx = all_pages.index(self.current_page) + 1
             total_pages = len(all_pages)
-            self.lbl_page.setText(f"Page {self.current_page + 1} ({page_idx}/{total_pages})")
+            self.btn_select_page.setText(f"Page {self.current_page + 1} ({page_idx}/{total_pages})")
 
         else:
             unique_fonts = self._get_standard_mode_sequence()
@@ -867,6 +1107,7 @@ class FontWidget(QMainWindow):
         else:
             pass
 
+    # Returns an ordered list of all (page, font_name) pairs
     def _get_page_mode_sequence(self):
         sequence = []
         if hasattr(self, 'menu_structure') and self.menu_structure:
@@ -875,12 +1116,16 @@ class FontWidget(QMainWindow):
                     sequence.append((p, f))
         return sequence
 
+    # Returns a list of unique fonts for global mode mapping
     def _get_standard_mode_sequence(self):
         sequence = []
-        if hasattr(self, 'fonts_menu'):
-            for action in self.fonts_menu.actions():
-                if action.isEnabled() and isinstance(action.data(), tuple):
-                    sequence.append(action.data())
+        if hasattr(self, 'menu_structure') and self.menu_structure:
+            unique = set()
+            for p, fonts in sorted(self.menu_structure.items()):
+                for f in fonts:
+                    if f not in unique:
+                        unique.add(f)
+                        sequence.append((p, f))
         return sequence
 
     def jump_to_next_unmapped(self):
@@ -986,7 +1231,7 @@ class FontWidget(QMainWindow):
     def load_font(self, page, font_name):
         self.current_page = page
         self.current_font_name = font_name
-        self.lbl_font.setText(font_name)
+        self.lbl_font_info.setText(font_name)
         self._update_window_title()
 
         # Check cache first to avoid slow PDF extraction
@@ -1178,97 +1423,6 @@ class FontWidget(QMainWindow):
 
         self.update_suggestions_ui(name, self.current_font_name)
 
-    # Builds the "Pages" menu structure
-    def build_pages_menu(self, menu_data):
-        menu = self.pages_menu
-        menu.clear()
-        if not menu_data:
-            menu.addAction("No CFF font").setEnabled(False)
-            return
-
-        for page_num in sorted(menu_data.keys()):
-            font_names = menu_data[page_num]
-            if not font_names: continue
-
-            # Calculate completion percentage for the page
-            page_mapped = 0
-            page_total = 0
-            for name in font_names:
-                info = self.font_cache.get((page_num, name), {})
-                page_total += info.get('glyph_count', 0)
-                page_mapped += info.get('mapped_count', 0)
-
-            status, color = self._get_status_text_color(page_mapped, page_total)
-            icon = self.create_status_icon(color)
-            page_menu = menu.addMenu(icon, f"Page {page_num + 1} [{status}]")
-
-            # Add individual fonts to page submenu
-            for name in font_names:
-                info = self.font_cache.get((page_num, name), {})
-                mapped = info.get('mapped_count', 0)
-                total = info.get('glyph_count', 0)
-
-                status, color = self._get_status_text_color(mapped, total)
-                action = page_menu.addAction(self.create_status_icon(color), f"{name} [{status}]")
-                action.setData((page_num, name))
-                # V build_pages_menu (zapne Page Mode)
-                action.triggered.connect(lambda checked, p=page_num, f=name: (
-                    self.set_page_mode(True),
-                    self.load_font(p, f)
-                ))
-
-    # Builds the "Fonts" menu
-    def build_fonts_menu(self, menu_data):
-        menu = self.fonts_menu
-        menu.clear()
-
-        unique = {}
-        # Aggregate stats for fonts with same name
-        for page_num, names in menu_data.items():
-            for name in names:
-                info = self.font_cache.get((page_num, name), {})
-                total = info.get('glyph_count', 0)
-                if total == 0: continue
-
-                mapped = info.get('mapped_count', 0)
-                if name not in unique:
-                    unique[name] = {
-                        'total': total,
-                        'mapped': mapped,
-                        'page': page_num,  # keep first page as default target for click
-                        'pages': set(),  # all occurrences
-                        'count': 0
-                    }
-                unique[name]['count'] += 1
-                unique[name]['pages'].add(page_num)
-
-        if not unique:
-            menu.addAction("No valid CFF fonts").setEnabled(False)
-            return
-
-        for name, data in unique.items():
-            mapped = data['mapped']
-            total = data['total']
-            status, color = self._get_status_text_color(mapped, total)
-
-            pages_sorted = sorted(data.get('pages', []))
-            pages_text = ", ".join(str(p + 1) for p in pages_sorted)
-            pages_suffix = f"(Pages {pages_text})" if pages_text else "(Pages —)"
-
-            action = menu.addAction(
-                self.create_status_icon(color),
-                f"{name} {pages_suffix} [{status}]"
-            )
-            action.setData((data['page'], name))
-            action.setToolTip(
-                f"Mapped: {mapped}/{total} glyphs | Occurrences: {data['count']} | Pages: {pages_text}"
-            )
-            # V build_fonts_menu (vypne Page Mode)
-            action.triggered.connect(lambda checked, p=data['page'], f=name: (
-                self.set_page_mode(False),
-                self.load_font(p, f)
-            ))
-
     # Helper to determine status text and color based on completion percentage
     def _get_status_text_color(self, mapped, total):
         if total == 0:
@@ -1347,10 +1501,6 @@ class FontWidget(QMainWindow):
                             self.font_cache[(page_num, name)] = {
                                 'glyph_count': 0, 'mapped_count': 0, 'glyph_hashes': []
                             }
-
-            # Build menus with the gathered data
-            self.build_pages_menu(self.menu_structure)
-            self.build_fonts_menu(self.menu_structure)
 
             if first_page is not None:
                 self.load_font(first_page, first_name)
