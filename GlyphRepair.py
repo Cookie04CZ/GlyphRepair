@@ -18,10 +18,12 @@ from numpy import asarray
 # GUI Libraries (PySide6) for the application interface
 from PySide6 import QtCore, QtGui
 from PySide6.QtGui import QImage, QPixmap, QIcon
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
-    QToolButton, QMessageBox, QGroupBox, QSizePolicy
+    QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
+    QCheckBox
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -205,6 +207,93 @@ class GlyphCanvas(FigureCanvas):
         ax.set_aspect('equal')  # Ensure aspect ratio is preserved (no stretching)
         self.draw()  # Trigger render
 
+# Dialog window for application settings
+# It allows the user to configure navigation, auto-jump, and saving preferences
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(450)
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(15)
+
+        # Create standard checkboxes for each setting without default text
+        # (Text will be handled by the custom row layout)
+        self.chk_page_mode = QCheckBox()
+        self.chk_auto_jump_glyph = QCheckBox()
+        self.chk_auto_jump_font = QCheckBox()
+        self.chk_auto_save_100 = QCheckBox()
+        self.chk_auto_save_timer = QCheckBox()
+
+        # Load current values from the parent (FontWidget)
+        if parent:
+            self.chk_page_mode.setChecked(parent.setting_page_mode)
+            self.chk_auto_jump_glyph.setChecked(parent.setting_auto_jump_glyph)
+            self.chk_auto_jump_font.setChecked(parent.setting_auto_jump_font)
+            self.chk_auto_save_100.setChecked(parent.setting_auto_save_100)
+            self.chk_auto_save_timer.setChecked(parent.setting_auto_save_timer)
+
+        # Add widgets to layout with detailed descriptions
+        self._add_setting_row(
+            "Page Mode Navigation",
+            "Restrict font navigation to the current page only.",
+            self.chk_page_mode
+        )
+        self._add_setting_row(
+            "Auto-jump to Next Glyph",
+            "Automatically select the next unmapped glyph after saving.",
+            self.chk_auto_jump_glyph
+        )
+        self._add_setting_row(
+            "Auto-jump Font at 100%",
+            "Move to the next font automatically when all glyphs are mapped.",
+            self.chk_auto_jump_font
+        )
+        self._add_setting_row(
+            "Auto-save database at 100%",
+            "Automatically save your progress to the CSV file when a font is fully mapped.",
+            self.chk_auto_save_100
+        )
+        self._add_setting_row(
+            "Auto-save every 5 mins",
+            "Periodically save your progress in the background to prevent data loss.",
+            self.chk_auto_save_timer
+        )
+
+        self.main_layout.addStretch()
+
+        # Standard OK and Cancel buttons
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        self.main_layout.addWidget(self.button_box)
+
+    # Helper method to create a visually appealing row for each setting
+    # It stacks the title and description vertically, and places the checkbox on the right
+    def _add_setting_row(self, title, description, checkbox_widget):
+        row_layout = QHBoxLayout()
+
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+
+        lbl_desc = QLabel(description)
+        lbl_desc.setStyleSheet("color: #aaaaaa; font-size: 12px;")
+        lbl_desc.setWordWrap(True)
+
+        text_layout.addWidget(lbl_title)
+        text_layout.addWidget(lbl_desc)
+
+        row_layout.addLayout(text_layout)
+        row_layout.addSpacing(20)
+
+        # Align the checkbox to the right side of the row
+        row_layout.addWidget(checkbox_widget, alignment=QtCore.Qt.AlignVCenter | QtCore.Qt.AlignRight)
+
+        self.main_layout.addLayout(row_layout)
 
 # Main Application Window Class
 class FontWidget(QMainWindow):
@@ -229,6 +318,19 @@ class FontWidget(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        # Initialize QSettings for persistent configuration
+        self.settings_db = QSettings("GlyphRepairApp")
+
+        # Load settings from system or set default values
+        self.setting_page_mode = self.settings_db.value("page_mode", False, type=bool)
+        self.setting_auto_jump_glyph = self.settings_db.value("auto_jump_glyph", True, type=bool)
+        self.setting_auto_jump_font = self.settings_db.value("auto_jump_font", True, type=bool)
+        self.setting_auto_save_100 = self.settings_db.value("auto_save_100", True, type=bool)
+        self.setting_auto_save_timer = self.settings_db.value("auto_save_timer", False, type=bool)
+
+        if self.setting_auto_save_timer:
+            self.toggle_auto_save_timer(True)
+
         # Initialize internal state variables
         self.pdf_path = None
         self.current_page = None
@@ -309,6 +411,10 @@ class FontWidget(QMainWindow):
         self.export_action.setEnabled(False)
         self.export_action.triggered.connect(self.save_pdf)
 
+        settings_action = pdf_menu.addAction("Settings")
+        settings_action.setIcon(QIcon.fromTheme("phone"))
+        settings_action.triggered.connect(self.open_settings)
+
         exit_action = pdf_menu.addAction("Exit")
         exit_action.setIcon(QIcon.fromTheme("window-close"))
         exit_action.triggered.connect(self.close)
@@ -319,35 +425,10 @@ class FontWidget(QMainWindow):
         self._menu_placeholder(self.pages_menu)
         self._menu_placeholder(self.fonts_menu)
 
-        # --- Settings Menu ---
-        settings_menu = menubar.addMenu("Settings")
-
-        self.action_page_mode = settings_menu.addAction("Page Mode Navigation")
-        self.action_page_mode.setCheckable(True)
-
-        # Instantly update UI when toggled
-        self.action_page_mode.toggled.connect(self.update_navigation_labels)
-
-        self.action_auto_jump_glyph = settings_menu.addAction("Auto-jump to Next Glyph")
-        self.action_auto_jump_glyph.setCheckable(True)
-        self.action_auto_jump_glyph.setChecked(True)
-
-        self.action_auto_jump_font = settings_menu.addAction("Auto-jump Font at 100%")
-        self.action_auto_jump_font.setCheckable(True)
-        self.action_auto_jump_font.setChecked(True)
-
-        self.action_auto_save_100 = settings_menu.addAction("Auto-save Database at 100% Font")
-        self.action_auto_save_100.setCheckable(True)
-        self.action_auto_save_100.setChecked(True)
-
-        self.action_auto_save_timer = settings_menu.addAction("Auto-save every 5 mins")
-        self.action_auto_save_timer.setCheckable(True)
-        self.action_auto_save_timer.toggled.connect(self.toggle_auto_save_timer)
-
     def toggle_auto_save_timer(self, checked):
         if checked:
-            self.auto_save_timer.start(5 * 60 * 1000)  # 5 minut v milisekundách
-            self.statusBar().showMessage("Auto-save timer enabled (5 mins)", 3000)
+            self.auto_save_timer.start(5 * 60 * 1000)
+            self.statusBar().showMessage("Auto-save timer enabled", 3000)
         else:
             self.auto_save_timer.stop()
             self.statusBar().showMessage("Auto-save timer disabled", 3000)
@@ -355,7 +436,7 @@ class FontWidget(QMainWindow):
     def auto_save_interval_triggered(self):
         if self.unsaved_changes:
             self.save_to_db()
-            self.statusBar().showMessage("Auto-saved (5 min interval)", 3000)
+            self.statusBar().showMessage("Auto-save successful", 3000)
 
     # Helper to add a disabled item when a menu is empty
     def _menu_placeholder(self, menu):
@@ -430,7 +511,7 @@ class FontWidget(QMainWindow):
         # Font navigation row (< Font Name >)
         nav_font_row = QHBoxLayout()
         nav_font_row.addWidget(self.btn_prev_font)
-        nav_font_row.addWidget(self.lbl_font, 1)  # Adding stretch to keep it centered
+        nav_font_row.addWidget(self.lbl_font, 1)
         nav_font_row.addWidget(self.btn_next_font)
 
         # Assemble navigation block
@@ -542,6 +623,39 @@ class FontWidget(QMainWindow):
         main_layout.addWidget(self.glyph_list, 0)
         main_layout.addLayout(right_layout, 4)
 
+    # Opens the settings dialog, applies changes, and saves them persistently
+    def open_settings(self):
+        dialog = SettingsDialog(self)
+        if dialog.exec():
+            # Check if critical settings were changed
+            page_mode_changed = self.setting_page_mode != dialog.chk_page_mode.isChecked()
+            timer_changed = self.setting_auto_save_timer != dialog.chk_auto_save_timer.isChecked()
+
+            # Update state variables
+            self.setting_page_mode = dialog.chk_page_mode.isChecked()
+            self.setting_auto_jump_glyph = dialog.chk_auto_jump_glyph.isChecked()
+            self.setting_auto_jump_font = dialog.chk_auto_jump_font.isChecked()
+            self.setting_auto_save_100 = dialog.chk_auto_save_100.isChecked()
+            self.setting_auto_save_timer = dialog.chk_auto_save_timer.isChecked()
+
+            # Persist the new settings to the system
+            self.settings_db.setValue("page_mode", self.setting_page_mode)
+            self.settings_db.setValue("auto_jump_glyph", self.setting_auto_jump_glyph)
+            self.settings_db.setValue("auto_jump_font", self.setting_auto_jump_font)
+            self.settings_db.setValue("auto_save_100", self.setting_auto_save_100)
+            self.settings_db.setValue("auto_save_timer", self.setting_auto_save_timer)
+
+            # Apply runtime changes
+            if page_mode_changed:
+                self.update_navigation_labels()
+            if timer_changed:
+                self.toggle_auto_save_timer(self.setting_auto_save_timer)
+
+    # Helper method to change page mode dynamically from the UI
+    def set_page_mode(self, mode):
+        self.setting_page_mode = mode
+        self.update_navigation_labels()
+
     # Resets the UI elements when no font is loaded
     def clear_ui_state(self):
         self.glyph_list.clear()
@@ -581,7 +695,7 @@ class FontWidget(QMainWindow):
         if not self.pdf_path or not hasattr(self, 'menu_structure'):
             return
 
-        if self.action_page_mode.isChecked():
+        if self.setting_page_mode:
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             if not fonts_on_page: return
 
@@ -638,8 +752,7 @@ class FontWidget(QMainWindow):
         if not self.pdf_path or not self.current_font_name or self.current_page is None:
             return
 
-        is_page_mode = self.action_page_mode.isChecked()
-        self.nav_page_widget.setVisible(is_page_mode)
+        self.nav_page_widget.setVisible(self.setting_page_mode)
 
         self.lbl_font.setText(self.current_font_name)
 
@@ -649,7 +762,7 @@ class FontWidget(QMainWindow):
                 occurrences.append(str(p_num + 1))
         pages_str = ", ".join(occurrences)
 
-        if is_page_mode:
+        if self.setting_page_mode:
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             total = len(fonts_on_page)
             try:
@@ -740,18 +853,19 @@ class FontWidget(QMainWindow):
         is_100_percent = (mapped_count == total_count)
 
         if is_100_percent:
-            if self.action_auto_save_100.isChecked():
+            if self.setting_auto_save_100:
                 self.save_to_db()
                 self.statusBar().showMessage("Font 100% completed - Auto-saved", 4000)
 
-            if self.action_auto_jump_font.isChecked():
+            if self.setting_auto_jump_font:
                 self.jump_to_next_unmapped()
-                return
 
-        if self.action_auto_jump_glyph.isChecked():
+            return
+
+        if self.setting_auto_jump_glyph:
             self.jump_to_next_unmapped()
         else:
-            self.show_next()
+            pass
 
     def _get_page_mode_sequence(self):
         sequence = []
@@ -780,7 +894,7 @@ class FontWidget(QMainWindow):
                     self.show_glyph()
                     return
 
-        if self.action_page_mode.isChecked():
+        if self.setting_page_mode:
             seq = self._get_page_mode_sequence()
         else:
             seq = self._get_standard_mode_sequence()
@@ -790,7 +904,7 @@ class FontWidget(QMainWindow):
         cur_idx = -1
         current_pair = (self.current_page, self.current_font_name)
 
-        if not self.action_page_mode.isChecked():
+        if not self.setting_page_mode:
             for i, (p, f) in enumerate(seq):
                 if f == self.current_font_name:
                     cur_idx = i
@@ -815,6 +929,9 @@ class FontWidget(QMainWindow):
             total = info.get('glyph_count', 0)
 
             if mapped < total:
+                if self.unsaved_changes:
+                    self.save_to_db()
+
                 self.load_font(p, fname)
                 for i, gname in enumerate(self.current_font_glyph_names):
                     if gname not in self.user_glyph_to_char:
@@ -1096,7 +1213,7 @@ class FontWidget(QMainWindow):
                 action.setData((page_num, name))
                 # V build_pages_menu (zapne Page Mode)
                 action.triggered.connect(lambda checked, p=page_num, f=name: (
-                    self.action_page_mode.setChecked(True),
+                    self.set_page_mode(True),
                     self.load_font(p, f)
                 ))
 
@@ -1148,7 +1265,7 @@ class FontWidget(QMainWindow):
             )
             # V build_fonts_menu (vypne Page Mode)
             action.triggered.connect(lambda checked, p=data['page'], f=name: (
-                self.action_page_mode.setChecked(False),
+                self.set_page_mode(False),
                 self.load_font(p, f)
             ))
 
