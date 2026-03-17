@@ -15,6 +15,8 @@ from matplotlib.figure import Figure
 from matplotlib.path import Path
 from numpy import asarray
 
+import qtawesome as qta
+
 # GUI Libraries (PySide6) for the application interface
 from PySide6 import QtCore, QtGui
 from PySide6.QtGui import QImage, QPixmap, QIcon
@@ -23,7 +25,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
-    QCheckBox
+    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QListView
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -304,29 +306,36 @@ class SettingsDialog(QDialog):
 
 
 # Dialog window for selecting a specific page from the loaded PDF
-# It displays a list of pages and includes a search bar for quick filtering
+# Uses QTreeWidget with status icons (dots) for visual feedback
 class PageSelectionDialog(QDialog):
     def __init__(self, menu_data, font_cache, current_page, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Page")
-        self.setMinimumSize(350, 450)
+        self.setMinimumSize(400, 450)
         layout = QVBoxLayout(self)
 
-        # Search bar setup
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search page (e.g., '12')...")
         self.search_input.setStyleSheet("padding: 5px; font-size: 14px;")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_filters)
         layout.addWidget(self.search_input)
 
-        self.list_widget = QListWidget()
-        self.list_widget.setAlternatingRowColors(True)
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(2)
+        self.tree.setHeaderHidden(True)
+        self.tree.setRootIsDecorated(False)
+        self.tree.setAlternatingRowColors(True)
+
+        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+
+        item_to_scroll = None
 
         for page_num in sorted(menu_data.keys()):
             font_names = menu_data[page_num]
             if not font_names: continue
 
-            # Calculate completion percentage for the page
             page_mapped = 0
             page_total = 0
             for name in font_names:
@@ -334,181 +343,261 @@ class PageSelectionDialog(QDialog):
                 page_total += info.get('glyph_count', 0)
                 page_mapped += info.get('mapped_count', 0)
 
-            status = self._get_status_text(page_mapped, page_total)
-            item = QListWidgetItem(f"Page {page_num + 1} [{status}]")
-            item.setData(QtCore.Qt.UserRole, page_num)
+            # Získání textu i barvy najednou
+            status_text, color_code = self._get_status_info(page_mapped, page_total)
 
-            # Highlight currently selected page
+            item = QTreeWidgetItem([f"Page {page_num + 1}", status_text])
+            item.setData(0, QtCore.Qt.UserRole, page_num)
+            item.setTextAlignment(1, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+
+            # --- Tady přidáváme tu ikonku ---
+            item.setIcon(0, self._create_status_icon(color_code))
+
             if page_num == current_page:
-                font = item.font()
+                font = item.font(0)
                 font.setBold(True)
-                item.setFont(font)
-                item.setBackground(QtGui.QColor("#3d7eff"))
-                item.setForeground(QtGui.QColor("#ffffff"))
+                item.setFont(0, font)
+                item.setFont(1, font)
+                item_to_scroll = item
 
-            self.list_widget.addItem(item)
+            self.tree.addTopLevelItem(item)
 
-        self.list_widget.itemDoubleClicked.connect(self.accept)
-        layout.addWidget(self.list_widget)
+        self.tree.itemDoubleClicked.connect(self.accept)
+        layout.addWidget(self.tree)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
-        # Set focus to search bar by default
         self.search_input.setFocus()
+        if item_to_scroll:
+            self.tree.setCurrentItem(item_to_scroll)
+            self.tree.scrollToItem(item_to_scroll, QTreeWidget.PositionAtCenter)
 
-    # Helper to format status text
-    def _get_status_text(self, mapped, total):
-        if total == 0: return "—"
+    # Pomocná metoda pro vytvoření barevné tečky
+    def _create_status_icon(self, color_str):
+        size = 14
+        pix = QPixmap(size, size)
+        pix.fill(QtCore.Qt.transparent)
+        p = QtGui.QPainter(pix)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setBrush(QtGui.QBrush(QtGui.QColor(color_str)))
+        p.setPen(QtCore.Qt.NoPen)
+        p.drawEllipse(2, 2, size - 4, size - 4)
+        p.end()
+        return QIcon(pix)
+
+    # Vylepšená logika pro text a barvu statusu
+    def _get_status_info(self, mapped, total):
+        if total == 0: return "—", "#888888"
         perc = (mapped / total) * 100
         if perc >= 100:
-            return "100%"
+            return "100%", "#228B22"  # Zelená
         elif perc > 0:
-            return f"{int(perc)}%"
-        return "—"
+            return f"{int(perc)}%", "#FF8C00"  # Oranžová
+        return "0%", "#888888"  # Šedá
 
-    # Filters the displayed pages based on the search input
     def apply_filters(self):
         search_text = self.search_input.text().lower()
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            matches_text = search_text in item.text().lower()
-            item.setHidden(not matches_text)
+        first_visible_item = None
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            matches = search_text in item.text(0).lower()
+            item.setHidden(not matches)
+            if matches and first_visible_item is None:
+                first_visible_item = item
+        if first_visible_item:
+            self.tree.setCurrentItem(first_visible_item)
 
-    # Retrieves the selected page number
     def get_selected_page(self):
-        item = self.list_widget.currentItem()
-        return item.data(QtCore.Qt.UserRole) if item else None
+        item = self.tree.currentItem()
+        return item.data(0, QtCore.Qt.UserRole) if item else None
 
 
-# Dialog window for selecting a specific font from the loaded PDF
-# It lists fonts, provides a search bar, and allows filtering by the current page
 class FontSelectionDialog(QDialog):
     def __init__(self, menu_data, font_cache, current_font_name, current_page, parent=None):
         super().__init__(parent)
         self.current_page = current_page
         self.setWindowTitle("Select Font")
-        self.setMinimumSize(450, 500)
-        layout = QVBoxLayout(self)
+        self.setMinimumSize(650, 500)
 
-        # Search and filter layout
-        filter_layout = QHBoxLayout()
+        main_layout = QVBoxLayout(self)
+        content_layout = QHBoxLayout()
 
+        # --- LEFT PANEL ---
+        left_layout = QVBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search font name...")
         self.search_input.setStyleSheet("padding: 5px; font-size: 14px;")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_filters)
-
-        self.chk_current_page = QCheckBox("Current page only")
-        # Enable checking only if we have a valid current page
-        self.chk_current_page.setEnabled(self.current_page is not None)
-        self.chk_current_page.stateChanged.connect(self.apply_filters)
-
-        filter_layout.addWidget(self.search_input)
-        filter_layout.addWidget(self.chk_current_page)
-        layout.addLayout(filter_layout)
+        left_layout.addWidget(self.search_input)
 
         self.list_widget = QListWidget()
         self.list_widget.setAlternatingRowColors(True)
+        self.list_widget.itemSelectionChanged.connect(self.update_details_panel)
+        left_layout.addWidget(self.list_widget)
 
+        # --- RIGHT PANEL ---
+        right_widget = QWidget()
+        right_widget.setFixedWidth(260)
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        filters_group = QGroupBox("Filters")
+        f_layout = QVBoxLayout(filters_group)
+        self.chk_hide_100 = QCheckBox("Hide 100% mapped")
+        self.chk_hide_100.stateChanged.connect(self.apply_filters)
+
+        page_combo_layout = QVBoxLayout()
+        page_combo_layout.addWidget(QLabel("Page filter:"))
+        self.combo_page = QComboBox()
+        self.combo_page.setStyleSheet("QComboBox { combobox-popup: 0; }")
+        self.combo_page.setMaxVisibleItems(10)
+        self.combo_page.view().setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.combo_page.addItem("All Pages", None)
+        for p in sorted(menu_data.keys()):
+            self.combo_page.addItem(f"Page {p + 1}", p)
+        if self.current_page is not None:
+            idx = self.combo_page.findData(self.current_page)
+            if idx >= 0: self.combo_page.setCurrentIndex(idx)
+        self.combo_page.currentIndexChanged.connect(self.apply_filters)
+        page_combo_layout.addWidget(self.combo_page)
+
+        f_layout.addWidget(self.chk_hide_100)
+        f_layout.addLayout(page_combo_layout)
+
+        details_group = QGroupBox("Font Details")
+        d_layout = QVBoxLayout(details_group)
+        self.lbl_det_name = QLabel("<b>Name:</b> -")
+        self.lbl_det_name.setWordWrap(True)
+        self.lbl_det_status = QLabel("<b>Mapped:</b> -")
+        self.lbl_det_pages = QLabel("<b>Occurs on Pages:</b> -")
+        self.lbl_det_pages.setWordWrap(True)
+        d_layout.addWidget(self.lbl_det_name)
+        d_layout.addWidget(self.lbl_det_status)
+        d_layout.addWidget(self.lbl_det_pages)
+        d_layout.addStretch()
+
+        right_layout.addWidget(filters_group)
+        right_layout.addWidget(details_group)
+        right_layout.addStretch()
+
+        content_layout.addLayout(left_layout, 1)
+        content_layout.addWidget(right_widget)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+
+        main_layout.addLayout(content_layout)
+        main_layout.addWidget(self.button_box)
+
+        # --- POPULATE DATA ---
         unique = {}
-        # Aggregate stats for fonts with same name
         for page_num, names in menu_data.items():
             for name in names:
                 info = font_cache.get((page_num, name), {})
                 total = info.get('glyph_count', 0)
                 if total == 0: continue
-
                 mapped = info.get('mapped_count', 0)
                 if name not in unique:
-                    unique[name] = {
-                        'total': total,
-                        'mapped': mapped,
-                        'page': page_num,
-                        'pages': set(),
-                        'count': 0
-                    }
-                unique[name]['count'] += 1
+                    unique[name] = {'total': total, 'mapped': mapped, 'page': page_num, 'pages': set()}
                 unique[name]['pages'].add(page_num)
 
+        item_to_scroll = None
         for name, data in unique.items():
-            mapped = data['mapped']
-            total = data['total']
-            status = self._get_status_text(mapped, total)
+            item = QListWidgetItem(name)
 
-            pages_sorted = sorted(data.get('pages', []))
-            pages_text = ", ".join(str(p + 1) for p in pages_sorted)
+            # --- Tady se generuje ikonka pro seznam ---
+            status_text, color_code = self._get_status_info(data['mapped'], data['total'])
+            item.setIcon(self._create_status_icon(color_code))
 
-            item = QListWidgetItem(f"{name} (Pages {pages_text}) [{status}]")
-
-            # Store all necessary data in UserRole for filtering and navigation
             item_data = {
                 'target_page': data['page'],
                 'name': name,
-                'all_pages': pages_sorted
+                'all_pages': sorted(data['pages']),
+                'status': status_text,
+                'mapped': data['mapped'],
+                'total': data['total']
             }
             item.setData(QtCore.Qt.UserRole, item_data)
 
-            # Highlight currently selected font
             if name == current_font_name:
                 font = item.font()
                 font.setBold(True)
                 item.setFont(font)
-                item.setBackground(QtGui.QColor("#3d7eff"))
-                item.setForeground(QtGui.QColor("#ffffff"))
+                item_to_scroll = item
 
             self.list_widget.addItem(item)
 
         self.list_widget.itemDoubleClicked.connect(self.accept)
-        layout.addWidget(self.list_widget)
-
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
-        layout.addWidget(self.button_box)
-
-        # Set focus to search bar by default
+        self.search_input.returnPressed.connect(self.accept)
         self.search_input.setFocus()
+        self.apply_filters()
 
-    # Helper to format status text
-    def _get_status_text(self, mapped, total):
-        if total == 0: return "—"
+        if item_to_scroll and not item_to_scroll.isHidden():
+            self.list_widget.setCurrentItem(item_to_scroll)
+            self.list_widget.scrollToItem(item_to_scroll, QListWidget.PositionAtCenter)
+
+    # --- POMOCNÉ METODY PRO IKONKY A STATUS ---
+    def _create_status_icon(self, color_str):
+        size = 14
+        pix = QPixmap(size, size)
+        pix.fill(QtCore.Qt.transparent)
+        p = QtGui.QPainter(pix)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setBrush(QtGui.QBrush(QtGui.QColor(color_str)))
+        p.setPen(QtCore.Qt.NoPen)
+        p.drawEllipse(2, 2, size - 4, size - 4)
+        p.end()
+        return QIcon(pix)
+
+    def _get_status_info(self, mapped, total):
+        if total == 0: return "—", "#888888"
         perc = (mapped / total) * 100
         if perc >= 100:
-            return "100%"
+            return "100%", "#228B22"
         elif perc > 0:
-            return f"{int(perc)}%"
-        return "—"
+            return f"{int(perc)}%", "#FF8C00"
+        return "0%", "#888888"
 
-    # Applies both text search and page constraints to the font list
+    def update_details_panel(self):
+        item = self.list_widget.currentItem()
+        if not item: return
+        data = item.data(QtCore.Qt.UserRole)
+        pages_str = ", ".join(str(p + 1) for p in data['all_pages'])
+        color = "#f0f0f0"
+        if data['mapped'] == data['total'] and data['total'] > 0:
+            color = "#228B22"
+        elif data['mapped'] > 0:
+            color = "#FF8C00"
+
+        self.lbl_det_name.setText(f"<b>Name:</b> {data['name']}")
+        self.lbl_det_status.setText(
+            f"<b>Mapped:</b> <span style='color:{color}'>{data['status']}</span> ({data['mapped']}/{data['total']})")
+        self.lbl_det_pages.setText(f"<b>Occurs on Pages:</b> {pages_str}")
+
     def apply_filters(self):
         search_text = self.search_input.text().lower()
-        show_current_only = self.chk_current_page.isChecked()
-
+        hide_100 = self.chk_hide_100.isChecked()
+        selected_page = self.combo_page.currentData()
+        first_visible = None
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             data = item.data(QtCore.Qt.UserRole)
+            is_visible = (search_text in item.text().lower()) and \
+                         (not (hide_100 and data['mapped'] == data['total'])) and \
+                         (selected_page is None or selected_page in data['all_pages'])
+            item.setHidden(not is_visible)
+            if is_visible and first_visible is None: first_visible = item
+        if first_visible and (not self.list_widget.currentItem() or self.list_widget.currentItem().isHidden()):
+            self.list_widget.setCurrentItem(first_visible)
 
-            # Check text match
-            matches_text = search_text in item.text().lower()
-
-            # Check page constraint match
-            matches_page = True
-            if show_current_only and self.current_page is not None:
-                matches_page = self.current_page in data['all_pages']
-
-            # Hide item if it fails either condition
-            item.setHidden(not (matches_text and matches_page))
-
-    # Retrieves a tuple of (page_number, font_name)
     def get_selected_font(self):
         item = self.list_widget.currentItem()
-        if item:
-            data = item.data(QtCore.Qt.UserRole)
-            return (data['target_page'], data['name'])
-        return None
+        return item.data(QtCore.Qt.UserRole)['target_page'], item.data(QtCore.Qt.UserRole)['name'] if item else None
 
 # Main Application Window Class
 class FontWidget(QMainWindow):
@@ -616,27 +705,30 @@ class FontWidget(QMainWindow):
 
     # Creates the top menu bar (File, Pages, Fonts)
     def _setup_menus(self):
-        menubar = self.menuBar()
+        toolbar = self.addToolBar("MainToolbar")
+        toolbar.setMovable(False)
 
-        # PDF File Menu
-        pdf_menu = menubar.addMenu("PDF")
+        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
 
-        open_action = pdf_menu.addAction("Open PDF")
-        open_action.setIcon(QIcon.fromTheme("folder-open"))
+        open_action = toolbar.addAction("Open PDF")
+        open_icon = qta.icon('fa5s.folder-open', color='white')
+        open_action.setIcon(open_icon)
         open_action.triggered.connect(self.open_pdf)
 
-        self.export_action = pdf_menu.addAction("Save PDF")
-        self.export_action.setIcon(QIcon.fromTheme("document-save"))
+        self.export_action = toolbar.addAction("Save PDF")
+        export_icon = qta.icon('fa5s.save', color='white')
+        self.export_action.setIcon(export_icon)
         self.export_action.setEnabled(False)
         self.export_action.triggered.connect(self.save_pdf)
 
-        settings_action = pdf_menu.addAction("Settings")
-        settings_action.setIcon(QIcon.fromTheme("phone"))
-        settings_action.triggered.connect(self.open_settings)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        toolbar.addWidget(spacer)
 
-        exit_action = pdf_menu.addAction("Exit")
-        exit_action.setIcon(QIcon.fromTheme("window-close"))
-        exit_action.triggered.connect(self.close)
+        settings_action = toolbar.addAction("Settings")
+        settings_icon = qta.icon('fa5s.cog', color='white')
+        settings_action.setIcon(settings_icon)
+        settings_action.triggered.connect(self.open_settings)
 
     def toggle_auto_save_timer(self, checked):
         if checked:
@@ -1246,7 +1338,6 @@ class FontWidget(QMainWindow):
     def load_font(self, page, font_name):
         self.current_page = page
         self.current_font_name = font_name
-        self.lbl_font_info.setText(font_name)
         self._update_window_title()
 
         # Check cache first to avoid slow PDF extraction
@@ -1317,18 +1408,6 @@ class FontWidget(QMainWindow):
         self.notdef_baseline = notdef_baseline
         self.notdef_topline = notdef_topline
         self.current_index = 0
-
-    # Helper: Creates a colored circle icon for menus
-    def create_status_icon(self, color):
-        size = 12
-        pix = QPixmap(size, size)
-        pix.fill(QtCore.Qt.transparent)
-        p = QtGui.QPainter(pix)
-        p.setRenderHint(QtGui.QPainter.Antialiasing)
-        p.setBrush(QtGui.QBrush(QtGui.QColor(color)))
-        p.drawEllipse(2, 2, size - 4, size - 4)
-        p.end()
-        return QIcon(pix)
 
     # Generates a thumbnail image of a glyph for the list widget
     def generate_icon(self, glyph_name, size=(64, 64)):
@@ -1441,18 +1520,6 @@ class FontWidget(QMainWindow):
         self.update_suggestions_ui(name, self.current_font_name)
 
         self.user_input.setFocus()
-
-    # Helper to determine status text and color based on completion percentage
-    def _get_status_text_color(self, mapped, total):
-        if total == 0:
-            return "—", "#888888"
-        perc = (mapped / total) * 100
-        if perc >= 100:
-            return "100%", "#228B22"
-        elif perc > 0:
-            return f"{int(perc)}%", "#FF8C00"
-        else:
-            return "—", "#888888"
 
     # Opens PDF file, scans structure, calculates hashes, and populates menus
     def open_pdf(self):
@@ -1818,6 +1885,26 @@ if __name__ == "__main__":
     app.setStyleSheet("""
         QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
         QMenuBar::item:selected { background: #3d7eff; }
+        
+        QToolBar { 
+            border: none;
+            border-bottom: 1px solid #333; /* Decentní tmavá linka vespod */
+            background: #1e1e1e;
+            padding: 3px;
+        }
+        
+        QToolBar QToolButton {
+            border: none;
+            border-radius: 4px;
+            padding: 4px;
+            margin: 2px;
+        }
+        QToolBar QToolButton:hover {
+            background-color: #3d3d3d; /* Jemné zvýraznění při najetí */
+        }
+        QToolBar QToolButton:pressed {
+            background-color: #3d7eff; /* Modrá při kliknutí */
+        }
     """)
 
     window = FontWidget()
