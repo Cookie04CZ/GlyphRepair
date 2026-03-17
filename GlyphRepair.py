@@ -725,6 +725,10 @@ class FontWidget(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         toolbar.addWidget(spacer)
 
+        self.lbl_toolbar_info = QLabel("Pages: - | Font - of -")
+        self.lbl_toolbar_info.setStyleSheet("color: #aaaaaa; font-size: 13px; margin-right: 15px;")
+        toolbar.addWidget(self.lbl_toolbar_info)
+
         settings_action = toolbar.addAction("Settings")
         settings_icon = qta.icon('fa5s.cog', color='white')
         settings_action.setIcon(settings_icon)
@@ -817,15 +821,9 @@ class FontWidget(QMainWindow):
         nav_font_row.addWidget(self.btn_select_font, 1)
         nav_font_row.addWidget(self.btn_next_font)
 
-        # Secondary info label (Pages and Stats combined)
-        self.lbl_font_info = QLabel("Pages: -  |  Font - of -")
-        self.lbl_font_info.setAlignment(QtCore.Qt.AlignCenter)
-        self.lbl_font_info.setStyleSheet("color: #aaaaaa; font-size: 13px;")
-
         # Assemble navigation block
         nav_main_layout.addWidget(self.nav_page_widget)
         nav_main_layout.addLayout(nav_font_row)
-        nav_main_layout.addWidget(self.lbl_font_info)
 
         self.nav_page_widget.setVisible(False)
 
@@ -995,7 +993,6 @@ class FontWidget(QMainWindow):
             selected_data = dialog.get_selected_font()
             if selected_data:
                 page, font_name = selected_data
-                self.set_page_mode(False)
                 self.load_font(page, font_name)
 
     # Helper method to change page mode dynamically from the UI
@@ -1019,7 +1016,7 @@ class FontWidget(QMainWindow):
         # Reset navigation labels
         self.btn_select_font.setText("No font loaded")
         self.btn_select_page.setText("Page: -")
-        self.lbl_font_info.setText("Pages: -  |  Font - of -")
+        self.lbl_toolbar_info.setText("Pages: -  |  Font - of -")
         self.nav_page_widget.setVisible(False)
         self.unsaved_changes = False
         self._update_window_title()
@@ -1117,7 +1114,7 @@ class FontWidget(QMainWindow):
             except ValueError:
                 current_idx = 0
 
-            self.lbl_font_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Current Page)")
+            self.lbl_toolbar_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Current Page)")
 
             all_pages = sorted(self.menu_structure.keys())
             page_idx = all_pages.index(self.current_page) + 1
@@ -1133,7 +1130,7 @@ class FontWidget(QMainWindow):
                     current_idx = i + 1
                     break
 
-            self.lbl_font_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Global)")
+            self.lbl_toolbar_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Global)")
 
     # Moves selection to the next glyph in the list
     def show_next(self):
