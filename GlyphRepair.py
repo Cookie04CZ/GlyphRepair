@@ -1341,7 +1341,6 @@ class FontWidget(QMainWindow):
         total = len(self.current_font_glyph_names)
         mapped = sum(1 for g in self.current_font_glyph_names if g in self.user_glyph_to_char)
         self.statusBar().showMessage(f"Saved: {mapped}/{total} glyphs", 3000)
-        self.go_to_next_font()
 
     # Loads a specific font from the PDF into memory and UI
     def load_font(self, page, font_name):
