@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
-    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QListView
+    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -343,14 +343,14 @@ class PageSelectionDialog(QDialog):
                 page_total += info.get('glyph_count', 0)
                 page_mapped += info.get('mapped_count', 0)
 
-            # Získání textu i barvy najednou
+            # Get status text and color simultaneously
             status_text, color_code = self._get_status_info(page_mapped, page_total)
 
             item = QTreeWidgetItem([f"Page {page_num + 1}", status_text])
             item.setData(0, QtCore.Qt.UserRole, page_num)
             item.setTextAlignment(1, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
 
-            # --- Tady přidáváme tu ikonku ---
+            # Add status icon
             item.setIcon(0, self._create_status_icon(color_code))
 
             if page_num == current_page:
@@ -375,7 +375,7 @@ class PageSelectionDialog(QDialog):
             self.tree.setCurrentItem(item_to_scroll)
             self.tree.scrollToItem(item_to_scroll, QTreeWidget.PositionAtCenter)
 
-    # Pomocná metoda pro vytvoření barevné tečky
+    # Helper method to create a colored dot icon
     def _create_status_icon(self, color_str):
         size = 14
         pix = QPixmap(size, size)
@@ -388,15 +388,15 @@ class PageSelectionDialog(QDialog):
         p.end()
         return QIcon(pix)
 
-    # Vylepšená logika pro text a barvu statusu
+    # Improved logic for status text and color
     def _get_status_info(self, mapped, total):
         if total == 0: return "—", "#888888"
         perc = (mapped / total) * 100
         if perc >= 100:
-            return "100%", "#228B22"  # Zelená
+            return "100%", "#228B22"  # Green
         elif perc > 0:
-            return f"{int(perc)}%", "#FF8C00"  # Oranžová
-        return "0%", "#888888"  # Šedá
+            return f"{int(perc)}%", "#FF8C00"  # Orange
+        return "0%", "#888888"  # Gray
 
     def apply_filters(self):
         search_text = self.search_input.text().lower()
@@ -510,12 +510,16 @@ class FontSelectionDialog(QDialog):
         for name, data in unique.items():
             item = QListWidgetItem(name)
 
-            # --- Tady se generuje ikonka pro seznam ---
+            # Generate status icon for the list item
             status_text, color_code = self._get_status_info(data['mapped'], data['total'])
             item.setIcon(self._create_status_icon(color_code))
 
+            # Prioritize the current page if the font is available there,
+            # otherwise just use the first page it occurs on (from the data dict).
+            target_p = self.current_page if self.current_page in data['pages'] else data['page']
+
             item_data = {
-                'target_page': data['page'],
+                'target_page': target_p,
                 'name': name,
                 'all_pages': sorted(data['pages']),
                 'status': status_text,
@@ -541,7 +545,7 @@ class FontSelectionDialog(QDialog):
             self.list_widget.setCurrentItem(item_to_scroll)
             self.list_widget.scrollToItem(item_to_scroll, QListWidget.PositionAtCenter)
 
-    # --- POMOCNÉ METODY PRO IKONKY A STATUS ---
+    # --- HELPER METHODS FOR ICONS AND STATUS ---
     def _create_status_icon(self, color_str):
         size = 14
         pix = QPixmap(size, size)
@@ -624,17 +628,26 @@ class FontWidget(QMainWindow):
         super().__init__()
         # Initialize QSettings for persistent configuration
         self.settings_db = QSettings("GlyphRepairApp")
+        
+        def _get_bool(key, default):
+            val = self.settings_db.value(key, default)
+            if isinstance(val, str):
+                return val.lower() == 'true'
+            return bool(val)
 
         # Load settings from system or set default values
-        self.setting_page_mode = self.settings_db.value("page_mode", False, type=bool)
-        self.setting_auto_highlight = self.settings_db.value("auto_highlight", True, type=bool)
-        self.setting_auto_jump_glyph = self.settings_db.value("auto_jump_glyph", True, type=bool)
-        self.setting_auto_jump_font = self.settings_db.value("auto_jump_font", True, type=bool)
-        self.setting_auto_save_100 = self.settings_db.value("auto_save_100", True, type=bool)
-        self.setting_auto_save_timer = self.settings_db.value("auto_save_timer", False, type=bool)
+        self.setting_page_mode = _get_bool("page_mode", False)
+        self.setting_auto_highlight = _get_bool("auto_highlight", True)
+        self.setting_auto_jump_glyph = _get_bool("auto_jump_glyph", True)
+        self.setting_auto_jump_font = _get_bool("auto_jump_font", True)
+        self.setting_auto_save_100 = _get_bool("auto_save_100", True)
+        self.setting_auto_save_timer = _get_bool("auto_save_timer", False)
 
         self.current_suggestion_idx = -1
         self.active_suggestions_count = 0
+        
+        self.auto_save_timer = QtCore.QTimer(self)
+        self.auto_save_timer.timeout.connect(self.auto_save_interval_triggered)
 
         if self.setting_auto_save_timer:
             self.toggle_auto_save_timer(True)
@@ -663,9 +676,6 @@ class FontWidget(QMainWindow):
         self.setMinimumSize(1200, 800)
         self._update_window_title()
         self.statusBar().showMessage("Select PDF to repair")
-
-        self.auto_save_timer = QtCore.QTimer(self)
-        self.auto_save_timer.timeout.connect(self.auto_save_interval_triggered)
 
     def closeEvent(self, event):
         if not self.unsaved_changes:
@@ -725,7 +735,7 @@ class FontWidget(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         toolbar.addWidget(spacer)
 
-        self.lbl_toolbar_info = QLabel("Pages: - | Font - of -")
+        self.lbl_toolbar_info = QLabel("Font - of -")
         self.lbl_toolbar_info.setStyleSheet("color: #aaaaaa; font-size: 13px; margin-right: 15px;")
         toolbar.addWidget(self.lbl_toolbar_info)
 
@@ -747,7 +757,7 @@ class FontWidget(QMainWindow):
             self.save_to_db()
             self.statusBar().showMessage("Auto-save successful", 3000)
 
-    # initializes all widgets and layouts
+    # Initializes all widgets and layouts
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -756,6 +766,7 @@ class FontWidget(QMainWindow):
         self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.glyph_list.setSpacing(0)
         font = self.glyph_list.font()
+        font.setFamily("Consolas")
         font.setPointSize(20)
         font.setBold(True)
         self.glyph_list.setFont(font)
@@ -867,7 +878,7 @@ class FontWidget(QMainWindow):
             self.suggestions_layout.addWidget(btn)
             self.suggestion_buttons.append(btn)
 
-        self.suggestions_layout.addStretch()  # Natlačí návrhy doleva
+        self.suggestions_layout.addStretch()  # Push suggestions to the left
 
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("Enter character")
@@ -1016,7 +1027,7 @@ class FontWidget(QMainWindow):
         # Reset navigation labels
         self.btn_select_font.setText("No font loaded")
         self.btn_select_page.setText("Page: -")
-        self.lbl_toolbar_info.setText("Pages: -  |  Font - of -")
+        self.lbl_toolbar_info.setText("Font - of -")
         self.nav_page_widget.setVisible(False)
         self.unsaved_changes = False
         self._update_window_title()
@@ -1090,7 +1101,13 @@ class FontWidget(QMainWindow):
                 next_page = available_pages[0]
         fonts_on_page = self.menu_structure[next_page]
         if fonts_on_page:
-            self.load_font(next_page, fonts_on_page[0])
+            
+            # Prefer loading the same font on the new page if it exists there
+            target_font = fonts_on_page[0]
+            if self.current_font_name in fonts_on_page:
+                target_font = self.current_font_name
+                
+            self.load_font(next_page, target_font)
 
     def update_navigation_labels(self):
         if not self.pdf_path or not self.current_font_name or self.current_page is None:
@@ -1100,11 +1117,6 @@ class FontWidget(QMainWindow):
 
         self.btn_select_font.setText(self.current_font_name)
 
-        occurrences = []
-        for p_num, fonts in self.menu_structure.items():
-            if self.current_font_name in fonts:
-                occurrences.append(str(p_num + 1))
-        pages_str = ", ".join(occurrences)
 
         if self.setting_page_mode:
             fonts_on_page = self.menu_structure.get(self.current_page, [])
@@ -1114,7 +1126,7 @@ class FontWidget(QMainWindow):
             except ValueError:
                 current_idx = 0
 
-            self.lbl_toolbar_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Current Page)")
+            self.lbl_toolbar_info.setText(f"Font {current_idx} of {total} (Current Page)")
 
             all_pages = sorted(self.menu_structure.keys())
             page_idx = all_pages.index(self.current_page) + 1
@@ -1130,7 +1142,7 @@ class FontWidget(QMainWindow):
                     current_idx = i + 1
                     break
 
-            self.lbl_toolbar_info.setText(f"Pages: {pages_str}  |  Font {current_idx} of {total} (Global)")
+            self.lbl_toolbar_info.setText(f"Font {current_idx} of {total} (Global)")
 
     # Moves selection to the next glyph in the list
     def show_next(self):
@@ -1490,19 +1502,19 @@ class FontWidget(QMainWindow):
                 <table width="100%" cellspacing="8">
                     <tr>
                         <td width="50%" align="right"><b>Glyph Name:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{name}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{name}</td>
                     </tr>
                     <tr>
                         <td width="50%" align="right"><b>Character:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{ch}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{ch}</td>
                     </tr>
                     <tr>
                         <td width="50%" align="right"><b>Unicode:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{uhex}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{uhex}</td>
                     </tr>
                     <tr>
                         <td width="50%" align="right"><b>Adobe Glyph List:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold;">{agn}</td>
+                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{agn}</td>
                     </tr>
                 </table>
                 """
@@ -1559,8 +1571,13 @@ class FontWidget(QMainWindow):
                                         glyph = glyph_set[gname]
                                         pen = SignaturePen(glyph_set)
                                         glyph.draw(pen)
-                                        sig = pen.get_signature() or "EMPTY_SPACE"
-                                        ghash = md5(sig.encode('utf-8')).hexdigest()
+                                        
+                                        # Detect completely empty glyphs and assign a special hash
+                                        if not pen.signature:
+                                            ghash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
+                                        else:
+                                            sig = pen.get_signature()
+                                            ghash = md5(sig.encode('utf-8')).hexdigest()
                                         current_font_hashes.append(ghash)
                                     except:
                                         pass
@@ -1612,6 +1629,11 @@ class FontWidget(QMainWindow):
     # Loads known hashes from CSV into a Set for fast lookup
     def load_db_cache(self):
         self.known_glyph_hashes = set()
+        
+        # Always inject the special space hash
+        space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
+        self.known_glyph_hashes.add(space_hash)
+        
         self.db_records = []
         path = self.CSV_PATH
         if os.path.exists(path):
@@ -1708,6 +1730,19 @@ class FontWidget(QMainWindow):
         # Catches keyboard events in the user_input field for suggestion navigation
     def eventFilter(self, obj, event):
         if obj == self.user_input and event.type() == QtCore.QEvent.KeyPress:
+
+            # Allow Up/Down arrow keys to navigate the glyph list directly
+            if event.key() == QtCore.Qt.Key_Up:
+                if self.current_font_glyph_names and self.current_index > 0:
+                    self.current_index -= 1
+                    self.show_glyph()
+                return True
+                
+            elif event.key() == QtCore.Qt.Key_Down:
+                if self.current_font_glyph_names and self.current_index < len(self.current_font_glyph_names) - 1:
+                    self.current_index += 1
+                    self.show_glyph()
+                return True
 
             if not self.setting_auto_highlight:
                 return super().eventFilter(obj, event)
@@ -1819,6 +1854,13 @@ class FontWidget(QMainWindow):
         self.user_glyph_to_char = {}
         db_map = {}
 
+        # Add intrinsic empty space hash mapping
+        space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
+        db_map[space_hash] = {
+            "unicode_hex": "0020",
+            "AGN": "space"
+        }
+
         # Load DB into memory
         if os.path.exists(self.CSV_PATH):
             try:
@@ -1876,6 +1918,7 @@ if __name__ == "__main__":
     dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
     dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
     dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
+    dark_palette.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor("#898989"))
 
     app.setPalette(dark_palette)
 
