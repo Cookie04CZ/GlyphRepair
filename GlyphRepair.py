@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 # FontTools libraries for parsing font data (CFF format)
-from fontTools.agl import UV2AGL
+from fontTools.agl import UV2AGL, AGL2UV
 from fontTools.cffLib import CFFFontSet
 from fontTools.pens.basePen import BasePen
 
@@ -416,9 +416,10 @@ class PageSelectionDialog(QDialog):
 
 
 class FontSelectionDialog(QDialog):
-    def __init__(self, menu_data, font_cache, current_font_name, current_page, parent=None):
+    def __init__(self, menu_data, font_cache, current_font_name, current_page, use_agl, parent=None):
         super().__init__(parent)
         self.current_page = current_page
+        self.use_agl = use_agl
         self.setWindowTitle("Select Font")
         self.setMinimumSize(650, 500)
 
@@ -502,8 +503,9 @@ class FontSelectionDialog(QDialog):
                 total = info.get('glyph_count', 0)
                 if total == 0: continue
                 mapped = info.get('mapped_count', 0)
+                agl_c = info.get('agl_count', 0)
                 if name not in unique:
-                    unique[name] = {'total': total, 'mapped': mapped, 'page': page_num, 'pages': set()}
+                    unique[name] = {'total': total, 'mapped': mapped, 'agl': agl_c, 'page': page_num, 'pages': set()}
                 unique[name]['pages'].add(page_num)
 
         item_to_scroll = None
@@ -511,12 +513,14 @@ class FontSelectionDialog(QDialog):
             item = QListWidgetItem(name)
 
             # Generate status icon for the list item
-            status_text, color_code = self._get_status_info(data['mapped'], data['total'])
+            status_text, color_code = self._get_status_info(data['mapped'], data['total'], data['agl'])
             item.setIcon(self._create_status_icon(color_code))
 
             # Prioritize the current page if the font is available there,
             # otherwise just use the first page it occurs on (from the data dict).
             target_p = self.current_page if self.current_page in data['pages'] else data['page']
+
+            eff_mapped = data['mapped'] + data['agl'] if self.use_agl else data['mapped']
 
             item_data = {
                 'target_page': target_p,
@@ -524,7 +528,8 @@ class FontSelectionDialog(QDialog):
                 'all_pages': sorted(data['pages']),
                 'status': status_text,
                 'mapped': data['mapped'],
-                'total': data['total']
+                'total': data['total'],
+                'agl': data['agl']
             }
             item.setData(QtCore.Qt.UserRole, item_data)
 
@@ -558,13 +563,15 @@ class FontSelectionDialog(QDialog):
         p.end()
         return QIcon(pix)
 
-    def _get_status_info(self, mapped, total):
+    def _get_status_info(self, mapped, total, agl_count=0):
         if total == 0: return "—", "#888888"
         perc = (mapped / total) * 100
         if perc >= 100:
             return "100%", "#228B22"
         elif perc > 0:
             return f"{int(perc)}%", "#FF8C00"
+        elif agl_count > 0:
+            return "0%", "#3d7eff"
         return "0%", "#888888"
 
     def update_details_panel(self):
@@ -577,6 +584,8 @@ class FontSelectionDialog(QDialog):
             color = "#228B22"
         elif data['mapped'] > 0:
             color = "#FF8C00"
+        elif data.get('agl', 0) > 0:
+            color = "#3d7eff"
 
         self.lbl_det_name.setText(f"<b>Name:</b> {data['name']}")
         self.lbl_det_status.setText(
@@ -1477,6 +1486,9 @@ class FontWidget(QMainWindow):
                 disp = "[space]" if ch == " " else ch
                 item.setText(f" → {disp}")
                 item.setForeground(QtGui.QColor("#228B22"))
+            elif name in AGL2UV:
+                item.setText(f" {name}")
+                item.setForeground(QtGui.QColor("#3d7eff"))
             else:
                 item.setText(f" {name}")
                 item.setForeground(QtGui.QColor("#888888"))
@@ -1565,7 +1577,10 @@ class FontWidget(QMainWindow):
 
                                 # Calculate hashes for all glyphs in this font instance
                                 current_font_hashes = []
+                                agl_count = 0
                                 for gname in glyph_set.keys():
+                                    if gname in AGL2UV and gname != '.notdef':
+                                        agl_count += 1
                                     try:
                                         glyph = glyph_set[gname]
                                         pen = SignaturePen(glyph_set)
@@ -1588,6 +1603,7 @@ class FontWidget(QMainWindow):
                                 self.font_cache[(page_num, name)] = {
                                     'glyph_count': total_glyphs,
                                     'mapped_count': mapped_count,
+                                    'agl_count': agl_count,
                                     'glyph_hashes': current_font_hashes,
                                     'data': buffer
                                 }
@@ -1598,7 +1614,7 @@ class FontWidget(QMainWindow):
                         except Exception as e:
                             print(f"Error parsing font {name}: {e}")
                             self.font_cache[(page_num, name)] = {
-                                'glyph_count': 0, 'mapped_count': 0, 'glyph_hashes': []
+                                'glyph_count': 0, 'mapped_count': 0, 'agl_count': 0, 'glyph_hashes': []
                             }
 
             if first_page is not None:
