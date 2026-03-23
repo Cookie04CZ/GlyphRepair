@@ -3,6 +3,7 @@ import os
 import sys
 import webbrowser
 import difflib
+import re
 from hashlib import md5
 from io import BytesIO
 
@@ -19,8 +20,8 @@ import qtawesome as qta
 
 # GUI Libraries (PySide6) for the application interface
 from PySide6 import QtCore, QtGui
-from PySide6.QtGui import QImage, QPixmap, QIcon
-from PySide6.QtCore import QSettings
+from PySide6.QtGui import QImage, QPixmap, QIcon, QRegularExpressionValidator
+from PySide6.QtCore import QSettings, QRegularExpression
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
@@ -116,8 +117,7 @@ class MatplotlibPen(BasePen):
 
 
 # Class representing a pen that generates a string signature of a glyph
-# This is used for identification/hashing. It records the sequence of commands
-# but ignores specific coordinates if needed (though here we include them)
+# This is used for identification/hashing.
 class SignaturePen(BasePen):
     def __init__(self, glyphset):
         super().__init__(glyphset)
@@ -228,6 +228,7 @@ class SettingsDialog(QDialog):
         self.chk_auto_jump_font = QCheckBox()
         self.chk_auto_save_100 = QCheckBox()
         self.chk_auto_save_timer = QCheckBox()
+        self.chk_show_hex_input = QCheckBox()
 
         # Load current values from the parent (FontWidget)
         if parent:
@@ -237,6 +238,7 @@ class SettingsDialog(QDialog):
             self.chk_auto_jump_font.setChecked(parent.setting_auto_jump_font)
             self.chk_auto_save_100.setChecked(parent.setting_auto_save_100)
             self.chk_auto_save_timer.setChecked(parent.setting_auto_save_timer)
+            self.chk_show_hex_input.setChecked(parent.setting_show_hex_input)
 
         # Add widgets to layout with detailed descriptions
         self._add_setting_row(
@@ -268,6 +270,11 @@ class SettingsDialog(QDialog):
             "Auto-save every 5 mins",
             "Periodically save your progress in the background to prevent data loss.",
             self.chk_auto_save_timer
+        )
+        self._add_setting_row(
+            "Show Unicode Hex Input",
+            "Display the secondary input field for direct Unicode hex code entry.",
+            self.chk_show_hex_input
         )
 
         self.main_layout.addStretch()
@@ -614,7 +621,8 @@ class FontSelectionDialog(QDialog):
 
 # Main Application Window Class
 class FontWidget(QMainWindow):
-    ICON_SIZE = 64
+    ICON_SIZE_LARGE = 128
+    ICON_SIZE_SMALL = 64
     CSV_PATH = "glyph_mappings.csv"  # Database file path
 
     KNOWN_LIGATURES = {
@@ -651,6 +659,7 @@ class FontWidget(QMainWindow):
         self.setting_auto_jump_font = _get_bool("auto_jump_font", True)
         self.setting_auto_save_100 = _get_bool("auto_save_100", True)
         self.setting_auto_save_timer = _get_bool("auto_save_timer", False)
+        self.setting_show_hex_input = _get_bool("show_hex_input", False)
 
         self.current_suggestion_idx = -1
         self.active_suggestions_count = 0
@@ -772,14 +781,15 @@ class FontWidget(QMainWindow):
         self.setCentralWidget(central)
         # Create left sidebar list
         self.glyph_list = QListWidget()
-        self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
+        self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE))
         self.glyph_list.setSpacing(0)
         font = self.glyph_list.font()
         font.setFamily("Consolas")
-        font.setPointSize(20)
+        font.setPointSize(32)
         font.setBold(True)
         self.glyph_list.setFont(font)
         self.glyph_list.itemClicked.connect(self.on_glyph_clicked)
+        self.glyph_list.currentItemChanged.connect(self.on_list_item_changed)
         nav_group = QGroupBox("Navigation")
         nav_main_layout = QVBoxLayout(nav_group)
         nav_main_layout.setSpacing(10)
@@ -848,7 +858,7 @@ class FontWidget(QMainWindow):
         self.nav_page_widget.setVisible(False)
 
         preview_group = QGroupBox("Glyph Preview")
-        preview_layout = QVBoxLayout(preview_group)
+        preview_layout = QHBoxLayout(preview_group)
 
         self.canvas = GlyphCanvas(None)
         self.label = QLabel("Select glyph")
@@ -859,10 +869,11 @@ class FontWidget(QMainWindow):
         preview_layout.addWidget(self.label)
 
         mapping_group = QGroupBox("Mapping Tools")
-        mapping_layout = QHBoxLayout(mapping_group)
+        mapping_layout = QVBoxLayout(mapping_group)
 
-        left_panel = QVBoxLayout()
+        left_panel = QHBoxLayout()
         left_panel.setContentsMargins(0, 0, 0, 0)
+        left_panel.setSpacing(10)
 
         self.suggestions_layout = QHBoxLayout()
         self.suggestions_layout.setAlignment(QtCore.Qt.AlignLeft)
@@ -872,9 +883,9 @@ class FontWidget(QMainWindow):
         self.suggestion_buttons = []
         for _ in range(6):
             btn = QPushButton("")
-            btn.setFixedSize(40, 40)
+            btn.setFixedSize(60, 60)
             font_sug = btn.font()
-            font_sug.setPointSize(16)
+            font_sug.setPointSize(28)
             font_sug.setBold(True)
             btn.setFont(font_sug)
             btn.setStyleSheet("font-family: 'Consolas', monospace; border: 1px solid #555; border-radius: 4px;")
@@ -889,18 +900,39 @@ class FontWidget(QMainWindow):
 
         self.suggestions_layout.addStretch()  # Push suggestions to the left
 
-        self.user_input = QLineEdit()
-        self.user_input.setPlaceholderText("Enter character")
-        self.user_input.setMaxLength(3)
-        self.user_input.returnPressed.connect(self.save_glyph)
-        self.user_input.setEnabled(False)
-        self.user_input.setStyleSheet("font-size: 16px; padding: 5px;")
-        self.user_input.setMinimumHeight(35)
-        self.user_input.installEventFilter(self)
-        self.user_input.textChanged.connect(self.on_user_input_changed)
+        self.char_input = QLineEdit()
+        self.char_input.setPlaceholderText("Character")
+        self.char_input.setMaxLength(3)
+        self.char_input.returnPressed.connect(self.save_glyph)
+        self.char_input.setEnabled(False)
+        self.char_input.setStyleSheet("font-family: 'Consolas', monospace; font-size: 32px; font-weight: bold; padding: 5px;")
+        self.char_input.setMinimumHeight(50)
+        self.char_input.installEventFilter(self)
+        self.char_input.textChanged.connect(self.on_user_input_changed)
 
-        left_panel.addLayout(self.suggestions_layout)
-        left_panel.addWidget(self.user_input)
+        self.unic_input = QLineEdit()
+        self.unic_input.setPlaceholderText("Unicode Hex")
+        self.unic_input.setMaxLength(5)
+
+        hex_validator = QRegularExpressionValidator(QRegularExpression("[0-9a-fA-F]{0,5}"), self)
+        self.unic_input.setValidator(hex_validator)
+
+        self.unic_input.returnPressed.connect(self.save_glyph)
+        self.unic_input.setEnabled(False)
+        self.unic_input.setStyleSheet(
+            "font-family: 'Consolas', monospace; font-size: 32px; font-weight: bold; padding: 5px;")
+        self.unic_input.setMinimumHeight(50)
+        self.unic_input.installEventFilter(self)
+        self.unic_input.textChanged.connect(self.on_unic_input_changed)
+
+        self.unic_input.setVisible(self.setting_show_hex_input)
+
+        left_panel.addWidget(self.char_input)
+        left_panel.addWidget(self.unic_input)
+
+        user_inputs = QHBoxLayout()
+        user_inputs.addLayout(left_panel)
+
 
         right_panel = QVBoxLayout()
         right_panel.setContentsMargins(0, 0, 0, 0)
@@ -928,15 +960,14 @@ class FontWidget(QMainWindow):
         self.btn_font.setEnabled(False)
         self.btn_font.clicked.connect(self.submit_ToUnicode)
 
-        bottom_right_layout.addWidget(self.btn_glyph)
+        bottom_right_layout.addWidget(self.btn_next_unmapped)
         bottom_right_layout.addWidget(self.btn_special)
+        bottom_right_layout.addWidget(self.btn_glyph)
         bottom_right_layout.addWidget(self.btn_font)
 
-        right_panel.addWidget(self.btn_next_unmapped)
         right_panel.addLayout(bottom_right_layout)
 
-
-        mapping_layout.addLayout(left_panel, 1)
+        mapping_layout.addLayout(user_inputs, 1)
         mapping_layout.addLayout(right_panel, 0)
 
         right_layout = QVBoxLayout()
@@ -947,9 +978,21 @@ class FontWidget(QMainWindow):
         main_layout = QHBoxLayout(central)
 
         # Lock max width of the left list so it doesn't take too much space
-        self.glyph_list.setMaximumWidth(320)
+        self.glyph_list.setMaximumWidth(800)
+        
+        left_main_layout = QVBoxLayout()
+        left_main_layout.setContentsMargins(0, 0, 0, 0)
+        left_main_layout.addWidget(self.glyph_list, 1)
+        
+        # Adding a groupbox for suggestions below glyph list
+        suggestions_group = QGroupBox("Suggestions")
+        suggestions_group_layout = QVBoxLayout(suggestions_group)
+        suggestions_group_layout.setContentsMargins(5, 5, 5, 5)
+        suggestions_group_layout.addLayout(self.suggestions_layout)
+        
+        left_main_layout.addWidget(suggestions_group, 0)
 
-        main_layout.addWidget(self.glyph_list, 0)
+        main_layout.addLayout(left_main_layout, 3)
         main_layout.addLayout(right_layout, 4)
 
     # Opens the settings dialog, applies changes, and saves them persistently
@@ -959,6 +1002,7 @@ class FontWidget(QMainWindow):
             # Check if critical settings were changed
             page_mode_changed = self.setting_page_mode != dialog.chk_page_mode.isChecked()
             timer_changed = self.setting_auto_save_timer != dialog.chk_auto_save_timer.isChecked()
+            hex_visibility_changed = self.setting_show_hex_input != dialog.chk_show_hex_input.isChecked()
 
             # Update state variables
             self.setting_page_mode = dialog.chk_page_mode.isChecked()
@@ -967,6 +1011,7 @@ class FontWidget(QMainWindow):
             self.setting_auto_jump_font = dialog.chk_auto_jump_font.isChecked()
             self.setting_auto_save_100 = dialog.chk_auto_save_100.isChecked()
             self.setting_auto_save_timer = dialog.chk_auto_save_timer.isChecked()
+            self.setting_show_hex_input = dialog.chk_show_hex_input.isChecked()
 
             # Persist the new settings to the system
             self.settings_db.setValue("page_mode", self.setting_page_mode)
@@ -975,12 +1020,15 @@ class FontWidget(QMainWindow):
             self.settings_db.setValue("auto_jump_font", self.setting_auto_jump_font)
             self.settings_db.setValue("auto_save_100", self.setting_auto_save_100)
             self.settings_db.setValue("auto_save_timer", self.setting_auto_save_timer)
+            self.settings_db.setValue("show_hex_input", self.setting_show_hex_input)
 
             # Apply runtime changes
             if page_mode_changed:
                 self.update_navigation_labels()
             if timer_changed:
                 self.toggle_auto_save_timer(self.setting_auto_save_timer)
+            if hex_visibility_changed:
+                self.unic_input.setVisible(self.setting_show_hex_input)
 
     # Opens the dialog to select a specific page from the PDF
     def open_page_dialog(self):
@@ -1025,8 +1073,10 @@ class FontWidget(QMainWindow):
         self.glyph_list.clear()
         self.label.setText("No font loaded")
         self.canvas.draw_glyph(None, None, None, None)
-        self.user_input.clear()
-        self.user_input.setEnabled(False)
+        self.char_input.clear()
+        self.char_input.setEnabled(False)
+        self.unic_input.clear()
+        self.unic_input.setEnabled(False)
         self.btn_glyph.setEnabled(False)
         self.btn_font.setEnabled(False)
         if hasattr(self, 'suggestion_buttons'):
@@ -1166,27 +1216,66 @@ class FontWidget(QMainWindow):
             self.current_index = self.current_font_glyph_names.index(name)
             self.show_glyph()
 
+    # Dynamically resizes list items to show the selected one larger
+    def on_list_item_changed(self, current, previous):
+        if previous:
+            # Shrink the previously selected item
+            pix_large = previous.data(QtCore.Qt.UserRole + 2)
+            if pix_large:
+                pix_small = pix_large.scaled(
+                    self.ICON_SIZE_SMALL, self.ICON_SIZE_SMALL,
+                    QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+                )
+                previous.setIcon(QIcon(pix_small))
+                previous.setSizeHint(QtCore.QSize(0, self.ICON_SIZE_SMALL + 4))
+
+        if current:
+            # Enlarge the newly selected item
+            pix_large = current.data(QtCore.Qt.UserRole + 1)
+            if pix_large:
+                current.setIcon(QIcon(pix_large))
+                current.setSizeHint(QtCore.QSize(0, self.ICON_SIZE_LARGE + 4))
+
     # Core Logic: Saves the mapping for a single glyph
     def save_glyph(self):
-        text_input = self.user_input.text().strip()
+        text_input = self.char_input.text().strip()
+        unic_input = self.unic_input.text().strip().lower()
         glyph_name = self.current_font_glyph_names[self.current_index]
 
         unicode_hex = ""
         agn = ""
+        display = ""
 
-        if not text_input:
+        # Priority is given to Hex input if it is valid
+        if unic_input:
+            # Enforce the 4 to 5 characters rule
+            if len(unic_input) < 4:
+                QMessageBox.warning(self, "Invalid Length", "Unicode hex code must be at least 4 characters long.")
+                return
+
+            unicode_hex = unic_input.zfill(4)  # Ensure at least 4 characters
+            try:
+                ch = chr(int(unicode_hex, 16))
+                display = "[space]" if ch == " " else ch
+                agn = UV2AGL.get(int(unicode_hex, 16), "")
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Unicode",
+                                    f"The hex value '{unic_input}' is not a valid Unicode character.")
+                return
+        elif not text_input:
             text_input = " "
             unicode_hex = "0020"
             agn = "space"
-
+            display = "[space]"
         elif len(text_input) == 1:
             unicode_hex = format(ord(text_input), '04x')
             agn = UV2AGL.get(ord(text_input), "")
-
+            display = text_input
         else:
             if text_input in self.KNOWN_LIGATURES:
                 unicode_hex = self.KNOWN_LIGATURES[text_input]
                 agn = UV2AGL.get(int(unicode_hex, 16), text_input)
+                display = text_input
             else:
                 QMessageBox.warning(
                     self,
@@ -1208,11 +1297,11 @@ class FontWidget(QMainWindow):
 
         # Update UI List Item
         item = self.glyph_list.item(self.current_index)
-        display = "[space]" if text_input == " " else text_input
         item.setText(f" → {display}")
         item.setForeground(QtGui.QColor("#228B22"))  # Set to green
 
-        self.user_input.clear()
+        self.char_input.clear()
+        self.unic_input.clear()
         mapped_count = sum(1 for g in self.current_font_glyph_names if g in self.user_glyph_to_char)
         total_count = len(self.current_font_glyph_names)
         is_100_percent = (mapped_count == total_count)
@@ -1376,7 +1465,8 @@ class FontWidget(QMainWindow):
             self.show_glyph()
 
             # Enable controls
-            self.user_input.setEnabled(True)
+            self.char_input.setEnabled(True)
+            self.unic_input.setEnabled(True)
             self.btn_glyph.setEnabled(True)
             self.btn_font.setEnabled(True)
             self.btn_next_unmapped.setEnabled(True)
@@ -1390,7 +1480,7 @@ class FontWidget(QMainWindow):
             # Update dynamic navigation labels
             self.update_navigation_labels()
 
-            self.user_input.setFocus()
+            self.char_input.setFocus()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error while loading font:\n{e}")
@@ -1427,7 +1517,7 @@ class FontWidget(QMainWindow):
         self.current_index = 0
 
     # Generates a thumbnail image of a glyph for the list widget
-    def generate_icon(self, glyph_name, size=(64, 64)):
+    def generate_icon(self, glyph_name, size=(128, 128), draw_lines=False):
         # Create a small Matplotlib figure
         fig = Figure(figsize=(1.0, 1.0), dpi=200)
         ax = fig.add_subplot()
@@ -1437,28 +1527,43 @@ class FontWidget(QMainWindow):
         pen = MatplotlibPen(self.current_glyph_set)
         glyph.draw(pen)
 
+        # Calculate font metrics outside the vertices check so lines draw even on spaces
+        ascent = getattr(self.current_font, 'FontBBox', [0, 0, 0, 1000])[3]
+        descent = getattr(self.current_font, 'FontBBox', [0, -200, 0, 0])[1]
+        font_height = max(ascent - descent, 1)
+        scale = 1.6 / font_height
+
         # If glyph has data, draw it
         if pen.vertices:
             xs, ys = zip(*pen.vertices)
             min_x, max_x = min(xs), max(xs)
-            min_y, max_y = min(ys), max(ys)
             width = max_x - min_x
-            height = max_y - min_y
-            # Scale to fit comfortably in the icon square
-            scale = min(0.8 / max(width, height, 1), 0.8)
 
             vertices = []
             for x, y in pen.vertices:
                 x_transformed = (x - min_x - width / 2) * scale
-                y_transformed = (y - min_y - height / 2) * scale
+                y_transformed = (y - (ascent + descent) / 2) * scale
                 vertices.append((x_transformed, y_transformed))
 
             path = Path(vertices, pen.codes)
             patch = patches.PathPatch(path, facecolor='black', lw=0.5)
             ax.add_patch(patch)
-            ax.set_xlim(-1.0, 1.0)
-            ax.set_ylim(-1.0, 1.0)
-            ax.set_aspect('equal')
+
+        # Draw guidelines if requested
+        if draw_lines:
+            if self.notdef_baseline is not None and self.notdef_topline is not None:
+                y_base = (self.notdef_baseline - (ascent + descent) / 2) * scale
+                y_top = (self.notdef_topline - (ascent + descent) / 2) * scale
+                ax.axhline(y=y_base, color='blue', linestyle=':', linewidth=1.0)
+                ax.axhline(y=y_top, color='blue', linestyle=':', linewidth=1.0)
+            else:
+                # Fallback red line if .notdef metrics are missing
+                y_fallback = (0 - (ascent + descent) / 2) * scale
+                ax.axhline(y=y_fallback, color='red', linestyle=':', linewidth=1.0)
+
+        ax.set_xlim(-1.0, 1.0)
+        ax.set_ylim(-1.0, 1.0)
+        ax.set_aspect('equal')
 
         # Convert Figure to QPixmap
         canvas = FigureCanvasAgg(fig)
@@ -1475,10 +1580,30 @@ class FontWidget(QMainWindow):
         w.clear()
 
         for name in self.current_font_glyph_names:
-            pix = self.generate_icon(name, size=(self.ICON_SIZE, self.ICON_SIZE))
-            item = QListWidgetItem(QIcon(pix), "")
+            # Generate the clean version for the unselected small state
+            pix_clean = self.generate_icon(name, size=(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE), draw_lines=False)
+
+            # Create a small version for the default unselected state
+            pix_small = pix_clean.scaled(
+                self.ICON_SIZE_SMALL, self.ICON_SIZE_SMALL,
+                QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+            )
+
+            # Generate the version with guidelines for the large selected state
+            pix_large_lines = self.generate_icon(name, size=(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE),
+                                                 draw_lines=True)
+
+            item = QListWidgetItem(QIcon(pix_small), "")
             item.setData(QtCore.Qt.UserRole, name)
-            item.setSizeHint(QtCore.QSize(0, self.ICON_SIZE + 4))
+
+            # Cache the large pixmap with lines in the item itself using UserRole + 1
+            item.setData(QtCore.Qt.UserRole + 1, pix_large_lines)
+
+            # Cache the clean small pixmap so we can restore it later using UserRole + 2
+            item.setData(QtCore.Qt.UserRole + 2, pix_small)
+
+            # Set default small height
+            item.setSizeHint(QtCore.QSize(0, self.ICON_SIZE_SMALL + 4))
 
             # If already mapped in database, show result
             if name in self.user_glyph_to_char:
@@ -1539,7 +1664,7 @@ class FontWidget(QMainWindow):
 
         self.update_suggestions_ui(name, self.current_font_name)
 
-        self.user_input.setFocus()
+        self.char_input.setFocus()
 
     # Opens PDF file, scans structure, calculates hashes, and populates menus
     def open_pdf(self):
@@ -1742,9 +1867,15 @@ class FontWidget(QMainWindow):
             # Re-highlight the first button if the user deletes their text
             self.set_suggestion_highlight(0)
 
-        # Catches keyboard events in the user_input field for suggestion navigation
+    def on_unic_input_changed(self, text):
+        if text and self.current_suggestion_idx != -1:
+            self.set_suggestion_highlight(-1)
+        elif not text and self.setting_auto_highlight and self.active_suggestions_count > 0:
+            self.set_suggestion_highlight(0)
+
+        # Catches keyboard events in the char_input field for suggestion navigation
     def eventFilter(self, obj, event):
-        if obj == self.user_input and event.type() == QtCore.QEvent.KeyPress:
+        if obj in (self.char_input, self.unic_input) and event.type() == QtCore.QEvent.KeyPress:
 
             # Allow Up/Down arrow keys to navigate the glyph list directly
             if event.key() == QtCore.Qt.Key_Up:
@@ -1765,7 +1896,7 @@ class FontWidget(QMainWindow):
             # Left arrow
             if event.key() == QtCore.Qt.Key_Left:
                 # Allow normal left movement if there is text in the box
-                if self.user_input.text():
+                if obj.text():
                     return False
 
                 if self.active_suggestions_count > 0:
@@ -1777,7 +1908,7 @@ class FontWidget(QMainWindow):
             # Right arrow
             elif event.key() == QtCore.Qt.Key_Right:
                 # Allow normal right movement if there is text in the box
-                if self.user_input.text():
+                if obj.text():
                     return False
 
                 if self.active_suggestions_count > 0:
@@ -1790,7 +1921,7 @@ class FontWidget(QMainWindow):
             elif event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
                 # Apply highlighted suggestion ONLY if the text box is completely empty
                 # AND a valid suggestion is currently highlighted
-                if not self.user_input.text().strip() and self.current_suggestion_idx >= 0:
+                if not obj.text().strip() and self.current_suggestion_idx >= 0:
                     try:
                         btn = self.suggestion_buttons[self.current_suggestion_idx]
                         if btn.isVisible():
@@ -1807,7 +1938,7 @@ class FontWidget(QMainWindow):
 
     # Automatically fills input and triggers the save mechanism
     def apply_suggestion(self, char):
-        self.user_input.setText(char)
+        self.char_input.setText(char)
         self.save_glyph()
 
     # Saves current session work to the CSV file
