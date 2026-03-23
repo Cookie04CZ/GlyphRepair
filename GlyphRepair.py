@@ -3,7 +3,6 @@ import os
 import sys
 import webbrowser
 import difflib
-import re
 from hashlib import md5
 from io import BytesIO
 
@@ -423,10 +422,9 @@ class PageSelectionDialog(QDialog):
 
 
 class FontSelectionDialog(QDialog):
-    def __init__(self, menu_data, font_cache, current_font_name, current_page, use_agl, parent=None):
+    def __init__(self, menu_data, font_cache, current_font_name, current_page, parent=None):
         super().__init__(parent)
         self.current_page = current_page
-        self.use_agl = use_agl
         self.setWindowTitle("Select Font")
         self.setMinimumSize(650, 500)
 
@@ -481,10 +479,14 @@ class FontSelectionDialog(QDialog):
         self.lbl_det_name = QLabel("<b>Name:</b> -")
         self.lbl_det_name.setWordWrap(True)
         self.lbl_det_status = QLabel("<b>Mapped:</b> -")
+        self.lbl_det_agl = QLabel("<b>AGL Glyphs:</b> -")
+        self.lbl_det_unmapped = QLabel("<b>Unmapped:</b> -")
         self.lbl_det_pages = QLabel("<b>Occurs on Pages:</b> -")
         self.lbl_det_pages.setWordWrap(True)
         d_layout.addWidget(self.lbl_det_name)
         d_layout.addWidget(self.lbl_det_status)
+        d_layout.addWidget(self.lbl_det_agl)
+        d_layout.addWidget(self.lbl_det_unmapped)
         d_layout.addWidget(self.lbl_det_pages)
         d_layout.addStretch()
 
@@ -526,8 +528,6 @@ class FontSelectionDialog(QDialog):
             # Prioritize the current page if the font is available there,
             # otherwise just use the first page it occurs on (from the data dict).
             target_p = self.current_page if self.current_page in data['pages'] else data['page']
-
-            eff_mapped = data['mapped'] + data['agl'] if self.use_agl else data['mapped']
 
             item_data = {
                 'target_page': target_p,
@@ -573,12 +573,18 @@ class FontSelectionDialog(QDialog):
     def _get_status_info(self, mapped, total, agl_count=0):
         if total == 0: return "—", "#888888"
         perc = (mapped / total) * 100
+
         if perc >= 100:
-            return "100%", "#228B22"
-        elif perc > 0:
-            return f"{int(perc)}%", "#FF8C00"
-        elif agl_count > 0:
-            return "0%", "#3d7eff"
+            if agl_count > 0:
+                return "100%", "#00CED1"  # Teal/Cyan for 100% complete containing AGL
+            else:
+                return "100%", "#228B22"  # Solid Green for 100% strictly manual
+        elif perc > 0 or agl_count > 0:
+            if agl_count > 0:
+                return f"{int(perc)}%", "#3d7eff"  # Blue for in-progress containing AGL
+            else:
+                return f"{int(perc)}%", "#FF8C00"  # Orange for in-progress purely manual
+
         return "0%", "#888888"
 
     def update_details_panel(self):
@@ -586,17 +592,33 @@ class FontSelectionDialog(QDialog):
         if not item: return
         data = item.data(QtCore.Qt.UserRole)
         pages_str = ", ".join(str(p + 1) for p in data['all_pages'])
+
+        mapped = data['mapped']
+        total = data['total']
+        agl = data.get('agl', 0)
+        unmapped = total - mapped
+
+        # Match color logic with the status dots
         color = "#f0f0f0"
-        if data['mapped'] == data['total'] and data['total'] > 0:
-            color = "#228B22"
-        elif data['mapped'] > 0:
-            color = "#FF8C00"
-        elif data.get('agl', 0) > 0:
-            color = "#3d7eff"
+        if mapped == total and total > 0:
+            color = "#00CED1" if agl > 0 else "#228B22"
+        elif mapped > 0 or agl > 0:
+            color = "#3d7eff" if agl > 0 else "#FF8C00"
 
         self.lbl_det_name.setText(f"<b>Name:</b> {data['name']}")
         self.lbl_det_status.setText(
-            f"<b>Mapped:</b> <span style='color:{color}'>{data['status']}</span> ({data['mapped']}/{data['total']})")
+            f"<b>Mapped:</b> <span style='color:{color}; font-weight:bold;'>{data['status']}</span> ({mapped} / {total})"
+        )
+
+        # Format AGL info
+        agl_text = f"<span style='color:#00CED1;'>Yes ({agl})</span>" if agl > 0 else "No"
+        self.lbl_det_agl.setText(f"<b>AGL Glyphs:</b> {agl_text}")
+
+        # Format Unmapped info (Red if there is work to do, Green if done)
+        unmapped_color = "#ff4444" if unmapped > 0 else "#228B22"
+        self.lbl_det_unmapped.setText(
+            f"<b>Unmapped:</b> <span style='color:{unmapped_color}; font-weight:bold;'>{unmapped}</span>")
+
         self.lbl_det_pages.setText(f"<b>Occurs on Pages:</b> {pages_str}")
 
     def apply_filters(self):
@@ -1053,8 +1075,7 @@ class FontWidget(QMainWindow):
             self.menu_structure,
             self.font_cache,
             self.current_font_name,
-            self.current_page,
-            self
+            self.current_page
         )
 
         if dialog.exec():
@@ -1302,7 +1323,9 @@ class FontWidget(QMainWindow):
 
         self.char_input.clear()
         self.unic_input.clear()
-        mapped_count = sum(1 for g in self.current_font_glyph_names if g in self.user_glyph_to_char)
+
+        # Calculate completion including both manual maps and auto AGL maps
+        mapped_count = sum(1 for g in self.current_font_glyph_names if g in self.user_glyph_to_char or (g in AGL2UV and g != 'space'))
         total_count = len(self.current_font_glyph_names)
         is_100_percent = (mapped_count == total_count)
 
@@ -1318,8 +1341,6 @@ class FontWidget(QMainWindow):
 
         if self.setting_auto_jump_glyph:
             self.jump_to_next_unmapped()
-        else:
-            pass
 
     # Returns an ordered list of all (page, font_name) pairs
     def _get_page_mode_sequence(self):
@@ -1346,9 +1367,11 @@ class FontWidget(QMainWindow):
         if not self.pdf_path or not hasattr(self, 'menu_structure'):
             return
 
+            # Check remaining glyphs in the current font
         if self.current_font_glyph_names:
             for i in range(self.current_index + 1, len(self.current_font_glyph_names)):
-                if self.current_font_glyph_names[i] not in self.user_glyph_to_char:
+                gname = self.current_font_glyph_names[i]
+                if gname not in self.user_glyph_to_char and gname not in AGL2UV:
                     self.current_index = i
                     self.show_glyph()
                     return
@@ -1379,33 +1402,38 @@ class FontWidget(QMainWindow):
         else:
             ordered_seq = seq
 
+        # Check next fonts
         for p, fname in ordered_seq:
             if p == self.current_page and fname == self.current_font_name:
                 continue
 
             info = self.font_cache.get((p, fname), {})
             mapped = info.get('mapped_count', 0)
+            agl_c = info.get('agl_count', 0)
             total = info.get('glyph_count', 0)
 
-            if mapped < total:
+            # Check if font has any non-AGL and unmapped glyphs left
+            if (mapped + agl_c) < total:
                 if self.unsaved_changes:
                     self.save_to_db()
 
                 self.load_font(p, fname)
                 for i, gname in enumerate(self.current_font_glyph_names):
-                    if gname not in self.user_glyph_to_char:
+                    if gname not in self.user_glyph_to_char and gname not in AGL2UV:
                         self.current_index = i
                         self.show_glyph()
                         return
 
+        # Wrap around to the beginning of the current font
         if self.current_font_glyph_names:
             for i in range(0, self.current_index):
-                if self.current_font_glyph_names[i] not in self.user_glyph_to_char:
+                gname = self.current_font_glyph_names[i]
+                if gname not in self.user_glyph_to_char and gname not in AGL2UV:
                     self.current_index = i
                     self.show_glyph()
                     return
 
-        QMessageBox.information(self, "Finished", "Great! No more unmapped glyphs found.")
+        QMessageBox.information(self, "Finished", "Great! No more unmapped non-AGL glyphs found.")
 
     # Opens a web helper for finding symbols
     def open_special(self):
@@ -1612,8 +1640,10 @@ class FontWidget(QMainWindow):
                 item.setText(f" → {disp}")
                 item.setForeground(QtGui.QColor("#228B22"))
             elif name in AGL2UV:
-                item.setText(f" {name}")
-                item.setForeground(QtGui.QColor("#3d7eff"))
+                ch = chr(AGL2UV[name])
+                disp = "[space]" if ch == " " else ch
+                item.setText(f" → {disp}")
+                item.setForeground(QtGui.QColor("#3d7eff"))  # Blue text to signify AGL mapped
             else:
                 item.setText(f" {name}")
                 item.setForeground(QtGui.QColor("#888888"))
@@ -1629,8 +1659,14 @@ class FontWidget(QMainWindow):
         mapping = self.user_glyph_to_char.get(name, {})
         uhex = mapping.get("unicode_hex", "None")
         agn = mapping.get("AGN", "None")
-        ch = chr(int(uhex, 16)) if uhex != "None" else "None"
 
+        # If it's an AGL glyph, prioritize showing its inherent AGL value
+        is_agl = name in AGL2UV
+        if is_agl:
+            uhex = format(AGL2UV[name], '04x').upper()
+            agn = name
+
+        ch = chr(int(uhex, 16)) if uhex != "None" else "None"
         if ch == " ": ch = "[space]"
 
         # Update Information Label using HTML formatting
@@ -1662,9 +1698,24 @@ class FontWidget(QMainWindow):
             self.glyph_list.setCurrentItem(item)
             self.glyph_list.scrollToItem(item, QListWidget.EnsureVisible)
 
-        self.update_suggestions_ui(name, self.current_font_name)
-
-        self.char_input.setFocus()
+        # Lock inputs and disable suggestions if it's a standard AGL glyph
+        if is_agl:
+            self.char_input.setEnabled(False)
+            self.unic_input.setEnabled(False)
+            self.btn_glyph.setEnabled(False)
+            self.char_input.setPlaceholderText("AGL Auto")
+            self.unic_input.setPlaceholderText("AGL Auto")
+            for btn in self.suggestion_buttons:
+                btn.setEnabled(False)
+                btn.setVisible(False)
+        else:
+            self.char_input.setEnabled(True)
+            self.unic_input.setEnabled(self.setting_show_hex_input)
+            self.btn_glyph.setEnabled(True)
+            self.char_input.setPlaceholderText("Character")
+            self.unic_input.setPlaceholderText("Unicode Hex")
+            self.update_suggestions_ui(name, self.current_font_name)
+            self.char_input.setFocus()
 
     # Opens PDF file, scans structure, calculates hashes, and populates menus
     def open_pdf(self):
@@ -1698,31 +1749,34 @@ class FontWidget(QMainWindow):
                                 tmp_font = CFFFontSet()
                                 tmp_font.decompile(BytesIO(buffer), None)
                                 glyph_set = tmp_font.topDictIndex[0].CharStrings
-                                total_glyphs = len(glyph_set)
+
+                                # Vyfiltrujeme .notdef
+                                valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+                                total_glyphs = len(valid_glyph_names)
 
                                 # Calculate hashes for all glyphs in this font instance
-                                current_font_hashes = []
+                                current_font_hashes = {}
                                 agl_count = 0
-                                for gname in glyph_set.keys():
-                                    if gname in AGL2UV and gname != '.notdef':
+                                for gname in valid_glyph_names:
+                                    if gname in AGL2UV and gname != 'space':
                                         agl_count += 1
                                     try:
                                         glyph = glyph_set[gname]
                                         pen = SignaturePen(glyph_set)
                                         glyph.draw(pen)
-                                        
+
                                         # Detect completely empty glyphs and assign a special hash
                                         if not pen.signature:
                                             ghash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
                                         else:
                                             sig = pen.get_signature()
                                             ghash = md5(sig.encode('utf-8')).hexdigest()
-                                        current_font_hashes.append(ghash)
+                                        current_font_hashes[gname] = ghash
                                     except:
                                         pass
 
-                                # Count how many hashes are already in our DB
-                                mapped_count = sum(1 for h in current_font_hashes if h in self.known_glyph_hashes)
+                                mapped_count = sum(1 for gname, h in current_font_hashes.items() if (
+                                            gname in AGL2UV and gname != 'space') or h in self.known_glyph_hashes)
 
                                 # Cache the data
                                 self.font_cache[(page_num, name)] = {
@@ -1761,9 +1815,9 @@ class FontWidget(QMainWindow):
     def update_statistics(self):
         self.load_db_cache()
         for key, info in self.font_cache.items():
-            hashes = info.get('glyph_hashes', [])
-            if not hashes: continue
-            new_mapped_count = sum(1 for h in hashes if h in self.known_glyph_hashes)
+            hashes_dict = info.get('glyph_hashes', {})
+            if not hashes_dict: continue
+            new_mapped_count = sum(1 for gname, h in hashes_dict.items() if (gname in AGL2UV and gname != 'space') or h in self.known_glyph_hashes)
             info['mapped_count'] = new_mapped_count
 
     # Loads known hashes from CSV into a Set for fast lookup
@@ -1963,6 +2017,10 @@ class FontWidget(QMainWindow):
 
         # Update existing data with new mappings
         for gname, data in self.user_glyph_to_char.items():
+            # Skip saving strictly AGL glyphs to the database
+            if gname in AGL2UV:
+                continue
+
             g_hash = data.get("glyph_hash") or self.get_glyph_hash(gname)
 
             if g_hash:
@@ -2023,6 +2081,12 @@ class FontWidget(QMainWindow):
             g_hash = self.get_glyph_hash(name)
             if g_hash and g_hash in db_map:
                 row = db_map[g_hash]
+
+                if name in AGL2UV and name != '.notdef':
+                    default_hex = format(AGL2UV[name], '04x').upper()
+                    if row["unicode_hex"].upper() == default_hex:
+                        continue
+
                 self.user_glyph_to_char[name] = {
                     "glyph_hash": g_hash,
                     "unicode_hex": row["unicode_hex"],
