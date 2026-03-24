@@ -564,9 +564,18 @@ class FontSelectionDialog(QDialog):
         pix.fill(QtCore.Qt.transparent)
         p = QtGui.QPainter(pix)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
-        p.setBrush(QtGui.QBrush(QtGui.QColor(color_str)))
         p.setPen(QtCore.Qt.NoPen)
-        p.drawEllipse(2, 2, size - 4, size - 4)
+
+        if color_str.upper() == "#00CED1":
+            p.setBrush(QtGui.QBrush(QtGui.QColor("#3d7eff")))
+            p.drawPie(2, 2, size - 4, size - 4, 90 * 16, 180 * 16)
+
+            p.setBrush(QtGui.QBrush(QtGui.QColor("#228B22")))
+            p.drawPie(2, 2, size - 4, size - 4, 270 * 16, 180 * 16)
+        else:
+            p.setBrush(QtGui.QBrush(QtGui.QColor(color_str)))
+            p.drawEllipse(2, 2, size - 4, size - 4)
+
         p.end()
         return QIcon(pix)
 
