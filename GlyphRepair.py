@@ -25,13 +25,22 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
-    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox
+    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar
 )
 
 # FontTools libraries for parsing font data (CFF format)
 from fontTools.agl import UV2AGL, AGL2UV
 from fontTools.cffLib import CFFFontSet
 from fontTools.pens.basePen import BasePen
+
+# Dictionary combining standard AGL with custom project-specific glyph names
+EXTENDED_AGL = AGL2UV.copy()
+EXTENDED_AGL.update({
+    "nonbreakingspace": 0x00A0,
+    "Ohm": 0x2126,
+    "Omegagreek": 0x2126,
+    # Add any other missing glyphs you want to auto-map here
+})
 
 
 # Function to extract raw font data from a specific page in a PDF
@@ -192,7 +201,8 @@ class GlyphCanvas(FigureCanvas):
             ax.axhline(y=max_y, color='blue', linestyle=':', linewidth=1.5)
         else:
             # Fallback red line if .notdef metrics are missing
-            ax.axhline(y=bottom_margin, color='red', linestyle=':', linewidth=1.5)
+            fallback_y = (0 - descent) * scale + bottom_margin
+            ax.axhline(y=fallback_y, color='red', linestyle=':', linewidth=1.5)
 
         vertices = []
         for x, y in pen.vertices:
@@ -784,9 +794,23 @@ class FontWidget(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         toolbar.addWidget(spacer)
 
+        self.font_progress = QProgressBar()
+        self.font_progress.setFixedSize(150, 18)
+
+        self.action_progress = toolbar.addWidget(self.font_progress)
+        self.action_progress.setVisible(False)
+
+        spacer_small = QWidget()
+        spacer_small.setFixedWidth(15)
+        toolbar.addWidget(spacer_small)
+
         self.lbl_toolbar_info = QLabel("Font - of -")
         self.lbl_toolbar_info.setStyleSheet("color: #aaaaaa; font-size: 13px; margin-right: 15px;")
         toolbar.addWidget(self.lbl_toolbar_info)
+
+        spacer_small = QWidget()
+        spacer_small.setFixedWidth(15)
+        toolbar.addWidget(spacer_small)
 
         settings_action = toolbar.addAction("Settings")
         settings_icon = qta.icon('fa5s.cog', color='white')
@@ -1098,6 +1122,73 @@ class FontWidget(QMainWindow):
         self.setting_page_mode = mode
         self.update_navigation_labels()
 
+    # Updates the progress bar in the toolbar with the current font's completion status
+    # It calculates the live state independently, leaving font_cache untouched for the menus
+    def update_progress_bar(self):
+        if not self.current_font_glyph_names or self.current_page is None:
+            self.action_progress.setVisible(False)
+            return
+
+        self.action_progress.setVisible(True)
+
+        # Load base statistics and hashes from the static cache
+        info = self.font_cache.get((self.current_page, self.current_font_name), {})
+        total = info.get('glyph_count', 0)
+        agl_count = info.get('agl_count', 0)
+        hashes_dict = info.get('glyph_hashes', {})  # Získáme předpočítané hashe
+
+        # Calculate live mapped characters for the progress bar only
+        current_session_mapped = set()
+        for gname in self.current_font_glyph_names:
+            if gname in self.user_glyph_to_char:
+                current_session_mapped.add(gname)
+            elif gname in EXTENDED_AGL:
+                current_session_mapped.add(gname)
+            elif hashes_dict.get(gname) in self.known_glyph_hashes:
+                current_session_mapped.add(gname)
+
+        actual_mapped = len(current_session_mapped)
+
+        # Update the visual progress bar widget
+        self.font_progress.setMaximum(total)
+        self.font_progress.setValue(actual_mapped)
+
+        _, color = self._get_status_info(actual_mapped, total, agl_count)
+
+        self.font_progress.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: #2a2a2a;
+                text-align: center;
+                color: white;
+                font-weight: bold;
+                font-size: 11px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color};
+                border-radius: 3px;
+            }}
+        """)
+        self.font_progress.setFormat(f"{actual_mapped} / {total}")
+
+    def _get_status_info(self, mapped, total, agl_count=0):
+        if total == 0:
+            return "—", "#888888" # Gray
+        perc = (mapped / total) * 100
+
+        if perc >= 100:
+            if agl_count > 0:
+                return "100%", "#00CED1"  # Teal/Cyan
+            else:
+                return "100%", "#228B22"  # Green
+        elif perc > 0 or agl_count > 0:
+            if agl_count > 0:
+                return f"{int(perc)}%", "#3d7eff"  # Blue
+            else:
+                return f"{int(perc)}%", "#FF8C00"  # Orange
+        return "0%", "#888888" # Gray
+
     # Resets the UI elements when no font is loaded
     def clear_ui_state(self):
         self.glyph_list.clear()
@@ -1112,6 +1203,10 @@ class FontWidget(QMainWindow):
         if hasattr(self, 'suggestion_buttons'):
             for btn in self.suggestion_buttons:
                 btn.setEnabled(False)
+
+        # Hide progress bar
+        if hasattr(self, 'font_progress'):
+            self.action_progress.setVisible(False)
 
         # Reset navigation labels
         self.btn_select_font.setText("No font loaded")
@@ -1333,8 +1428,21 @@ class FontWidget(QMainWindow):
         self.char_input.clear()
         self.unic_input.clear()
 
-        # Calculate completion including both manual maps and auto AGL maps
-        mapped_count = sum(1 for g in self.current_font_glyph_names if g in self.user_glyph_to_char or (g in AGL2UV and g != 'space'))
+        self.update_progress_bar()
+
+        # Calculate completion accurately including DB hashes
+        info = self.font_cache.get((self.current_page, self.current_font_name), {})
+        hashes_dict = info.get('glyph_hashes', {})
+
+        mapped_count = 0
+        for g in self.current_font_glyph_names:
+            if g in self.user_glyph_to_char:
+                mapped_count += 1
+            elif g in EXTENDED_AGL:
+                mapped_count += 1
+            elif hashes_dict.get(g) in self.known_glyph_hashes:
+                mapped_count += 1
+
         total_count = len(self.current_font_glyph_names)
         is_100_percent = (mapped_count == total_count)
 
@@ -1380,7 +1488,7 @@ class FontWidget(QMainWindow):
         if self.current_font_glyph_names:
             for i in range(self.current_index + 1, len(self.current_font_glyph_names)):
                 gname = self.current_font_glyph_names[i]
-                if gname not in self.user_glyph_to_char and gname not in AGL2UV:
+                if gname not in self.user_glyph_to_char and gname not in EXTENDED_AGL:
                     self.current_index = i
                     self.show_glyph()
                     return
@@ -1428,7 +1536,7 @@ class FontWidget(QMainWindow):
 
                 self.load_font(p, fname)
                 for i, gname in enumerate(self.current_font_glyph_names):
-                    if gname not in self.user_glyph_to_char and gname not in AGL2UV:
+                    if gname not in self.user_glyph_to_char and gname not in EXTENDED_AGL:
                         self.current_index = i
                         self.show_glyph()
                         return
@@ -1437,7 +1545,7 @@ class FontWidget(QMainWindow):
         if self.current_font_glyph_names:
             for i in range(0, self.current_index):
                 gname = self.current_font_glyph_names[i]
-                if gname not in self.user_glyph_to_char and gname not in AGL2UV:
+                if gname not in self.user_glyph_to_char and gname not in EXTENDED_AGL:
                     self.current_index = i
                     self.show_glyph()
                     return
@@ -1516,6 +1624,7 @@ class FontWidget(QMainWindow):
 
             # Update dynamic navigation labels
             self.update_navigation_labels()
+            self.update_progress_bar()
 
             self.char_input.setFocus()
 
@@ -1645,12 +1754,12 @@ class FontWidget(QMainWindow):
             # If already mapped in database, show result
             if name in self.user_glyph_to_char:
                 ch = chr(int(self.user_glyph_to_char[name]["unicode_hex"], 16))
-                disp = "[space]" if ch == " " else ch
+                disp = "[space]" if ch.isspace() else ch
                 item.setText(f" → {disp}")
                 item.setForeground(QtGui.QColor("#228B22"))
-            elif name in AGL2UV:
-                ch = chr(AGL2UV[name])
-                disp = "[space]" if ch == " " else ch
+            elif name in EXTENDED_AGL:
+                ch = chr(EXTENDED_AGL[name])
+                disp = "[space]" if ch.isspace() else ch
                 item.setText(f" → {disp}")
                 item.setForeground(QtGui.QColor("#3d7eff"))  # Blue text to signify AGL mapped
             else:
@@ -1670,9 +1779,9 @@ class FontWidget(QMainWindow):
         agn = mapping.get("AGN", "None")
 
         # If it's an AGL glyph, prioritize showing its inherent AGL value
-        is_agl = name in AGL2UV
+        is_agl = name in EXTENDED_AGL
         if is_agl:
-            uhex = format(AGL2UV[name], '04x').upper()
+            uhex = format(EXTENDED_AGL[name], '04x').upper()
             agn = name
 
         ch = chr(int(uhex, 16)) if uhex != "None" else "None"
@@ -1767,7 +1876,7 @@ class FontWidget(QMainWindow):
                                 current_font_hashes = {}
                                 agl_count = 0
                                 for gname in valid_glyph_names:
-                                    if gname in AGL2UV and gname != 'space':
+                                    if gname in EXTENDED_AGL:
                                         agl_count += 1
                                     try:
                                         glyph = glyph_set[gname]
@@ -1785,7 +1894,7 @@ class FontWidget(QMainWindow):
                                         pass
 
                                 mapped_count = sum(1 for gname, h in current_font_hashes.items() if (
-                                            gname in AGL2UV and gname != 'space') or h in self.known_glyph_hashes)
+                                            gname in EXTENDED_AGL) or h in self.known_glyph_hashes)
 
                                 # Cache the data
                                 self.font_cache[(page_num, name)] = {
@@ -1826,7 +1935,7 @@ class FontWidget(QMainWindow):
         for key, info in self.font_cache.items():
             hashes_dict = info.get('glyph_hashes', {})
             if not hashes_dict: continue
-            new_mapped_count = sum(1 for gname, h in hashes_dict.items() if (gname in AGL2UV and gname != 'space') or h in self.known_glyph_hashes)
+            new_mapped_count = sum(1 for gname, h in hashes_dict.items() if (gname in EXTENDED_AGL) or h in self.known_glyph_hashes)
             info['mapped_count'] = new_mapped_count
 
     # Loads known hashes from CSV into a Set for fast lookup
@@ -2027,7 +2136,7 @@ class FontWidget(QMainWindow):
         # Update existing data with new mappings
         for gname, data in self.user_glyph_to_char.items():
             # Skip saving strictly AGL glyphs to the database
-            if gname in AGL2UV:
+            if gname in EXTENDED_AGL:
                 continue
 
             g_hash = data.get("glyph_hash") or self.get_glyph_hash(gname)
@@ -2087,15 +2196,15 @@ class FontWidget(QMainWindow):
 
         # Check each glyph in current font against DB
         for name in self.current_font_glyph_names:
+
+            # Absolute AGL priority: If the glyph is in our AGL list,
+            # ignore the database entirely to prevent overriding it with wrong hashes.
+            if name in EXTENDED_AGL and name != '.notdef':
+                continue
+
             g_hash = self.get_glyph_hash(name)
             if g_hash and g_hash in db_map:
                 row = db_map[g_hash]
-
-                if name in AGL2UV and name != '.notdef':
-                    default_hex = format(AGL2UV[name], '04x').upper()
-                    if row["unicode_hex"].upper() == default_hex:
-                        continue
-
                 self.user_glyph_to_char[name] = {
                     "glyph_hash": g_hash,
                     "unicode_hex": row["unicode_hex"],
@@ -2147,7 +2256,7 @@ if __name__ == "__main__":
         
         QToolBar { 
             border: none;
-            border-bottom: 1px solid #333; /* Decentní tmavá linka vespod */
+            border-bottom: 1px solid #333;
             background: #1e1e1e;
             padding: 3px;
         }
@@ -2159,10 +2268,10 @@ if __name__ == "__main__":
             margin: 2px;
         }
         QToolBar QToolButton:hover {
-            background-color: #3d3d3d; /* Jemné zvýraznění při najetí */
+            background-color: #3d3d3d;
         }
         QToolBar QToolButton:pressed {
-            background-color: #3d7eff; /* Modrá při kliknutí */
+            background-color: #3d7eff;
         }
     """)
 
