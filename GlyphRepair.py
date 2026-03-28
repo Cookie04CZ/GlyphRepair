@@ -236,6 +236,7 @@ class SettingsDialog(QDialog):
         self.chk_auto_jump_glyph = QCheckBox()
         self.chk_auto_jump_font = QCheckBox()
         self.chk_auto_save_100 = QCheckBox()
+        self.chk_auto_save_on_switch = QCheckBox()
         self.chk_auto_save_timer = QCheckBox()
         self.chk_show_hex_input = QCheckBox()
 
@@ -246,6 +247,7 @@ class SettingsDialog(QDialog):
             self.chk_auto_jump_glyph.setChecked(parent.setting_auto_jump_glyph)
             self.chk_auto_jump_font.setChecked(parent.setting_auto_jump_font)
             self.chk_auto_save_100.setChecked(parent.setting_auto_save_100)
+            self.chk_auto_save_on_switch.setChecked(parent.setting_auto_save_on_switch)
             self.chk_auto_save_timer.setChecked(parent.setting_auto_save_timer)
             self.chk_show_hex_input.setChecked(parent.setting_show_hex_input)
 
@@ -274,6 +276,11 @@ class SettingsDialog(QDialog):
             "Auto-save database at 100%",
             "Automatically save your progress to the CSV file when a font is fully mapped.",
             self.chk_auto_save_100
+        )
+        self._add_setting_row(
+            "Auto-save on Switch",
+            "Automatically save your progress when switching to a different font or page.",
+            self.chk_auto_save_on_switch
         )
         self._add_setting_row(
             "Auto-save every 5 mins",
@@ -699,6 +706,7 @@ class FontWidget(QMainWindow):
         self.setting_auto_jump_glyph = _get_bool("auto_jump_glyph", True)
         self.setting_auto_jump_font = _get_bool("auto_jump_font", True)
         self.setting_auto_save_100 = _get_bool("auto_save_100", True)
+        self.setting_auto_save_on_switch = _get_bool("auto_save_on_switch", True)
         self.setting_auto_save_timer = _get_bool("auto_save_timer", False)
         self.setting_show_hex_input = _get_bool("show_hex_input", False)
 
@@ -1070,6 +1078,7 @@ class FontWidget(QMainWindow):
             self.setting_auto_jump_glyph = dialog.chk_auto_jump_glyph.isChecked()
             self.setting_auto_jump_font = dialog.chk_auto_jump_font.isChecked()
             self.setting_auto_save_100 = dialog.chk_auto_save_100.isChecked()
+            self.setting_auto_save_on_switch = dialog.chk_auto_save_on_switch.isChecked()
             self.setting_auto_save_timer = dialog.chk_auto_save_timer.isChecked()
             self.setting_show_hex_input = dialog.chk_show_hex_input.isChecked()
 
@@ -1079,6 +1088,7 @@ class FontWidget(QMainWindow):
             self.settings_db.setValue("auto_jump_glyph", self.setting_auto_jump_glyph)
             self.settings_db.setValue("auto_jump_font", self.setting_auto_jump_font)
             self.settings_db.setValue("auto_save_100", self.setting_auto_save_100)
+            self.settings_db.setValue("auto_save_on_switch", self.setting_auto_save_on_switch)
             self.settings_db.setValue("auto_save_timer", self.setting_auto_save_timer)
             self.settings_db.setValue("show_hex_input", self.setting_show_hex_input)
 
@@ -1595,6 +1605,10 @@ class FontWidget(QMainWindow):
 
     # Loads a specific font from the PDF into memory and UI
     def load_font(self, page, font_name):
+        # Save any unsaved progress before switching to a new font/page if setting is enabled
+        if self.setting_auto_save_on_switch and getattr(self, 'unsaved_changes', False):
+            self.save_to_db()
+
         self.current_page = page
         self.current_font_name = font_name
         self._update_window_title()
