@@ -935,12 +935,17 @@ class FontWidget(QMainWindow):
         self.suggestions_layout.setContentsMargins(0, 0, 0, 0)
         self.suggestions_layout.setSpacing(6)
 
+        self.lbl_no_suggestions = QLabel("No suggestions")
+        self.lbl_no_suggestions.setStyleSheet("color: #888888; font-style: italic; font-size: 14px; padding: 10px;")
+        self.lbl_no_suggestions.setVisible(False)
+        self.suggestions_layout.addWidget(self.lbl_no_suggestions)
+
         self.suggestion_buttons = []
         for _ in range(6):
             btn = QPushButton("")
-            btn.setFixedSize(60, 60)
+            btn.setFixedSize(100, 100)
             font_sug = btn.font()
-            font_sug.setPointSize(28)
+            font_sug.setPointSize(42)
             font_sug.setBold(True)
             btn.setFont(font_sug)
             btn.setStyleSheet("font-family: 'Consolas', monospace; border: 1px solid #555; border-radius: 4px;")
@@ -1221,6 +1226,9 @@ class FontWidget(QMainWindow):
                 btn.setText("")
                 btn.setEnabled(False)
                 btn.setVisible(False)
+
+        if hasattr(self, 'lbl_no_suggestions'):
+            self.lbl_no_suggestions.setVisible(False)
 
     # Font Navigation Logic
     def go_to_prev_font(self):
@@ -1999,10 +2007,19 @@ class FontWidget(QMainWindow):
         suggestions = self.get_suggestions(glyph_name, font_name)
         self.active_suggestions_count = len(suggestions)
 
+        if self.active_suggestions_count == 0:
+            self.lbl_no_suggestions.setVisible(True)
+        else:
+            self.lbl_no_suggestions.setVisible(False)
+
         for i, btn in enumerate(self.suggestion_buttons):
             if i < len(suggestions):
                 char = suggestions[i]
-                btn.setText(char)
+
+                # Qt uses '&' for keyboard shortcuts. To display a literal '&', it must be escaped as '&&'.
+                display_char = char.replace('&', '&&')
+
+                btn.setText(display_char)
                 btn.suggestion_char = char  # Update the stored character
                 btn.setEnabled(True)
                 btn.setVisible(True)  # Show button if we have a suggestion
@@ -2025,11 +2042,11 @@ class FontWidget(QMainWindow):
             if i == index and btn.isVisible():
                 # Highlighted style - transparent background, prominent blue border
                 btn.setStyleSheet(
-                    "font-family: 'Consolas', monospace; border: 2px solid #3d7eff; background-color: transparent; border-radius: 4px; color: white;")
+                    "font-family: 'Consolas', monospace; border: 3px solid #3d7eff; background-color: white; border-radius: 4px; color: black;")
             else:
                 # Default style - dark gray border
                 btn.setStyleSheet(
-                    "font-family: 'Consolas', monospace; border: 1px solid #555; background-color: transparent; border-radius: 4px; color: #f0f0f0;")
+                    "font-family: 'Consolas', monospace; border: 1px solid #555; background-color: white; border-radius: 4px; color: black;")
 
     # Removes highlight if the user starts typing manually
     def on_user_input_changed(self, text):
