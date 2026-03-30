@@ -2290,8 +2290,8 @@ class FontWidget(QMainWindow):
     # This prevents fighting with the OS window manager while the user is actively dragging
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Restart the timer on every pixel change; it will only fire when resizing stops for 200ms
-        self.resize_snap_timer.start(200)
+        # Restart the timer on every pixel change; it will only fire when resizing stops for 500ms
+        self.resize_snap_timer.start(500)
 
     # Calculates the nearest valid height based on list item increments and applies it
     def apply_snap_resize(self):
