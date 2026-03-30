@@ -739,8 +739,22 @@ class FontWidget(QMainWindow):
         self._setup_ui()
         self.clear_ui_state()
 
+        # Initialize a timer to handle delayed window snapping after user resizes
+        self.resize_snap_timer = QtCore.QTimer(self)
+        self.resize_snap_timer.setSingleShot(True)
+        self.resize_snap_timer.timeout.connect(self.apply_snap_resize)
+
         # Window configuration
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(1200, 810)
+        self.resize(1200, 810)
+
+        # Base size defines the starting point for the increments
+        self.setBaseSize(1200, 810)
+
+        # Force window to resize horizontally by 1px (freely) and vertically by exactly 68px (one list item)
+        item_height = self.ICON_SIZE_SMALL + 4
+        self.setSizeIncrement(1, item_height)
+
         self._update_window_title()
         self.statusBar().showMessage("Select PDF to repair")
 
@@ -1849,7 +1863,7 @@ class FontWidget(QMainWindow):
             self.glyph_list.doItemsLayout()
 
             # Align the selected item exactly to the bottom edge of the viewport
-            self.glyph_list.scrollToItem(item, QListWidget.ScrollHint.PositionAtBottom)
+            self.glyph_list.scrollToItem(item, QListWidget.ScrollHint.EnsureVisible)
 
         # Lock inputs and disable suggestions if it's a standard AGL glyph
         if is_agl:
@@ -2271,6 +2285,32 @@ class FontWidget(QMainWindow):
                     "unicode_hex": "FFFD",
                     "AGN": "notdef"
                 }
+
+    # Overrides the default resize event to trigger the snapping timer
+    # This prevents fighting with the OS window manager while the user is actively dragging
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Restart the timer on every pixel change; it will only fire when resizing stops for 200ms
+        self.resize_snap_timer.start(200)
+
+    # Calculates the nearest valid height based on list item increments and applies it
+    def apply_snap_resize(self):
+        current_height = self.height()
+        current_width = self.width()
+
+        base_height = 810
+        item_height = 68  # 64px icon + 4px margin
+
+        # Calculate how many steps we are away from the base height
+        diff = current_height - base_height
+        steps = round(diff / item_height)
+
+        # Determine the exact target height
+        target_height = base_height + (steps * item_height)
+
+        # Apply the resize only if the window is not already at the perfect height
+        if current_height != target_height:
+            self.resize(current_width, target_height)
 
 if __name__ == "__main__":
     app = QApplication()
