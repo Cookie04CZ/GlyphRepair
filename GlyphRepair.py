@@ -966,7 +966,7 @@ class FontWidget(QMainWindow):
         self.suggestions_layout.addWidget(self.lbl_no_suggestions)
 
         self.suggestion_buttons = []
-        for _ in range(6):
+        for _ in range(4):
             btn = QPushButton("")
             btn.setFixedSize(100, 100)
             font_sug = btn.font()
@@ -2033,10 +2033,10 @@ class FontWidget(QMainWindow):
         for _, hex_val in matches:
             try:
                 char = chr(int(hex_val, 16))
-                # Add unique characters until we have 6 (for our 6 buttons)
+                # Add unique characters until we have 4 (for our 4 buttons)
                 if char not in suggestions:
                     suggestions.append(char)
-                if len(suggestions) >= 6:
+                if len(suggestions) >= 4:
                     break
             except (ValueError, TypeError):
                 pass
