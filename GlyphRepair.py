@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
-    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar
+    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -844,6 +844,7 @@ class FontWidget(QMainWindow):
         self.setCentralWidget(central)
         # Create left sidebar list
         self.glyph_list = QListWidget()
+        self.glyph_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerItem)
         self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE))
         self.glyph_list.setSpacing(0)
         font = self.glyph_list.font()
@@ -944,8 +945,10 @@ class FontWidget(QMainWindow):
         self.suggestions_layout.setSpacing(6)
 
         self.lbl_no_suggestions = QLabel("No suggestions")
-        self.lbl_no_suggestions.setStyleSheet("color: #888888; font-style: italic; font-size: 14px; padding: 10px;")
+        self.lbl_no_suggestions.setStyleSheet("color: #ff4444; font-weight: bold; font-size: 36px; padding-left: 10px;")
+        self.lbl_no_suggestions.setMinimumHeight(100)
         self.lbl_no_suggestions.setVisible(False)
+
         self.suggestions_layout.addWidget(self.lbl_no_suggestions)
 
         self.suggestion_buttons = []
@@ -1038,30 +1041,37 @@ class FontWidget(QMainWindow):
         mapping_layout.addLayout(user_inputs, 1)
         mapping_layout.addLayout(right_panel, 0)
 
-        right_layout = QVBoxLayout()
-        right_layout.addWidget(nav_group, 0)
-        right_layout.addWidget(preview_group, 1)
-        right_layout.addWidget(mapping_group, 0)
-
-        main_layout = QHBoxLayout(central)
-
-        # Lock max width of the left list so it doesn't take too much space
-        self.glyph_list.setMaximumWidth(800)
-        
-        left_main_layout = QVBoxLayout()
-        left_main_layout.setContentsMargins(0, 0, 0, 0)
-        left_main_layout.addWidget(self.glyph_list, 1)
-        
-        # Adding a groupbox for suggestions below glyph list
+        # Create the Suggestions group box
         suggestions_group = QGroupBox("Suggestions")
         suggestions_group_layout = QVBoxLayout(suggestions_group)
         suggestions_group_layout.setContentsMargins(5, 5, 5, 5)
         suggestions_group_layout.addLayout(self.suggestions_layout)
-        
-        left_main_layout.addWidget(suggestions_group, 0)
 
-        main_layout.addLayout(left_main_layout, 3)
-        main_layout.addLayout(right_layout, 4)
+        # Create a dedicated group box for the glyph list to maintain visual consistency
+        list_group = QGroupBox("Glyph List")
+        list_layout = QVBoxLayout(list_group)
+        list_layout.setContentsMargins(5, 5, 5, 5)
+        list_layout.addWidget(self.glyph_list)
+
+        # Top Layout: Glyph List (Left) + Nav & Preview (Right)
+        top_layout = QHBoxLayout()
+        list_group.setMaximumWidth(800)
+        top_layout.addWidget(list_group, 3)
+
+        top_right_layout = QVBoxLayout()
+        top_right_layout.addWidget(nav_group, 0)
+        top_right_layout.addWidget(preview_group, 1)
+        top_layout.addLayout(top_right_layout, 4)
+
+        # Bottom Layout: Suggestions (Left) + Mapping Tools (Right)
+        bottom_layout = QHBoxLayout()
+        bottom_layout.addWidget(suggestions_group, 3)
+        bottom_layout.addWidget(mapping_group, 4)
+
+        # Main Vertical Layout combining Top and Bottom
+        main_layout = QVBoxLayout(central)
+        main_layout.addLayout(top_layout, 1)
+        main_layout.addLayout(bottom_layout, 0)
 
     # Opens the settings dialog, applies changes, and saves them persistently
     def open_settings(self):
@@ -1811,32 +1821,35 @@ class FontWidget(QMainWindow):
 
         # Update Information Label using HTML formatting
         html = f"""
-                <table width="100%" cellspacing="8">
-                    <tr>
-                        <td width="50%" align="right"><b>Glyph Name:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{name}</td>
-                    </tr>
-                    <tr>
-                        <td width="50%" align="right"><b>Character:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{ch}</td>
-                    </tr>
-                    <tr>
-                        <td width="50%" align="right"><b>Unicode:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{uhex}</td>
-                    </tr>
-                    <tr>
-                        <td width="50%" align="right"><b>Adobe Glyph List:</b></td>
-                        <td width="50%" style="font-family: Consolas, monospace; font-weight: bold; color: white;">{agn}</td>
-                    </tr>
-                </table>
-                """
+                        <div style="text-align: center; margin-top: 10px;">
+                            <span style="color: #aaaaaa; font-size: 28px;">Glyph Name</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{name}</span>
+                            <hr width="95%" color="#aaaaaa" style="margin-top: 6px; margin-bottom: 6px;">
+
+                            <span style="color: #aaaaaa; font-size: 28px;">Character</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{ch}</span>
+                            <hr width="95%" color="#aaaaaa" style="margin-top: 6px; margin-bottom: 6px;">
+
+                            <span style="color: #aaaaaa; font-size: 28px;">Unicode</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{uhex}</span>
+                            <hr width="95%" color="#aaaaaa" style="margin-top: 6px; margin-bottom: 6px;">
+
+                            <span style="color: #aaaaaa; font-size: 28px;">Adobe Glyph List</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{agn}</span>
+                        </div>
+                        """
         self.label.setText(html)
 
         # Ensure the item is selected and visible in list
         item = self.glyph_list.item(self.current_index)
         if item:
             self.glyph_list.setCurrentItem(item)
-            self.glyph_list.scrollToItem(item, QListWidget.EnsureVisible)
+
+            # Force the list to immediately recalculate heights after dynamic resize
+            self.glyph_list.doItemsLayout()
+
+            # Align the selected item exactly to the bottom edge of the viewport
+            self.glyph_list.scrollToItem(item, QListWidget.ScrollHint.PositionAtBottom)
 
         # Lock inputs and disable suggestions if it's a standard AGL glyph
         if is_agl:
