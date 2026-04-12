@@ -19,7 +19,7 @@ import qtawesome as qta
 
 # GUI Libraries (PySide6) for the application interface
 from PySide6 import QtCore, QtGui
-from PySide6.QtGui import QImage, QPixmap, QIcon, QRegularExpressionValidator
+from PySide6.QtGui import QImage, QPixmap, QIcon, QRegularExpressionValidator, QShortcut, QKeySequence
 from PySide6.QtCore import QSettings, QRegularExpression
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -1114,7 +1114,7 @@ class FontWidget(QMainWindow):
         self.setCentralWidget(central)
         # Create left sidebar list
         self.glyph_list = QListWidget()
-        self.glyph_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerItem)
+        self.glyph_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE))
         self.glyph_list.setSpacing(0)
         font = self.glyph_list.font()
@@ -1123,6 +1123,7 @@ class FontWidget(QMainWindow):
         font.setBold(True)
         self.glyph_list.setFont(font)
         self.glyph_list.currentItemChanged.connect(self.on_list_item_changed)
+        self.glyph_list.installEventFilter(self)
         nav_group = QGroupBox("Navigation")
         nav_main_layout = QVBoxLayout(nav_group)
         nav_main_layout.setSpacing(10)
@@ -1289,16 +1290,19 @@ class FontWidget(QMainWindow):
         self.btn_glyph.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
         self.btn_glyph.setEnabled(False)
         self.btn_glyph.clicked.connect(self.save_glyph)
+        self.btn_glyph.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.btn_next_unmapped = QPushButton("Next Unmapped")
         self.btn_next_unmapped.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
         self.btn_next_unmapped.setEnabled(False)
         self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
+        self.btn_next_unmapped.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.btn_font = QPushButton("Save all to DB")
         self.btn_font.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
         self.btn_font.setEnabled(False)
         self.btn_font.clicked.connect(self.submit_ToUnicode)
+        self.btn_font.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         bottom_right_layout.addWidget(self.btn_next_unmapped)
         bottom_right_layout.addWidget(self.btn_special)
@@ -1352,6 +1356,12 @@ class FontWidget(QMainWindow):
         self.btn_font.setFocusPolicy(QtCore.Qt.NoFocus)
         self.btn_special.setFocusPolicy(QtCore.Qt.NoFocus)
         self.btn_next_unmapped.setFocusPolicy(QtCore.Qt.NoFocus)
+
+        self.shortcut_prev_font = QShortcut(QKeySequence("Ctrl+Left"), self)
+        self.shortcut_prev_font.activated.connect(self.go_to_prev_font)
+
+        self.shortcut_next_font = QShortcut(QKeySequence("Ctrl+Right"), self)
+        self.shortcut_next_font.activated.connect(self.go_to_next_font)
 
     # Opens the settings dialog, applies changes, and saves them persistently
     def open_settings(self):
@@ -2478,65 +2488,70 @@ class FontWidget(QMainWindow):
 
         # Catches keyboard events in the char_input field for suggestion navigation
     def eventFilter(self, obj, event):
-        if obj in (self.char_input, self.unic_input) and event.type() == QtCore.QEvent.KeyPress:
+        if event.type() == QtCore.QEvent.KeyPress:
 
-            # Allow Up/Down arrow keys to navigate the glyph list directly
-            if event.key() == QtCore.Qt.Key_Up:
-                if self.current_font_glyph_names and self.current_index > 0:
-                    self.current_index -= 1
-                    self.show_glyph()
-                return True
-                
-            elif event.key() == QtCore.Qt.Key_Down:
-                if self.current_font_glyph_names and self.current_index < len(self.current_font_glyph_names) - 1:
-                    self.current_index += 1
-                    self.show_glyph()
-                return True
+            if event.modifiers() & QtCore.Qt.ControlModifier:
+                if event.key() == QtCore.Qt.Key_Left:
+                    self.go_to_prev_font()
+                    return True
+                elif event.key() == QtCore.Qt.Key_Right:
+                    self.go_to_next_font()
+                    return True
 
-            if not self.setting_auto_highlight:
-                return super().eventFilter(obj, event)
+            if obj in (self.char_input, self.unic_input, self.glyph_list):
+                if event.key() == QtCore.Qt.Key_Up:
+                    if self.current_font_glyph_names and self.current_index > 0:
+                        self.current_index -= 1
+                        self.show_glyph()
+                    return True
 
-            # Left arrow
-            if event.key() == QtCore.Qt.Key_Left:
-                # Allow normal left movement if there is text in the box
-                if obj.text():
+                elif event.key() == QtCore.Qt.Key_Down:
+                    if self.current_font_glyph_names and self.current_index < len(self.current_font_glyph_names) - 1:
+                        self.current_index += 1
+                        self.show_glyph()
+                    return True
+
+            if obj in (self.char_input, self.unic_input):
+                if not self.setting_auto_highlight:
+                    return super().eventFilter(obj, event)
+
+                # Left arrow
+                if event.key() == QtCore.Qt.Key_Left:
+                    if obj.text():
+                        return False
+                    if self.active_suggestions_count > 0:
+                        new_idx = max(0, self.current_suggestion_idx - 1)
+                        if self.current_suggestion_idx == -1: new_idx = 0
+                        self.set_suggestion_highlight(new_idx)
+                        return True
+
+                # Right arrow
+                elif event.key() == QtCore.Qt.Key_Right:
+                    if obj.text():
+                        return False
+                    if self.active_suggestions_count > 0:
+                        new_idx = min(self.active_suggestions_count - 1, self.current_suggestion_idx + 1)
+                        if self.current_suggestion_idx == -1: new_idx = 0
+                        self.set_suggestion_highlight(new_idx)
+                        return True
+
+                # Enter or Return key
+                elif event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
+                    # Apply highlighted suggestion ONLY if the text box is completely empty
+                    # AND a valid suggestion is currently highlighted
+                    if not obj.text().strip() and self.current_suggestion_idx >= 0:
+                        try:
+                            btn = self.suggestion_buttons[self.current_suggestion_idx]
+                            if btn.isVisible():
+                                self.apply_suggestion(btn.suggestion_char)
+                                return True  # Block the event, we handled it
+                        except IndexError:
+                            pass  # Failsafe in case active_suggestions_count is out of sync
+
+                    # If text box is NOT empty, let the normal returnPressed signal handle it
                     return False
 
-                if self.active_suggestions_count > 0:
-                    new_idx = max(0, self.current_suggestion_idx - 1)
-                    if self.current_suggestion_idx == -1: new_idx = 0
-                    self.set_suggestion_highlight(new_idx)
-                    return True  # Block the event
-
-            # Right arrow
-            elif event.key() == QtCore.Qt.Key_Right:
-                # Allow normal right movement if there is text in the box
-                if obj.text():
-                    return False
-
-                if self.active_suggestions_count > 0:
-                    new_idx = min(self.active_suggestions_count - 1, self.current_suggestion_idx + 1)
-                    if self.current_suggestion_idx == -1: new_idx = 0
-                    self.set_suggestion_highlight(new_idx)
-                    return True  # Block the event
-
-            # Enter or Return key
-            elif event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
-                # Apply highlighted suggestion ONLY if the text box is completely empty
-                # AND a valid suggestion is currently highlighted
-                if not obj.text().strip() and self.current_suggestion_idx >= 0:
-                    try:
-                        btn = self.suggestion_buttons[self.current_suggestion_idx]
-                        if btn.isVisible():
-                            self.apply_suggestion(btn.suggestion_char)
-                            return True  # Block the event, we handled it
-                    except IndexError:
-                        pass  # Failsafe in case active_suggestions_count is out of sync
-
-                # If text box is NOT empty, let the normal returnPressed signal handle it
-                return False
-
-                # Pass any unhandled events to the base class
+        # Všechny ostatní nestřežené eventy propustíme zpět domů
         return super().eventFilter(obj, event)
 
     # Automatically fills input and triggers the save mechanism
