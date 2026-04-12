@@ -26,13 +26,15 @@ from PySide6.QtWidgets import (
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
     QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView, QRadioButton,
-    QSpinBox, QSlider, QTextEdit
+    QSlider, QTextEdit
 )
 
 # FontTools libraries for parsing font data (CFF format)
 from fontTools.agl import UV2AGL, AGL2UV
 from fontTools.cffLib import CFFFontSet
 from fontTools.pens.basePen import BasePen
+
+from Type1toUnicode_integrated import process_type1_pdf
 
 # Dictionary combining standard AGL with custom project-specific glyph names
 EXTENDED_AGL = AGL2UV.copy()
@@ -684,9 +686,6 @@ class ExportDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
 
-        # ==========================================
-        # TOP LAYOUT (Červená zóna - Výběr dokumentu)
-        # ==========================================
         doc_group = QGroupBox("Target Document")
         doc_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         doc_layout = QVBoxLayout(doc_group)
@@ -713,10 +712,8 @@ class ExportDialog(QDialog):
         doc_layout.addLayout(other_file_layout)
         main_layout.addWidget(doc_group)
 
-        # Připojení signálu k pomocné metodě
         self.radio_other.toggled.connect(self.toggle_other_inputs)
 
-        # ČISTÁ INICIALIZACE - Žádné přepínání tam a zpět
         if current_pdf_path:
             self.radio_current.setChecked(True)
             self.toggle_other_inputs(False)
@@ -726,13 +723,9 @@ class ExportDialog(QDialog):
             self.radio_other.setChecked(True)
             self.toggle_other_inputs(True)
 
-        # ==========================================
-        # BOTTOM LAYOUT (Rozdělení na 2 exkluzivní režimy)
-        # ==========================================
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(15)
 
-        # --- ŽLUTÁ ZÓNA (Vizuální oprava) ---
         self.group_visual = QGroupBox("Method A: Visual / Automatic Repair")
         self.group_visual.setCheckable(True)
         self.group_visual.setChecked(True)  # Defaultně aktivní
@@ -783,10 +776,9 @@ class ExportDialog(QDialog):
 
         bottom_layout.addWidget(self.group_visual, 1)
 
-        # --- ZELENÁ ZÓNA (Type1ToUnicode oprava) ---
         self.group_legacy = QGroupBox("Method B: Type1ToUnicode Mapping")
         self.group_legacy.setCheckable(True)
-        self.group_legacy.setChecked(False)  # Defaultně neaktivní
+        self.group_legacy.setChecked(False)
         legacy_layout = QVBoxLayout(self.group_legacy)
 
         self.lbl_map = QLabel("Font Map JSON File:")
@@ -807,40 +799,34 @@ class ExportDialog(QDialog):
         line2.setStyleSheet("background-color: #555;")
         legacy_layout.addWidget(line2)
 
-        self.chk_verbose = QCheckBox("Enable Verbose Logging (-v)")
+        self.chk_verbose = QCheckBox("Enable verbose logging")
         self.chk_verbose.setChecked(False)
+        self.chk_save_log = QCheckBox("Save detailed log as text file")
+        self.chk_save_log.setChecked(False)
         legacy_layout.addWidget(self.chk_verbose)
+        legacy_layout.addWidget(self.chk_save_log)
         legacy_layout.addStretch()
 
         bottom_layout.addWidget(self.group_legacy, 1)
 
         main_layout.addLayout(bottom_layout)
 
-        # ==========================================
-        # LOGIKA PRO EXKLUZIVNÍ PŘEPÍNÁNÍ PANELŮ
-        # ==========================================
         self.group_visual.toggled.connect(self.on_visual_toggled)
         self.group_legacy.toggled.connect(self.on_legacy_toggled)
 
-        # Aplikování počátečního stylu
         self.update_group_styles()
 
-        # ==========================================
-        # TLAČÍTKA
-        # ==========================================
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.button_box.button(QDialogButtonBox.Ok).setText("Run Repair")
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         main_layout.addWidget(self.button_box)
 
-    # --- Pomocná metoda pro nastavení stavu vstupů (zabraňuje rozbíjení UI) ---
     def toggle_other_inputs(self, checked):
         self.other_path_input.setEnabled(checked)
         self.btn_browse_file.setEnabled(checked)
         self.btn_browse_folder.setEnabled(checked)
 
-    # --- Obsluha exkluzivity (chová se jako přepínač) ---
     def on_visual_toggled(self, checked):
         if checked:
             self.group_legacy.setChecked(False)
@@ -855,7 +841,6 @@ class ExportDialog(QDialog):
             self.group_legacy.setChecked(True)
         self.update_group_styles()
 
-    # --- Vizuální odlišení aktivního panelu ---
     def update_group_styles(self):
         active_style = "QGroupBox { font-weight: bold; border: 1px solid #3d7eff; border-radius: 4px; margin-top: 1ex; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }"
         inactive_style = "QGroupBox { font-weight: normal; border: 1px solid #444; border-radius: 4px; margin-top: 1ex; color: #777; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #777; }"
@@ -867,7 +852,6 @@ class ExportDialog(QDialog):
             self.group_visual.setStyleSheet(inactive_style)
             self.group_legacy.setStyleSheet(active_style)
 
-    # --- Obsluha tlačítek Browse ---
     def browse_other_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select PDF to repair", "", "PDF Files (*.pdf)")
         if path:
@@ -883,7 +867,6 @@ class ExportDialog(QDialog):
         if path:
             self.map_file_input.setText(path)
 
-    # --- Vrácení dat do hlavního okna ---
     def get_settings(self):
         return {
             "target_pdf": "current" if self.radio_current.isChecked() else self.other_path_input.text(),
@@ -892,11 +875,10 @@ class ExportDialog(QDialog):
             "threshold_pct": self.slider_threshold.value(),
             "repair_method_idx": self.combo_method.currentIndex(),
             "gtu_map_file": self.map_file_input.text(),
-            "gtu_verbose": self.chk_verbose.isChecked()
+            "gtu_verbose": self.chk_verbose.isChecked(),
+            "gtu_save_log": self.chk_save_log.isChecked()
         }
 
-
-# Dialog pro zobrazení výsledků po dokončení opravy
 class RepairSummaryDialog(QDialog):
     def __init__(self, summary_text, details_list=None, has_warnings=False, parent=None):
         super().__init__(parent)
@@ -906,9 +888,8 @@ class RepairSummaryDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        # Hlavní nadpis - barva podle toho, jestli jsou varování (částečné opravy)
         self.lbl_title = QLabel("Repair Finished")
-        title_color = "#FF8C00" if has_warnings else "#228B22"  # Oranžová pro varování, Zelená pro 100% úspěch
+        title_color = "#FF8C00" if has_warnings else "#228B22"
         self.lbl_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {title_color};")
         layout.addWidget(self.lbl_title)
 
@@ -918,7 +899,6 @@ class RepairSummaryDialog(QDialog):
         self.lbl_summary.setWordWrap(True)
         layout.addWidget(self.lbl_summary)
 
-        # Textové pole pro detailní logy (pokud je zapnutý verbose mód nebo jsou chyby)
         if details_list:
             layout.addWidget(QLabel("<b>Detailed Log:</b>"))
             self.text_edit = QTextEdit()
@@ -935,13 +915,11 @@ class RepairSummaryDialog(QDialog):
                 }
             """)
 
-            # Vložení všech logů do okna
             for line in details_list:
                 self.text_edit.append(line)
 
             layout.addWidget(self.text_edit)
 
-        # Tlačítko OK
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok)
         self.button_box.accepted.connect(self.accept)
         layout.addWidget(self.button_box)
@@ -1452,12 +1430,10 @@ class FontWidget(QMainWindow):
         if dialog.exec():
             settings = dialog.get_settings()
 
-            # Validace
             if settings["target_pdf"] != "current" and not settings["target_pdf"]:
                 QMessageBox.warning(self, "Invalid Input", "Please select a target document or folder.")
                 return
 
-            # Rozvětvení podle módu:
             if settings["mode"] == "visual":
                 self.run_visual_repair(settings)
             else:
@@ -1467,7 +1443,6 @@ class FontWidget(QMainWindow):
                 self.run_type1_repair(settings)
 
     def run_repair_process(self, settings):
-        # Zde později vložíš samotnou logiku PyMuPDF pro opravu PDF
 
         target = self.pdf_path if settings["target_pdf"] == "current" else settings["target_pdf"]
 
@@ -1479,12 +1454,72 @@ class FontWidget(QMainWindow):
             f"<b>Glyph to Unicode:</b> {settings['apply_glyph_to_unicode']}"
         )
 
-        # Zatím jen vyskakovací okno pro kontrolu, že se data přenáší správně
         QMessageBox.information(
             self,
             "Repair Started",
             f"PDF Repair initiated with the following settings:<br><br>{info_text}<br><br><i>(PDF manipulation implementation TBD)</i>"
         )
+
+    def run_type1_repair(self, settings):
+        target_pdf = self.pdf_path if settings["target_pdf"] == "current" else settings["target_pdf"]
+        map_file = settings["gtu_map_file"]
+        verbose_ui = settings["gtu_verbose"]
+        save_log = settings["gtu_save_log"]
+
+        if not target_pdf or not os.path.exists(target_pdf):
+            QMessageBox.warning(self, "Error", "Target PDF file does not exist or is not selected.")
+            return
+
+        if not map_file or not os.path.exists(map_file):
+            QMessageBox.warning(self, "Error", "Font map JSON file does not exist.")
+            return
+
+        self.statusBar().showMessage("Running Type1ToUnicode repair...")
+        QApplication.processEvents()
+
+        needs_logs = verbose_ui or save_log
+        result = process_type1_pdf(target_pdf, map_file, verbose=needs_logs)
+
+        if not result["success"]:
+            QMessageBox.critical(self, "Repair Failed", f"An error occurred:\n{result['error']}")
+            self.statusBar().showMessage("Repair failed.", 5000)
+            return
+
+        logs = result["logs"]
+
+        if save_log and logs:
+            try:
+                log_dir = os.path.join(os.getcwd(), 'Log')
+                if not os.path.exists(log_dir):
+                    os.makedirs(log_dir)
+
+                base_name = os.path.basename(target_pdf)[:-4]
+                log_path = os.path.join(log_dir, f"{base_name}_log.txt")
+
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(logs))
+            except Exception as e:
+                logs.insert(0, f"FAILED TO SAVE LOG TO FILE: {e}")
+                verbose_ui = True
+
+        if result["output_file"]:
+            summary = (f"File successfully processed.\nSaved to: {os.path.basename(result['output_file'])}\n\n"
+                       f"Fonts found: {result['cnt_skip'] + result['cnt_part'] + result['cnt_comp']}\n"
+                       f"Fully repaired: {result['cnt_comp']}\n"
+                       f"Partially repaired: {result['cnt_part']}\n"
+                       f"Skipped: {result['cnt_skip']}")
+        else:
+            summary = (f"No output PDF file created.\nNo fonts required mapping or met the Type1 criteria.\n\n"
+                       f"Fonts skipped: {result['cnt_skip']}")
+
+        has_warnings = result["cnt_part"] > 0
+        if has_warnings:
+            logs.insert(0, "WARNING: Some font(s) have undefined character(s) mapping.")
+
+        self.statusBar().showMessage("Repair finished.", 5000)
+
+        dialog = RepairSummaryDialog(summary, logs if (verbose_ui or has_warnings) else None, has_warnings, self)
+        dialog.exec()
 
     # Helper method to change page mode dynamically from the UI
     def set_page_mode(self, mode):
