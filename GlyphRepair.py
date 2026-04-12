@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
     QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView, QRadioButton,
-    QSpinBox, QSlider
+    QSpinBox, QSlider, QTextEdit
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -894,6 +894,57 @@ class ExportDialog(QDialog):
             "gtu_map_file": self.map_file_input.text(),
             "gtu_verbose": self.chk_verbose.isChecked()
         }
+
+
+# Dialog pro zobrazení výsledků po dokončení opravy
+class RepairSummaryDialog(QDialog):
+    def __init__(self, summary_text, details_list=None, has_warnings=False, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Repair Process Summary")
+        self.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        # Hlavní nadpis - barva podle toho, jestli jsou varování (částečné opravy)
+        self.lbl_title = QLabel("Repair Finished")
+        title_color = "#FF8C00" if has_warnings else "#228B22"  # Oranžová pro varování, Zelená pro 100% úspěch
+        self.lbl_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {title_color};")
+        layout.addWidget(self.lbl_title)
+
+        # Hlavní shrnující text (počet nalezených, opravených atd.)
+        self.lbl_summary = QLabel(summary_text)
+        self.lbl_summary.setStyleSheet("font-size: 14px;")
+        self.lbl_summary.setWordWrap(True)
+        layout.addWidget(self.lbl_summary)
+
+        # Textové pole pro detailní logy (pokud je zapnutý verbose mód nebo jsou chyby)
+        if details_list:
+            layout.addWidget(QLabel("<b>Detailed Log:</b>"))
+            self.text_edit = QTextEdit()
+            self.text_edit.setReadOnly(True)
+            self.text_edit.setStyleSheet("""
+                QTextEdit {
+                    font-family: 'Consolas', monospace; 
+                    font-size: 12px; 
+                    background-color: #121212; 
+                    color: #cccccc;
+                    border: 1px solid #444;
+                    border-radius: 4px;
+                    padding: 5px;
+                }
+            """)
+
+            # Vložení všech logů do okna
+            for line in details_list:
+                self.text_edit.append(line)
+
+            layout.addWidget(self.text_edit)
+
+        # Tlačítko OK
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+        self.button_box.accepted.connect(self.accept)
+        layout.addWidget(self.button_box)
 
 # Main Application Window Class
 class FontWidget(QMainWindow):
