@@ -158,13 +158,11 @@ class GlyphCanvas(FigureCanvas):
         super().__init__(self.fig)
         self.ax = self.fig.add_subplot()
 
-    # Main method to draw a specific glyph onto the canvas
     def draw_glyph(self, glyphset, glyph_name, notdef_max_y, notdef_min_y):
         ax = self.ax
         ax.clear()  # Clear previous drawing
         ax.axis('off')  # Hide X/Y axis ticks and labels
 
-        # Handle case where font or glyph is missing
         if not glyphset or glyph_name not in glyphset:
             ax.text(0.5, 0.5, "No glyph", ha='center', va='center', fontsize=48,
                     color='dimgray', weight='bold', style='italic')
@@ -181,42 +179,50 @@ class GlyphCanvas(FigureCanvas):
             self.draw()
             return
 
-        xs, _ = zip(*pen.vertices)
+        xs, ys = zip(*pen.vertices)
         min_x, max_x = min(xs), max(xs)
-        width = max_x - min_x
+        glyph_w = max_x - min_x
 
-        # Calculate font metrics to scale the glyph properly to the canvas
-        # We try to get the FontBBox from the font object, otherwise use defaults
-        ascent = getattr(self.font, 'FontBBox', [0, 0, 0, 1000])[3]
-        descent = getattr(self.font, 'FontBBox', [0, -200, 0, 0])[1]
-        font_height = ascent - descent
-
-        scale = 0.8 / font_height
-        bottom_margin = 0.05 * scale
-
-        if notdef_min_y is not None and notdef_max_y is not None:
-            min_y = (notdef_min_y - descent) * scale + bottom_margin
-            max_y = (notdef_max_y - descent) * scale + bottom_margin
-            ax.axhline(y=min_y, color='blue', linestyle=':', linewidth=1.5)
-            ax.axhline(y=max_y, color='blue', linestyle=':', linewidth=1.5)
+        if notdef_min_y is not None and notdef_max_y is not None and (notdef_max_y - notdef_min_y) > 0:
+            ref_min = notdef_min_y
+            ref_max = notdef_max_y
+            has_notdef = True
         else:
-            # Fallback red line if .notdef metrics are missing
-            fallback_y = (0 - descent) * scale + bottom_margin
-            ax.axhline(y=fallback_y, color='red', linestyle=':', linewidth=1.5)
+            ref_max = getattr(self.font, 'FontBBox', [0, 0, 0, 1000])[3]
+            ref_min = getattr(self.font, 'FontBBox', [0, -200, 0, 0])[1]
+            has_notdef = False
 
-        vertices = []
-        for x, y in pen.vertices:
-            x_transformed = (x - min_x - width / 2) * scale
-            y_transformed = (y - descent) * scale + bottom_margin
-            vertices.append((x_transformed, y_transformed))
+        ref_height = ref_max - ref_min
 
+        scale = 0.65 / ref_height
+
+        ref_midpoint = (ref_max + ref_min) / 2
+
+        def tx(x):
+            return (x - min_x - glyph_w / 2) * scale
+
+        def ty(y):
+            return (y - ref_midpoint) * scale
+
+        y_baseline = ty(0)
+        y_notdef_min = ty(ref_min)
+        y_notdef_max = ty(ref_max)
+
+        if has_notdef:
+            ax.axhline(y=y_notdef_max, color='blue', linestyle=':', linewidth=1.5)
+            ax.axhline(y=y_notdef_min, color='blue', linestyle=':', linewidth=1.5)
+        else:
+            ax.axhline(y=y_baseline, color='red', linestyle='-', linewidth=1.5)
+
+        vertices = [(tx(x), ty(y)) for x, y in pen.vertices]
         path = Path(vertices, pen.codes)
-        patch = patches.PathPatch(path, facecolor='black', lw=1)
+        patch = patches.PathPatch(path, facecolor='black', lw=0)
         ax.add_patch(patch)
 
         ax.set_xlim(-0.5, 0.5)
-        ax.set_aspect('equal')  # Ensure aspect ratio is preserved (no stretching)
-        self.draw()  # Trigger render
+        ax.set_ylim(-0.7, 0.7)
+        ax.set_aspect('equal')
+        self.draw()
 
 # Dialog window for application settings
 # It allows the user to configure navigation, auto-jump, and saving preferences
@@ -806,7 +812,7 @@ class FontWidget(QMainWindow):
         open_action.setIcon(open_icon)
         open_action.triggered.connect(self.open_pdf)
 
-        self.export_action = toolbar.addAction("Save PDF")
+        self.export_action = toolbar.addAction("Repair PDF")
         export_icon = qta.icon('fa5s.save', color='white')
         self.export_action.setIcon(export_icon)
         self.export_action.setEnabled(False)
@@ -866,7 +872,6 @@ class FontWidget(QMainWindow):
         font.setPointSize(32)
         font.setBold(True)
         self.glyph_list.setFont(font)
-        self.glyph_list.itemClicked.connect(self.on_glyph_clicked)
         self.glyph_list.currentItemChanged.connect(self.on_list_item_changed)
         nav_group = QGroupBox("Navigation")
         nav_main_layout = QVBoxLayout(nav_group)
@@ -1087,6 +1092,17 @@ class FontWidget(QMainWindow):
         main_layout.addLayout(top_layout, 1)
         main_layout.addLayout(bottom_layout, 0)
 
+        self.btn_prev_page.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_next_page.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_prev_font.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_next_font.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_select_page.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_select_font.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_glyph.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_font.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_special.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_next_unmapped.setFocusPolicy(QtCore.Qt.NoFocus)
+
     # Opens the settings dialog, applies changes, and saves them persistently
     def open_settings(self):
         dialog = SettingsDialog(self)
@@ -1123,6 +1139,9 @@ class FontWidget(QMainWindow):
                 self.toggle_auto_save_timer(self.setting_auto_save_timer)
             if hex_visibility_changed:
                 self.unic_input.setVisible(self.setting_show_hex_input)
+                if self.current_font_name and self.current_glyph_set:
+                    is_agl = self.current_font_glyph_names[self.current_index] in EXTENDED_AGL
+                    self.unic_input.setEnabled(not is_agl)
 
     # Opens the dialog to select a specific page from the PDF
     def open_page_dialog(self):
@@ -1376,13 +1395,6 @@ class FontWidget(QMainWindow):
             self.current_index = (self.current_index + 1) % len(self.current_font_glyph_names)
             self.show_glyph()
 
-    # Callback when user clicks a glyph in the list widget
-    def on_glyph_clicked(self, item):
-        name = item.data(QtCore.Qt.UserRole)
-        if name in self.current_font_glyph_names:
-            self.current_index = self.current_font_glyph_names.index(name)
-            self.show_glyph()
-
     # Dynamically resizes list items to show the selected one larger
     def on_list_item_changed(self, current, previous):
         if previous:
@@ -1402,6 +1414,13 @@ class FontWidget(QMainWindow):
             if pix_large:
                 current.setIcon(QIcon(pix_large))
                 current.setSizeHint(QtCore.QSize(0, self.ICON_SIZE_LARGE + 4))
+            name = current.data(QtCore.Qt.UserRole)
+            if name in self.current_font_glyph_names:
+                new_index = self.current_font_glyph_names.index(name)
+
+                if new_index != self.current_index:
+                    self.current_index = new_index
+                    self.show_glyph()
 
     # Core Logic: Saves the mapping for a single glyph
     def save_glyph(self):
@@ -1668,11 +1687,12 @@ class FontWidget(QMainWindow):
 
             self.statusBar().showMessage(f"Loaded: {font_name} (Page {page + 1})", 5000)
 
+            if not self.current_font_glyph_names:
+                self.clear_ui_state()
+
             # Update dynamic navigation labels
             self.update_navigation_labels()
             self.update_progress_bar()
-
-            self.char_input.setFocus()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error while loading font:\n{e}")
@@ -1719,42 +1739,46 @@ class FontWidget(QMainWindow):
         pen = MatplotlibPen(self.current_glyph_set)
         glyph.draw(pen)
 
-        # Calculate font metrics outside the vertices check so lines draw even on spaces
-        ascent = getattr(self.current_font, 'FontBBox', [0, 0, 0, 1000])[3]
-        descent = getattr(self.current_font, 'FontBBox', [0, -200, 0, 0])[1]
-        font_height = max(ascent - descent, 1)
-        scale = 1.6 / font_height
+        if self.notdef_baseline is not None and self.notdef_topline is not None:
+            ref_min = self.notdef_baseline
+            ref_max = self.notdef_topline
+        else:
+            ref_max = getattr(self.current_font, 'FontBBox', [0, 0, 0, 1000])[3]
+            ref_min = getattr(self.current_font, 'FontBBox', [0, -200, 0, 0])[1]
 
-        # If glyph has data, draw it
+        ref_height = max(ref_max - ref_min, 1)
+        ref_midpoint = (ref_max + ref_min) / 2
+
+        scale = 0.65 / ref_height
+
+        def ty(y):
+            return (y - ref_midpoint) * scale
+
         if pen.vertices:
-            xs, ys = zip(*pen.vertices)
+            xs, _ = zip(*pen.vertices)
             min_x, max_x = min(xs), max(xs)
             width = max_x - min_x
 
             vertices = []
             for x, y in pen.vertices:
-                x_transformed = (x - min_x - width / 2) * scale
-                y_transformed = (y - (ascent + descent) / 2) * scale
-                vertices.append((x_transformed, y_transformed))
+                x_t = (x - min_x - width / 2) * scale
+                y_t = ty(y)
+                vertices.append((x_t, y_t))
 
             path = Path(vertices, pen.codes)
-            patch = patches.PathPatch(path, facecolor='black', lw=0.5)
+            patch = patches.PathPatch(path, facecolor='black', lw=0)
             ax.add_patch(patch)
 
-        # Draw guidelines if requested
         if draw_lines:
-            if self.notdef_baseline is not None and self.notdef_topline is not None:
-                y_base = (self.notdef_baseline - (ascent + descent) / 2) * scale
-                y_top = (self.notdef_topline - (ascent + descent) / 2) * scale
-                ax.axhline(y=y_base, color='blue', linestyle=':', linewidth=1.0)
-                ax.axhline(y=y_top, color='blue', linestyle=':', linewidth=1.0)
-            else:
-                # Fallback red line if .notdef metrics are missing
-                y_fallback = (0 - (ascent + descent) / 2) * scale
-                ax.axhline(y=y_fallback, color='red', linestyle=':', linewidth=1.0)
+            if self.notdef_baseline is not None:
+                ax.axhline(y=ty(self.notdef_baseline), color='blue', linestyle=':', linewidth=1)
+                ax.axhline(y=ty(self.notdef_topline), color='blue', linestyle=':', linewidth=1)
 
-        ax.set_xlim(-1.0, 1.0)
-        ax.set_ylim(-1.0, 1.0)
+            else:
+                ax.axhline(y=ty(0), color='red', linestyle=':', linewidth=1)
+
+        ax.set_xlim(-0.5, 0.5)
+        ax.set_ylim(-0.7, 0.7)
         ax.set_aspect('equal')
 
         # Convert Figure to QPixmap
@@ -1763,8 +1787,7 @@ class FontWidget(QMainWindow):
         buf = canvas.buffer_rgba()
         arr = asarray(buf)
         img = QImage(arr.data, arr.shape[1], arr.shape[0], QImage.Format_RGBA8888)
-        pix = QPixmap.fromImage(img)
-        return pix.scaled(*size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        return QPixmap.fromImage(img).scaled(*size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
 
     # Fills the QListWidget with glyph thumbnails
     def populate_glyph_list(self):
@@ -1868,7 +1891,10 @@ class FontWidget(QMainWindow):
         # Lock inputs and disable suggestions if it's a standard AGL glyph
         if is_agl:
             self.char_input.setEnabled(False)
+            self.char_input.setFocusPolicy(QtCore.Qt.NoFocus)
             self.unic_input.setEnabled(False)
+            self.unic_input.setFocusPolicy(QtCore.Qt.NoFocus)
+
             self.btn_glyph.setEnabled(False)
             self.char_input.setPlaceholderText("AGL Auto")
             self.unic_input.setPlaceholderText("AGL Auto")
@@ -1878,6 +1904,7 @@ class FontWidget(QMainWindow):
         else:
             self.char_input.setEnabled(True)
             self.unic_input.setEnabled(self.setting_show_hex_input)
+
             self.btn_glyph.setEnabled(True)
             self.char_input.setPlaceholderText("Character")
             self.unic_input.setPlaceholderText("Unicode Hex")
