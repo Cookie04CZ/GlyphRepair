@@ -2372,12 +2372,10 @@ class FontWidget(QMainWindow):
 
     # Loads known hashes from CSV into a Set for fast lookup
     def load_db_cache(self):
-        self.known_glyph_hashes = set()
-        
-        # Always inject the special space hash
+        hash_counts = {}
         space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
-        self.known_glyph_hashes.add(space_hash)
-        
+        hash_counts[space_hash] = {"0020"}
+
         self.db_records = []
         path = self.CSV_PATH
         if os.path.exists(path):
@@ -2386,34 +2384,37 @@ class FontWidget(QMainWindow):
                     reader = csv.DictReader(f, delimiter='|', quotechar='"')
                     if "glyph_hash" in reader.fieldnames:
                         for row in reader:
-                            self.known_glyph_hashes.add(row["glyph_hash"])
+                            h = row["glyph_hash"]
+                            u = row["unicode_hex"]
+                            if h not in hash_counts:
+                                hash_counts[h] = set()
+                            hash_counts[h].add(u)
                             self.db_records.append(row)
             except Exception as e:
                 print(f"DB Cache Error: {e}")
 
-        # Generates suggestions based on GlyphName and fuzzy matching of font_name
-    def get_suggestions(self, glyph_name, font_name):
+        self.known_glyph_hashes = {h for h, unics in hash_counts.items() if len(unics) == 1}
+
+    # Generates suggestions based on GlyphName and fuzzy matching of font_name
+    def get_suggestions(self, glyph_name, font_name, current_hash=None):
         if not hasattr(self, 'db_records') or not self.db_records or not glyph_name or not font_name:
             return []
 
-        # Strip PDF subset prefix (e.g., "GKCLND+Arial" -> "Arial")
-        current_clean_font = font_name.split('+', 1)[-1] if '+' in font_name else font_name
-
         matches = []
         for row in self.db_records:
-            if row.get("GlyphName") == glyph_name:
-                db_font = row.get("font_name", "")
-                db_clean_font = db_font.split('+', 1)[-1] if '+' in db_font else db_font
+            db_glyph_name = row.get("GlyphName", "")
+            glyph_sim = difflib.SequenceMatcher(None, glyph_name, db_glyph_name).ratio()
 
-                # Calculate string similarity ratio (0.0 to 1.0)
-                similarity = difflib.SequenceMatcher(None, current_clean_font, db_clean_font).ratio()
-                matches.append((similarity, row.get("unicode_hex")))
+            if current_hash and row.get("glyph_hash") == current_hash:
+                matches.append((1.0, glyph_sim, row.get("unicode_hex")))
 
-        # Sort matches by highest similarity first
-        matches.sort(key=lambda x: x[0], reverse=True)
+            elif db_glyph_name == glyph_name:
+                matches.append((0.5, glyph_sim, row.get("unicode_hex")))
+
+        matches.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
         suggestions = []
-        for _, hex_val in matches:
+        for _, _, hex_val in matches:
             try:
                 char = chr(int(hex_val, 16))
                 # Add unique characters until we have 4 (for our 4 buttons)
@@ -2428,7 +2429,8 @@ class FontWidget(QMainWindow):
 
     # Refreshes the suggestion buttons above the text input
     def update_suggestions_ui(self, glyph_name, font_name):
-        suggestions = self.get_suggestions(glyph_name, font_name)
+        current_hash = self.get_glyph_hash(glyph_name)
+        suggestions = self.get_suggestions(glyph_name, font_name, current_hash)
         self.active_suggestions_count = len(suggestions)
 
         if self.active_suggestions_count == 0:
@@ -2572,7 +2574,8 @@ class FontWidget(QMainWindow):
                     reader = csv.DictReader(f, delimiter='|', quotechar='"')
                     if "glyph_hash" in reader.fieldnames:
                         for row in reader:
-                            existing_data[row["glyph_hash"]] = row
+                            key = (row["glyph_hash"], row.get("font_name", ""), row.get("GlyphName", ""))
+                            existing_data[key] = row
             except Exception:
                 pass
 
@@ -2588,7 +2591,8 @@ class FontWidget(QMainWindow):
             g_hash = data.get("glyph_hash") or self.get_glyph_hash(gname)
 
             if g_hash:
-                existing_data[g_hash] = {
+                key = (g_hash, current_font_name, gname)
+                existing_data[key] = {
                     "glyph_hash": g_hash,
                     "font_name": current_font_name,
                     "GlyphName": gname,
@@ -2600,8 +2604,7 @@ class FontWidget(QMainWindow):
         try:
             # Write back to file
             with open(path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='|', quotechar='"',
-                                        quoting=csv.QUOTE_MINIMAL)
+                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
                 writer.writeheader()
                 for row in existing_data.values():
                     writer.writerow(row)
@@ -2624,10 +2627,7 @@ class FontWidget(QMainWindow):
 
         # Add intrinsic empty space hash mapping
         space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
-        db_map[space_hash] = {
-            "unicode_hex": "0020",
-            "AGN": "space"
-        }
+        db_map[space_hash] = [{"unicode_hex": "0020", "AGN": "space", "GlyphName": "", "font_name": ""}]
 
         # Load DB into memory
         if os.path.exists(self.CSV_PATH):
@@ -2636,9 +2636,15 @@ class FontWidget(QMainWindow):
                     reader = csv.DictReader(f, delimiter='|', quotechar='"')
                     if "glyph_hash" in reader.fieldnames:
                         for row in reader:
-                            db_map[row["glyph_hash"]] = row
+                            h = row["glyph_hash"]
+                            if h not in db_map:
+                                db_map[h] = []
+                            db_map[h].append(row)
             except Exception:
                 pass
+
+        current_clean_font = self.current_font_name.split('+', 1)[
+            -1] if self.current_font_name and '+' in self.current_font_name else (self.current_font_name or "")
 
         # Check each glyph in current font against DB
         for name in self.current_font_glyph_names:
@@ -2650,18 +2656,36 @@ class FontWidget(QMainWindow):
 
             g_hash = self.get_glyph_hash(name)
             if g_hash and g_hash in db_map:
-                row = db_map[g_hash]
-                self.user_glyph_to_char[name] = {
-                    "glyph_hash": g_hash,
-                    "unicode_hex": row["unicode_hex"],
-                    "AGN": row["AGN"]
-                }
+                rows = db_map[g_hash]
+
+                exact_match = None
+                for r in rows:
+                    db_clean_font = r.get("font_name", "").split('+', 1)[-1] if '+' in r.get("font_name",  "") else r.get("font_name", "")
+                    if r.get("GlyphName") == name and db_clean_font == current_clean_font:
+                        exact_match = r
+                        break
+
+                if exact_match:
+                    self.user_glyph_to_char[name] = {
+                        "glyph_hash": g_hash,
+                        "unicode_hex": exact_match["unicode_hex"],
+                        "AGN": exact_match["AGN"]
+                    }
+                else:
+                    unique_hexes = list(set(r["unicode_hex"] for r in rows))
+                    if len(unique_hexes) == 1:
+                        row = next(r for r in rows if r["unicode_hex"] == unique_hexes[0])
+                        self.user_glyph_to_char[name] = {
+                            "glyph_hash": g_hash,
+                            "unicode_hex": row["unicode_hex"],
+                            "AGN": row["AGN"]
+                        }
 
         # Special handling for .notdef (default missing character)
         if '.notdef' in self.current_glyph_set:
             nhash = self.get_glyph_hash('.notdef')
             if nhash in db_map:
-                row = db_map[nhash]
+                row = db_map[nhash][0]
                 self.user_glyph_to_char['.notdef'] = {
                     "glyph_hash": nhash,
                     "unicode_hex": row["unicode_hex"],
