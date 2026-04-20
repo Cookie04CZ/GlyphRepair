@@ -42,6 +42,7 @@ EXTENDED_AGL.update({
     "nonbreakingspace": 0x00A0,
     "Ohm": 0x2126,
     "Omegagreek": 0x2126,
+    "fi" : 0xfb01,
     # Add any other missing glyphs you want to auto-map here
 })
 
@@ -162,8 +163,14 @@ class GlyphCanvas(FigureCanvas):
         self.ax = self.fig.add_subplot()
 
     def draw_glyph(self, glyphset, glyph_name, notdef_max_y, notdef_min_y):
+        # Recreate the axes instead of clearing the old one.
+        # This avoids Matplotlib recursion issues that can happen during ax.clear()
+        # in embedded GUI redraws.
+        if self.ax in self.fig.axes:
+            self.fig.delaxes(self.ax)
+        self.ax = self.fig.add_subplot()
+
         ax = self.ax
-        ax.clear()  # Clear previous drawing
         ax.axis('off')  # Hide X/Y axis ticks and labels
 
         if not glyphset or glyph_name not in glyphset:
@@ -990,6 +997,7 @@ class FontWidget(QMainWindow):
         self.font_cache = {}  # Caches extracted font data to avoid re-parsing
         self.db_cache = {}
         self.known_glyph_hashes = set()  # Stores hashes already in the CSV database
+        self.history_stack = []
 
         # Setup GUI components
         self._setup_menus()
@@ -1298,6 +1306,13 @@ class FontWidget(QMainWindow):
         self.btn_next_unmapped.clicked.connect(self.jump_to_next_unmapped)
         self.btn_next_unmapped.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+        self.btn_prev_mapped = QPushButton("Previously Mapped")
+        self.btn_prev_mapped.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
+        self.btn_prev_mapped.setEnabled(False)
+        self.btn_prev_mapped.clicked.connect(self.go_back_in_history)
+        self.btn_prev_mapped.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.btn_prev_mapped.setFocusPolicy(QtCore.Qt.NoFocus)
+
         self.btn_font = QPushButton("Save all to DB")
         self.btn_font.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
         self.btn_font.setEnabled(False)
@@ -1305,6 +1320,7 @@ class FontWidget(QMainWindow):
         self.btn_font.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         bottom_right_layout.addWidget(self.btn_next_unmapped)
+        bottom_right_layout.addWidget(self.btn_prev_mapped)
         bottom_right_layout.addWidget(self.btn_special)
         bottom_right_layout.addWidget(self.btn_glyph)
         bottom_right_layout.addWidget(self.btn_font)
@@ -1356,6 +1372,7 @@ class FontWidget(QMainWindow):
         self.btn_font.setFocusPolicy(QtCore.Qt.NoFocus)
         self.btn_special.setFocusPolicy(QtCore.Qt.NoFocus)
         self.btn_next_unmapped.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.btn_prev_mapped.setFocusPolicy(QtCore.Qt.NoFocus)
 
         self.shortcut_prev_font = QShortcut(QKeySequence("Ctrl+Left"), self)
         self.shortcut_prev_font.activated.connect(self.go_to_prev_font)
@@ -1901,6 +1918,13 @@ class FontWidget(QMainWindow):
         if not self.pdf_path or not hasattr(self, 'menu_structure'):
             return
 
+        if self.current_font_glyph_names:
+            current_pos = (self.current_page, self.current_font_name, self.current_index)
+            if not hasattr(self, 'history_stack'):
+                self.history_stack = []
+            if not self.history_stack or self.history_stack[-1] != current_pos:
+                self.history_stack.append(current_pos)
+
             # Check remaining glyphs in the current font
         if self.current_font_glyph_names:
             for i in range(self.current_index + 1, len(self.current_font_glyph_names)):
@@ -1969,6 +1993,22 @@ class FontWidget(QMainWindow):
 
         QMessageBox.information(self, "Finished", "Great! No more unmapped non-AGL glyphs found.")
 
+    def go_back_in_history(self):
+        if not hasattr(self, 'history_stack') or not self.history_stack:
+            QMessageBox.information(self, "Info", "Historie je prázdná, není kam se vrátit.")
+            return
+
+        prev_page, prev_font, prev_index = self.history_stack.pop()
+
+        if self.current_page != prev_page or self.current_font_name != prev_font:
+            if getattr(self, 'unsaved_changes', False):
+                self.save_to_db()
+            self.load_font(prev_page, prev_font)
+
+        if self.current_font_glyph_names and 0 <= prev_index < len(self.current_font_glyph_names):
+            self.current_index = prev_index
+            self.show_glyph()
+
     # Opens a web helper for finding symbols
     def open_special(self):
         webbrowser.open_new_tab("https://www.vertex42.com/ExcelTips/unicode-symbols.html")
@@ -2036,6 +2076,7 @@ class FontWidget(QMainWindow):
             self.btn_glyph.setEnabled(True)
             self.btn_font.setEnabled(True)
             self.btn_next_unmapped.setEnabled(True)
+            self.btn_prev_mapped.setEnabled(True)
 
             if hasattr(self, 'suggestion_buttons'):
                 for btn in self.suggestion_buttons:
