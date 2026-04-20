@@ -2062,6 +2062,10 @@ class FontWidget(QMainWindow):
             self.statusBar().showMessage(f"Cache empty", 5000)
 
         try:
+            self.setEnabled(False)
+            QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+            QApplication.processEvents()
+
             # Get binary data from cache or extract if missing
             font_data = cache.get('data') or extract_cff_fonts(self.pdf_path, page, font_name)
             self.reload_font(font_data)
@@ -2097,6 +2101,10 @@ class FontWidget(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error while loading font:\n{e}")
+
+        finally:
+            self.setEnabled(True)
+            QApplication.restoreOverrideCursor()
 
     # Decompiles raw binary CFF data into FontTools objects
     def reload_font(self, font_data):
@@ -2193,6 +2201,7 @@ class FontWidget(QMainWindow):
     # Fills the QListWidget with glyph thumbnails
     def populate_glyph_list(self):
         w = self.glyph_list
+        w.blockSignals(True)
         w.clear()
 
         for name in self.current_font_glyph_names:
@@ -2237,6 +2246,8 @@ class FontWidget(QMainWindow):
                 item.setForeground(QtGui.QColor("#888888"))
 
             w.addItem(item)
+
+        w.blockSignals(False)
 
     # Updates the main canvas area with the selected glyph
     def show_glyph(self):
