@@ -1566,7 +1566,7 @@ class FontWidget(QMainWindow):
         info = self.font_cache.get((self.current_page, self.current_font_name), {})
         total = info.get('glyph_count', 0)
         agl_count = info.get('agl_count', 0)
-        hashes_dict = info.get('glyph_hashes', {})  # Získáme předpočítané hashe
+        hashes_dict = info.get('glyph_hashes', {})
 
         # Calculate live mapped characters for the progress bar only
         current_session_mapped = set()
@@ -1579,6 +1579,10 @@ class FontWidget(QMainWindow):
                 current_session_mapped.add(gname)
 
         actual_mapped = len(current_session_mapped)
+
+        # Keep the static cache instantly synchronized with the live UI session
+        if (self.current_page, self.current_font_name) in self.font_cache:
+            self.font_cache[(self.current_page, self.current_font_name)]['mapped_count'] = actual_mapped
 
         # Update the visual progress bar widget
         self.font_progress.setMaximum(total)
@@ -2366,8 +2370,7 @@ class FontWidget(QMainWindow):
                                     except:
                                         pass
 
-                                mapped_count = sum(1 for gname, h in current_font_hashes.items() if (
-                                            gname in EXTENDED_AGL) or h in self.known_glyph_hashes)
+                                mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
 
                                 # Cache the data
                                 self.font_cache[(page_num, name)] = {
@@ -2402,22 +2405,45 @@ class FontWidget(QMainWindow):
         QMessageBox.information(self, "Save PDF", "Feature coming soon (TBD)")
         return
 
+    # Helper method to robustly calculate mapped glyphs for any given font
+    def calculate_font_mapped_count(self, page, font_name, glyph_hashes):
+        mapped_count = 0
+        clean_font_name = font_name.split('+', 1)[-1] if '+' in font_name else font_name
+
+        # If calculating for the currently active font, include live unsaved mappings
+        is_current = (page == self.current_page and font_name == self.current_font_name)
+
+        for gname, h in glyph_hashes.items():
+            if gname in EXTENDED_AGL:
+                mapped_count += 1
+            elif is_current and gname in getattr(self, 'user_glyph_to_char', {}):
+                mapped_count += 1
+            elif (h, clean_font_name, gname) in getattr(self, 'exact_db_matches', set()):
+                mapped_count += 1
+            elif h in self.known_glyph_hashes:
+                mapped_count += 1
+
+        return mapped_count
+
     # Refreshes menu statistics after a DB update
     def update_statistics(self):
         self.load_db_cache()
-        for key, info in self.font_cache.items():
+        for (p, fname), info in self.font_cache.items():
             hashes_dict = info.get('glyph_hashes', {})
             if not hashes_dict: continue
-            new_mapped_count = sum(1 for gname, h in hashes_dict.items() if (gname in EXTENDED_AGL) or h in self.known_glyph_hashes)
-            info['mapped_count'] = new_mapped_count
 
-    # Loads known hashes from CSV into a Set for fast lookup
+            # Use the robust calculation method
+            info['mapped_count'] = self.calculate_font_mapped_count(p, fname, hashes_dict)
+
     def load_db_cache(self):
         hash_counts = {}
         space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
         hash_counts[space_hash] = {"0020"}
 
         self.db_records = []
+        #Track exact matches for specific fonts to solve global hash collisions
+        self.exact_db_matches = set()
+
         path = self.CSV_PATH
         if os.path.exists(path):
             try:
@@ -2427,10 +2453,18 @@ class FontWidget(QMainWindow):
                         for row in reader:
                             h = row["glyph_hash"]
                             u = row["unicode_hex"]
+                            # Clean the font name from subset prefixes (e.g., ABCDEF+)
+                            fname = row.get("font_name", "").split('+', 1)[-1] if '+' in row.get("font_name",
+                                                                                                 "") else row.get(
+                                "font_name", "")
+                            gname = row.get("GlyphName", "")
+
                             if h not in hash_counts:
                                 hash_counts[h] = set()
                             hash_counts[h].add(u)
+
                             self.db_records.append(row)
+                            self.exact_db_matches.add((h, fname, gname))
             except Exception as e:
                 print(f"DB Cache Error: {e}")
 
