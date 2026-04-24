@@ -1,5 +1,6 @@
 import csv
 import os
+import re
 import sys
 import webbrowser
 import difflib
@@ -48,7 +49,7 @@ EXTENDED_AGL.update({
 
 
 # Function to extract raw font data from a specific page in a PDF
-# It looks for a font with a specific name in CFF format and returns its binary buffer
+# It looks for a font with a specific name in CFF format (without ToUnicode) and returns its binary buffer
 def extract_cff_fonts(pdf_path, page, font_name):
     # Open the PDF file using PyMuPDF
     with fitz.open(pdf_path) as doc:
@@ -59,19 +60,28 @@ def extract_cff_fonts(pdf_path, page, font_name):
 
         # Iterate through the found fonts to find the one matching font_name
         for font in fonts:
+            xref = font[0]
             # Extract font metadata and the binary content (buffer)
-            name, ext, _, buffer = doc.extract_font(font[0])
+            name, ext, _, buffer = doc.extract_font(xref)
 
-            # We only care about CFF (Compact Font Format) files that match our target name
+            # We only care about CFF files that match our target name and lack ToUnicode
             if ext and ext.lower() == "cff" and name == font_name:
-                return buffer
+                if not has_tounicode(doc, xref):
+                    return buffer
 
-        # If the loop finishes without returning, the font was not found
-        raise ValueError(f"Font '{font_name}' not found or not in CFF format.")
+        # If the loop finishes without returning, the font was not found or has ToUnicode
+        raise ValueError(f"Font '{font_name}' not found, not in CFF format, or already has a ToUnicode map.")
+
+
+# Function to check if a font dictionary contains a /ToUnicode stream
+# PyMuPDF returns a tuple (type, value). If the key is missing, type is 'null'.
+def has_tounicode(doc, xref):
+    key_type, _ = doc.xref_get_key(xref, "ToUnicode")
+    return key_type != 'null'
 
 
 # Function to scan the entire PDF document structure
-# It builds a dictionary mapping page numbers to lists of CFF fonts found on them
+# It builds a dictionary mapping page numbers to lists of CFF fonts (without ToUnicode) found on them
 def extract_pdf_data(pdf_path):
     font_map = {}  # Dictionary to store results: { page_number: [font_names] }
 
@@ -83,12 +93,15 @@ def extract_pdf_data(pdf_path):
             fonts = page.get_fonts(full=True)
 
             for font in fonts:
-                name, ext, _, buffer = doc.extract_font(font[0])
-                # Filter only CFF fonts
-                if ext and ext.lower() == "cff":
-                    cff_names.append(name)
+                xref = font[0]
+                name, ext, _, buffer = doc.extract_font(xref)
 
-            # If we found any CFF fonts on this page, add them to the map
+                # Filter only CFF fonts that DO NOT have a ToUnicode table
+                if ext and ext.lower() == "cff":
+                    if not has_tounicode(doc, xref):
+                        cff_names.append(name)
+
+            # If we found any valid CFF fonts on this page, add them to the map
             if cff_names:
                 font_map[page.number] = cff_names
 
@@ -886,6 +899,49 @@ class ExportDialog(QDialog):
             "gtu_save_log": self.chk_save_log.isChecked()
         }
 
+class ProgressLogDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Průběh opravy (Verbose Log)")
+        self.setMinimumSize(700, 450)
+        # Uděláme dialog modální - zablokuje hlavní okno, abychom do něj během opravy neklikali
+        self.setWindowModality(QtCore.Qt.WindowModal)
+
+        layout = QVBoxLayout(self)
+
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setStyleSheet("""
+            QTextEdit {
+                font-family: 'Consolas', monospace; 
+                font-size: 13px; 
+                background-color: #121212; 
+                color: #00ff00; /* Hacker green styl pro log */
+                border: 1px solid #444;
+                border-radius: 4px;
+                padding: 5px;
+            }
+        """)
+        layout.addWidget(self.text_edit)
+
+        self.btn_close = QPushButton("Zavřít")
+        self.btn_close.setEnabled(False)  # Tlačítko povolíme až po dokončení
+        self.btn_close.clicked.connect(self.accept)
+        layout.addWidget(self.btn_close, alignment=QtCore.Qt.AlignRight)
+
+    def log(self, message):
+        """Přidá zprávu do logu a posune scrollbar dolů."""
+        self.text_edit.append(message)
+        scrollbar = self.text_edit.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        # Tento příkaz donutí GUI překreslit okno hned teď (zabrání zamrznutí)
+        QApplication.processEvents()
+
+    def finish(self):
+        """Povolí zavření okna po dokončení procesu."""
+        self.btn_close.setEnabled(True)
+        self.btn_close.setStyleSheet("font-weight: bold; padding: 5px 20px;")
+
 class RepairSummaryDialog(QDialog):
     def __init__(self, summary_text, details_list=None, has_warnings=False, parent=None):
         super().__init__(parent)
@@ -1070,6 +1126,11 @@ class FontWidget(QMainWindow):
         open_icon = qta.icon('fa5s.folder-open', color='white')
         open_action.setIcon(open_icon)
         open_action.triggered.connect(self.open_pdf)
+
+        current_pdf_action = toolbar.addAction("Quick repair")
+        current_pdf_icon = qta.icon('fa5s.bolt', color='white')
+        current_pdf_action.setIcon(current_pdf_icon)
+        current_pdf_action.triggered.connect(self.repair_current_pdf_100)
 
         self.export_action = toolbar.addAction("Repair PDF")
         export_icon = qta.icon('fa5s.save', color='white')
@@ -2349,14 +2410,19 @@ class FontWidget(QMainWindow):
                     # Analyze fonts on each page
                     for font in page.get_fonts(full=True):
                         try:
-                            name, ext, _, buffer = doc.extract_font(font[0])
+                            xref = font[0]
+                            name, ext, _, buffer = doc.extract_font(xref)
                             # Only process CFF fonts
                             if ext and ext.lower() == "cff":
+
+                                if has_tounicode(doc, xref):
+                                    continue
+
                                 tmp_font = CFFFontSet()
                                 tmp_font.decompile(BytesIO(buffer), None)
                                 glyph_set = tmp_font.topDictIndex[0].CharStrings
 
-                                # Vyfiltrujeme .notdef
+                                # Fiter out .notdef
                                 valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
                                 total_glyphs = len(valid_glyph_names)
 
@@ -2394,7 +2460,6 @@ class FontWidget(QMainWindow):
 
                                 if first_page is None:
                                     first_page, first_name = page_num, name
-                                self.export_action.setEnabled(True)
                         except Exception as e:
                             print(f"Error parsing font {name}: {e}")
                             self.font_cache[(page_num, name)] = {
@@ -2809,6 +2874,327 @@ class FontWidget(QMainWindow):
         # Apply the resize only if the window is not already at the perfect height
         if current_height != target_height:
             self.resize(current_width, target_height)
+
+    def repair_current_pdf_100(self):
+        if not self.pdf_path:
+            QMessageBox.warning(self, "Error", "First load a PDF file")
+            return
+
+        if getattr(self, 'unsaved_changes', False):
+            self.save_to_db()
+
+        self.statusBar().showMessage("Starting repari...", 0)
+        QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+
+        try:
+            db_map = load_db(self.CSV_PATH)
+            custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
+
+            doc_vizual = fitz.open(self.pdf_path)
+            font_cache_local = {}
+
+            vizualni_sekvence = nacti_sekvenci(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual")
+
+            fully_mapped_xrefs = []
+            incomplete_xrefs = []
+
+            for xref in vizualni_sekvence.keys():
+                f_data = font_cache_local.get(xref)
+                if not f_data or not f_data.get("glyph_set"):
+                    incomplete_xrefs.append(xref)
+                    continue
+
+                glyph_set = f_data["glyph_set"]
+                valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+                total_glyphs = len(valid_glyph_names)
+                mapped_count = 0
+
+                for g_name in valid_glyph_names:
+                    if g_name in EXTENDED_AGL:
+                        mapped_count += 1
+                    else:
+                        g_hash = get_standalone_glyph_hash(glyph_set, g_name)
+                        u_hex = find_best_unicode(g_hash, g_name, f_data["name"], db_map)
+                        if u_hex:
+                            mapped_count += 1
+
+                if total_glyphs > 0 and mapped_count == total_glyphs:
+                    fully_mapped_xrefs.append(xref)
+                else:
+                    incomplete_xrefs.append(xref)
+
+            # Pokud jsou nějaké nekompletní fonty, zobrazíme potvrzovací okno
+            if incomplete_xrefs:
+                QApplication.restoreOverrideCursor()
+                msg = QMessageBox(self)
+                msg.setWindowTitle("Potvrzení opravy")
+                msg.setIcon(QMessageBox.Question)
+                msg.setText("Některé fonty v dokumentu nejsou kompletně zmapované.")
+                msg.setInformativeText(
+                    f"Nekompletní fonty k přeskočení: <b>{len(incomplete_xrefs)}</b>\n"
+                    f"Plně zmapované fonty k opravě: <b>{len(fully_mapped_xrefs)}</b>\n\n"
+                    f"Chcete pokračovat a opravit POUZE plně zmapované fonty?"
+                )
+                btn_yes = msg.addButton("Pokračovat", QMessageBox.AcceptRole)
+                btn_no = msg.addButton("Zrušit", QMessageBox.RejectRole)
+                msg.setDefaultButton(btn_yes)
+                msg.exec()
+
+                if msg.clickedButton() == btn_no:
+                    self.statusBar().showMessage("Oprava zrušena uživatelem.", 5000)
+                    doc_vizual.close()
+                    return
+
+            # Filtrace na čistě kompletní fonty
+            vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in fully_mapped_xrefs}
+            if not vizualni_sekvence:
+                QApplication.restoreOverrideCursor()
+                QMessageBox.information(self, "Nic k opravě", "Nebyly nalezeny žádné 100% zmapované fonty k opravě.")
+                self.statusBar().showMessage("Oprava zrušena - žádné fonty k opravě.", 5000)
+                doc_vizual.close()
+                return
+
+            # --- SPUŠTĚNÍ ŽIVÉHO LOGU ---
+            QApplication.restoreOverrideCursor()  # Kurzor vrátíme, ať uživatel vidí okno normálně
+            self.log_dialog = ProgressLogDialog(self)
+            self.log_dialog.show()
+
+            self.log_dialog.log("=== START OPRAVY ===")
+            self.log_dialog.log(f"Cílový soubor: {self.pdf_path}")
+            self.log_dialog.log(
+                f"K opravě vybráno {len(fully_mapped_xrefs)} fontů (přeskočeno {len(incomplete_xrefs)}).\n")
+
+            self.log_dialog.log("[1/3] Generuji a vkládám DUMMY tabulky do paměti...")
+            dummy_cmap_str = generuj_dummy_cmap()
+            for xref in vizualni_sekvence.keys():
+                dummy_xref = doc_vizual.get_new_xref()
+                doc_vizual.update_object(dummy_xref, "<<>>")
+                doc_vizual.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
+                doc_vizual.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
+                self.log_dialog.log(f"  -> Aplikována past (dummy tabulka) pro font ID: {xref}")
+
+            dummy_pdf_bytes = doc_vizual.tobytes()
+            doc_vizual.close()
+
+            self.log_dialog.log("\n[2/3] Analyzuji chování PDF enginu (extrahuji vnitřní ID)...")
+            doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
+            interni_sekvence = nacti_sekvenci(doc_dummy, custom_flags, db_map, font_cache_local, rezim="dummy")
+            doc_dummy.close()
+            self.log_dialog.log("  -> Přečteno. Vnitřní identifikátory znaků úspěšně vytaženy.")
+
+            self.log_dialog.log("\n[3/3] Zarovnávám sekvence a aplikuji finální opravy...")
+            doc_final = fitz.open(self.pdf_path)
+            opraveno_fontu = 0
+
+            for xref in vizualni_sekvence.keys():
+                v_seq = vizualni_sekvence.get(xref, [])
+                i_seq = interni_sekvence.get(xref, [])
+
+                if len(v_seq) != len(i_seq):
+                    self.log_dialog.log(
+                        f"  [!] CHYBA: Neshoda délek u fontu {xref} (Vizuál: {len(v_seq)}, Interní: {len(i_seq)}). Přeskakuji.")
+                    continue
+
+                mapovani = {}
+                for v_hex, i_id in zip(v_seq, i_seq):
+                    if i_id not in mapovani:
+                        mapovani[i_id] = v_hex
+
+                if mapovani:
+                    real_cmap_str = generuj_real_cmap(mapovani)
+                    real_xref = doc_final.get_new_xref()
+                    doc_final.update_object(real_xref, "<<>>")
+                    doc_final.update_stream(real_xref, real_cmap_str.encode("utf-8"))
+                    doc_final.xref_set_key(xref, "ToUnicode", f"{real_xref} 0 R")
+                    opraveno_fontu += 1
+                    self.log_dialog.log(
+                        f"  -> Úspěch: Font xref {xref} opraven. Slícováno {len(mapovani)} unikátních znaků.")
+
+            self.log_dialog.log("\n=== UKLÁDÁNÍ ===")
+            base_path, ext = os.path.splitext(self.pdf_path)
+            vystupni_soubor = f"{base_path}_Repaired{ext}"
+
+            doc_final.save(vystupni_soubor)
+            doc_final.close()
+
+            self.log_dialog.log(f"Hotovo! Soubor byl uložen jako:\n{os.path.basename(vystupni_soubor)}")
+            self.log_dialog.log(f"\nCelkem úspěšně zrekonstruováno fontů: {opraveno_fontu}")
+
+            # Odemkneme zavírací tlačítko v logovacím okně
+            self.log_dialog.finish()
+
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            # Pokud chyba nastane až když okno existuje, vypíšeme ji přímo tam
+            if hasattr(self, 'log_dialog'):
+                self.log_dialog.log(f"\n[KRITICKÁ CHYBA] Proces selhal:\n{str(e)}")
+                self.log_dialog.text_edit.setStyleSheet("background-color: #330000; color: #ff4444;")
+                self.log_dialog.finish()
+            else:
+                QMessageBox.critical(self, "Chyba", f"Během inicializace opravy došlo k chybě:\n{str(e)}")
+
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.statusBar().showMessage("Oprava skončila", 5000)
+
+def load_db(csv_path="glyph_mappings.csv"):
+    db_map = {}
+    space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
+    db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space"}]
+
+    if not os.path.exists(csv_path):
+        return db_map
+
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f, delimiter='|')
+            for row in reader:
+                g_hash = row.get("glyph_hash", "")
+                u_hex = row.get("unicode_hex", "")
+                if not u_hex or not g_hash: continue
+                if g_hash == space_hash and u_hex != "0020": continue
+
+                f_name = row.get("font_name", "").split('+')[-1]
+                g_name = row.get("GlyphName", "")
+
+                if g_hash not in db_map: db_map[g_hash] = []
+                db_map[g_hash].append({"unicode_hex": u_hex, "font_name": f_name, "GlyphName": g_name})
+    except Exception as e:
+        print(f"Poznámka: DB chyba ({e}).")
+    return db_map
+
+def get_standalone_glyph_hash(glyph_set, g_name):
+    if not glyph_set or g_name not in glyph_set: return None
+    try:
+        glyph = glyph_set[g_name]
+        pen = SignaturePen(glyph_set)
+        glyph.draw(pen)
+        sig = pen.get_signature()
+        if not sig: sig = "EMPTY_SPACE"
+        return md5(sig.encode('utf-8')).hexdigest()
+    except Exception:
+        return None
+
+def find_best_unicode(g_hash, g_name, f_name, db_map):
+    if g_hash not in db_map: return None
+    records = db_map[g_hash]
+    space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
+    if g_hash == space_hash: return "0020"
+
+    clean_f_name = f_name.split('+')[-1] if f_name else ""
+    for r in records:
+        if r["GlyphName"] == g_name and r["font_name"] == clean_f_name: return r["unicode_hex"]
+    for r in records:
+        if r["GlyphName"] == g_name: return r["unicode_hex"]
+    unique_hexes = set(r["unicode_hex"] for r in records)
+    if len(unique_hexes) == 1: return list(unique_hexes)[0]
+    return None
+
+def ziskej_pdf_differences(doc, xref):
+    try:
+        enc_obj = doc.xref_get_key(xref, "Encoding")
+        raw_enc = doc.xref_object(xref) if enc_obj[0] == "dict" else doc.xref_object(int(enc_obj[1].split()[0]))
+        diff_match = re.search(r'/Differences\s*\[(.*?)\]', raw_enc, re.DOTALL)
+        if diff_match:
+            tokens = re.findall(r'/[^\s\[\]/]+|\d+', diff_match.group(1))
+            res, curr = {}, -1
+            for t in tokens:
+                if t.isdigit():
+                    curr = int(t)
+                elif t.startswith('/') and curr != -1:
+                    res[curr] = t[1:]
+                    curr += 1
+            return res
+    except:
+        pass
+    return {}
+
+def generuj_dummy_cmap():
+    cmap = [
+        "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+        "/CMapName /Adobe-Identity-UCS def", "/CMapType 2 def",
+        "1 begincodespacerange", "<00> <FF>", "endcodespacerange"
+    ]
+    for start in range(0, 256, 100):
+        chunk_size = min(100, 256 - start)
+        cmap.append(f"{chunk_size} beginbfchar")
+        for i in range(start, start + chunk_size):
+            cmap.append(f"<{i:02X}> <E0{i:02X}>")
+        cmap.append("endbfchar")
+    cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
+    return "\n".join(cmap)
+
+def generuj_real_cmap(mapping_dict):
+    cmap = [
+        "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+        "/CMapName /Adobe-Identity-UCS def", "/CMapType 2 def",
+        "1 begincodespacerange", "<00> <FF>", "endcodespacerange"
+    ]
+    items = list(mapping_dict.items())
+    chunks = [items[i:i + 100] for i in range(0, len(items), 100)]
+    for chunk in chunks:
+        cmap.append(f"{len(chunk)} beginbfchar")
+        for cid, u_hex in chunk:
+            cmap.append(f"<{cid:02X}> <{u_hex}>")
+        cmap.append("endbfchar")
+    cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
+    return "\n".join(cmap)
+
+def nacti_sekvenci(doc, flags, db_map, font_cache, rezim="vizual"):
+    sekvence = {}
+    for page in doc:
+        fonts_on_page = {f[0]: f[3] for f in page.get_fonts()}
+        raw_text = page.get_text("rawdict", flags=flags)
+
+        for block in raw_text.get("blocks", []):
+            if block.get("type") != 0: continue
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    f_name = span.get("font")
+                    xref = next((x for x, n in fonts_on_page.items() if (n == f_name or f_name in n)), None)
+
+                    if not xref: continue
+                    if xref not in sekvence: sekvence[xref] = []
+
+                    if rezim == "vizual" and xref not in font_cache:
+                        _, ext, _, buffer = doc.extract_font(xref)
+                        if ext == "cff":
+                            try:
+                                cff = CFFFontSet()
+                                cff.decompile(BytesIO(buffer), None)
+                                glyph_set = cff[0].CharStrings
+                                pdf_diffs = ziskej_pdf_differences(doc, xref)
+                                try:
+                                    internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
+                                except:
+                                    internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+                                font_cache[xref] = {"glyph_set": glyph_set, "diffs": pdf_diffs, "enc": internal_enc, "name": f_name}
+                            except:
+                                font_cache[xref] = None
+                        else:
+                            font_cache[xref] = None
+
+                    for char_obj in span.get("chars", []):
+                        raw_char = char_obj.get("c", "")
+                        if not raw_char: continue
+
+                        if rezim == "vizual":
+                            b = ord(raw_char) % 256
+                            if xref in font_cache and font_cache[xref]:
+                                f_data = font_cache[xref]
+                                g_name = f_data["diffs"].get(b, f_data["enc"].get(b, ".notdef"))
+                                g_hash = get_standalone_glyph_hash(f_data["glyph_set"], g_name)
+                                u_hex = find_best_unicode(g_hash, g_name, f_data["name"], db_map)
+                                sekvence[xref].append(u_hex if u_hex else "003F")  # 003F = Otazník
+                        else:
+                            val = ord(raw_char)
+                            if 0xE000 <= val <= 0xE0FF:
+                                sekvence[xref].append(val - 0xE000)
+                            else:
+                                sekvence[xref].append(val % 256)
+    return sekvence
 
 if __name__ == "__main__":
     app = QApplication()
