@@ -7,20 +7,13 @@ import difflib
 from hashlib import md5
 from io import BytesIO
 
-# Third-party libraries for PDF handling, plotting, and numerical operations
 import fitz  # PyMuPDF
-import matplotlib.patches as patches
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-from matplotlib.path import Path
-from numpy import asarray
 
 import qtawesome as qta
 
 # GUI Libraries (PySide6) for the application interface
 from PySide6 import QtCore, QtGui
-from PySide6.QtGui import QImage, QPixmap, QIcon, QRegularExpressionValidator, QShortcut, QKeySequence
+from PySide6.QtGui import QPixmap, QIcon, QRegularExpressionValidator, QShortcut, QKeySequence, QPainterPath
 from PySide6.QtCore import QSettings, QRegularExpression
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -79,68 +72,6 @@ def has_tounicode(doc, xref):
     key_type, _ = doc.xref_get_key(xref, "ToUnicode")
     return key_type != 'null'
 
-
-# Function to scan the entire PDF document structure
-# It builds a dictionary mapping page numbers to lists of CFF fonts (without ToUnicode) found on them
-def extract_pdf_data(pdf_path):
-    font_map = {}  # Dictionary to store results: { page_number: [font_names] }
-
-    with fitz.open(pdf_path) as doc:
-        # Loop through every page in the document
-        for page in doc:
-            cff_names = []
-            # Get all fonts on the current page
-            fonts = page.get_fonts(full=True)
-
-            for font in fonts:
-                xref = font[0]
-                name, ext, _, buffer = doc.extract_font(xref)
-
-                # Filter only CFF fonts that DO NOT have a ToUnicode table
-                if ext and ext.lower() == "cff":
-                    if not has_tounicode(doc, xref):
-                        cff_names.append(name)
-
-            # If we found any valid CFF fonts on this page, add them to the map
-            if cff_names:
-                font_map[page.number] = cff_names
-
-    return font_map
-
-
-# Class representing a custom drawing pen compatible with FontTools
-# This pen translates font glyph commands (move, line, curve) into Matplotlib Path codes
-class MatplotlibPen(BasePen):
-    def __init__(self, glyphset):
-        super().__init__(glyphset)
-        self.vertices = []  # List of (x, y) coordinates
-        self.codes = []  # List of Matplotlib path commands (MOVETO, LINETO, etc.)
-
-    # Handles the 'move to' command (starting a new contour)
-    def _moveTo(self, p):
-        self.vertices.append(p)
-        self.codes.append(Path.MOVETO)
-
-    # Handles the 'line to' command (straight line)
-    def _lineTo(self, p):
-        self.vertices.append(p)
-        self.codes.append(Path.LINETO)
-
-    # Handles cubic Bezier curves
-    # p1, p2 are control points, p3 is the end point
-    def _curveToOne(self, p1, p2, p3):
-        self.vertices.extend([p1, p2, p3])
-        # Matplotlib requires CURVE4 repeated 3 times for cubic beziers
-        self.codes.extend([Path.CURVE4, Path.CURVE4, Path.CURVE4])
-
-    # Handles closing the shape (connecting last point to start point)
-    def _closePath(self):
-        # We only close the path if there are vertices present
-        if self.vertices:
-            self.vertices.append(self.vertices[0])
-            self.codes.append(Path.CLOSEPOLY)
-
-
 # Class representing a pen that generates a string signature of a glyph
 # This is used for identification/hashing.
 class SignaturePen(BasePen):
@@ -165,87 +96,118 @@ class SignaturePen(BasePen):
         return "".join(self.signature)
 
 
-# Custom widget that integrates Matplotlib figure into the PySide6 GUI
-# Used to render the glyph visualization
-class GlyphCanvas(FigureCanvas):
-    def __init__(self, font):
-        self.font = font
-        # Create a square figure
-        self.fig = Figure(figsize=(4, 4))
-        super().__init__(self.fig)
-        self.ax = self.fig.add_subplot()
+class QtPen(BasePen):
+    def __init__(self, glyphset):
+        super().__init__(glyphset)
+        self.path = QPainterPath()
+
+    def _moveTo(self, p):
+        self.path.moveTo(p[0], p[1])
+
+    def _lineTo(self, p):
+        self.path.lineTo(p[0], p[1])
+
+    def _curveToOne(self, p1, p2, p3):
+        self.path.cubicTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1])
+
+    def _closePath(self):
+        self.path.closeSubpath()
+
+
+class GlyphQtWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.path = None
+        self.baseline = None
+        self.topline = None
+        self.msg = None  # Nové: Pro ukládání stavové zprávy
+        self.font_bbox = [0, -200, 0, 1000]
+        self.setMinimumSize(400, 400)
 
     def draw_glyph(self, glyphset, glyph_name, notdef_max_y, notdef_min_y):
-        # Recreate the axes instead of clearing the old one.
-        # This avoids Matplotlib recursion issues that can happen during ax.clear()
-        # in embedded GUI redraws.
-        if self.ax in self.fig.axes:
-            self.fig.delaxes(self.ax)
-        self.ax = self.fig.add_subplot()
-
-        ax = self.ax
-        ax.axis('off')  # Hide X/Y axis ticks and labels
+        # Reset zprávy
+        self.msg = None
 
         if not glyphset or glyph_name not in glyphset:
-            ax.text(0.5, 0.5, "No glyph", ha='center', va='center', fontsize=48,
-                    color='dimgray', weight='bold', style='italic')
-            self.draw()
+            self.path = None
+            self.msg = "No glyph"
+            self.update()
             return
 
         glyph = glyphset[glyph_name]
-        pen = MatplotlibPen(glyphset)
+        pen = QtPen(glyphset)
         glyph.draw(pen)
 
-        if not pen.vertices:
-            ax.text(0.5, 0.5, "Empty glyph\n(likely space)", ha='center', va='center',
-                    fontsize=30, color='dimgray', weight='bold', style='italic')
-            self.draw()
+        self.path = pen.path
+
+        # Detekce prázdného znaku (např. mezera)
+        if self.path.isEmpty():
+            self.msg = "Empty glyph\n(likely space)"
+
+        self.baseline = notdef_min_y
+        self.topline = notdef_max_y
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QtCore.Qt.white)
+
+        if self.msg:
+            painter.setPen(QtGui.QColor("dimgray"))
+
+            font = painter.font()
+            font.setBold(True)
+            font.setItalic(True)
+            font.setPointSize(48 if "No glyph" in self.msg else 30)
+            painter.setFont(font)
+
+            painter.drawText(self.rect(), QtCore.Qt.AlignCenter, self.msg)
             return
 
-        xs, ys = zip(*pen.vertices)
-        min_x, max_x = min(xs), max(xs)
-        glyph_w = max_x - min_x
+        if self.path is None:
+            return
 
-        if notdef_min_y is not None and notdef_max_y is not None and (notdef_max_y - notdef_min_y) > 0:
-            ref_min = notdef_min_y
-            ref_max = notdef_max_y
-            has_notdef = True
+        rect = self.rect()
+        view_unit = min(rect.width(), rect.height())
+
+        if self.baseline is not None and self.topline is not None:
+            ref_min, ref_max = self.baseline, self.topline
         else:
-            ref_max = getattr(self.font, 'FontBBox', [0, 0, 0, 1000])[3]
-            ref_min = getattr(self.font, 'FontBBox', [0, -200, 0, 0])[1]
-            has_notdef = False
+            ref_min, ref_max = self.font_bbox[1], self.font_bbox[3]
 
-        ref_height = ref_max - ref_min
-
-        scale = 0.65 / ref_height
-
+        ref_height = max(ref_max - ref_min, 1)
         ref_midpoint = (ref_max + ref_min) / 2
+        scale_factor = (view_unit * 0.45) / ref_height
 
-        def tx(x):
-            return (x - min_x - glyph_w / 2) * scale
+        br = self.path.boundingRect()
+        glyph_center_x = br.left() + br.width() / 2.0
 
-        def ty(y):
-            return (y - ref_midpoint) * scale
+        painter.save()
+        painter.translate(rect.width() / 2.0, rect.height() / 2.0)
+        painter.scale(scale_factor, -scale_factor)
+        painter.translate(-glyph_center_x, -ref_midpoint)
 
-        y_baseline = ty(0)
-        y_notdef_min = ty(ref_min)
-        y_notdef_max = ty(ref_max)
+        line_pen = QtGui.QPen()
+        line_pen.setCosmetic(True)
+        line_pen.setWidth(1)
 
-        if has_notdef:
-            ax.axhline(y=y_notdef_max, color='blue', linestyle=':', linewidth=1.5)
-            ax.axhline(y=y_notdef_min, color='blue', linestyle=':', linewidth=1.5)
+        if self.baseline is not None:
+            line_pen.setColor(QtGui.QColor("blue"))
+            line_pen.setStyle(QtCore.Qt.DotLine)
+            painter.setPen(line_pen)
+            painter.drawLine(QtCore.QLineF(-10000, self.baseline, 10000, self.baseline))
+            painter.drawLine(QtCore.QLineF(-10000, self.topline, 10000, self.topline))
         else:
-            ax.axhline(y=y_baseline, color='red', linestyle='-', linewidth=1.5)
+            line_pen.setColor(QtGui.QColor("red"))
+            line_pen.setStyle(QtCore.Qt.SolidLine)
+            painter.setPen(line_pen)
+            painter.drawLine(QtCore.QLineF(-10000, 0, 10000, 0))
 
-        vertices = [(tx(x), ty(y)) for x, y in pen.vertices]
-        path = Path(vertices, pen.codes)
-        patch = patches.PathPatch(path, facecolor='black', lw=0)
-        ax.add_patch(patch)
-
-        ax.set_xlim(-0.5, 0.5)
-        ax.set_ylim(-0.7, 0.7)
-        ax.set_aspect('equal')
-        self.draw()
+        painter.setBrush(QtGui.QBrush(QtGui.QColor("black")))
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.drawPath(self.path)
+        painter.restore()
 
 # Dialog window for application settings
 # It allows the user to configure navigation, auto-jump, and saving preferences
@@ -1045,13 +1007,13 @@ class FontWidget(QMainWindow):
         self.current_font_name = None
         self.current_font = None
         self.current_glyph_set = None
+        self.menu_structure = None
         self.current_font_glyph_names = []
         self.current_index = 0
 
         # Dictionaries for data storage
         self.user_glyph_to_char = {}  # Stores current session mappings
         self.font_cache = {}  # Caches extracted font data to avoid re-parsing
-        self.db_cache = {}
         self.known_glyph_hashes = set()  # Stores hashes already in the CSV database
         self.history_stack = []
 
@@ -1263,7 +1225,7 @@ class FontWidget(QMainWindow):
         preview_group = QGroupBox("Glyph Preview")
         preview_layout = QHBoxLayout(preview_group)
 
-        self.canvas = GlyphCanvas(None)
+        self.canvas = GlyphQtWidget()
         self.label = QLabel("Select glyph")
         self.label.setStyleSheet("font-weight: bold; font-size: 24px; color: white;")
         self.label.setAlignment(QtCore.Qt.AlignCenter)
@@ -2078,9 +2040,14 @@ class FontWidget(QMainWindow):
     def open_special(self):
         webbrowser.open_new_tab("https://www.vertex42.com/ExcelTips/unicode-symbols.html")
 
-    # Calculates MD5 hash of the glyph shape
-    # This allows us to recognize the same glyph shape even if the font name changes
+    # Calculates or retrieves MD5 hash of the glyph shape
     def get_glyph_hash(self, glyph_name):
+        if hasattr(self, 'current_page') and hasattr(self, 'current_font_name'):
+            cache = self.font_cache.get((self.current_page, self.current_font_name), {})
+            cached_hashes = cache.get('glyph_hashes', {})
+            if glyph_name in cached_hashes:
+                return cached_hashes[glyph_name]
+
         if not hasattr(self, 'current_glyph_set') or glyph_name not in self.current_glyph_set:
             return None
 
@@ -2165,6 +2132,7 @@ class FontWidget(QMainWindow):
 
         finally:
             self.setEnabled(True)
+            self.glyph_list.setFocus()
             QApplication.restoreOverrideCursor()
 
     # Decompiles raw binary CFF data into FontTools objects
@@ -2179,12 +2147,13 @@ class FontWidget(QMainWindow):
         # .notdef usually represents the "unknown character" box and gives good vertical metrics
         notdef_baseline = notdef_topline = None
         if '.notdef' in glyphSet:
-            pen = MatplotlibPen(glyphSet)
+            pen = QtPen(glyphSet)
             glyphSet['.notdef'].draw(pen)
-            if pen.vertices:
-                _, ys = zip(*pen.vertices)
-                notdef_baseline = min(ys)
-                notdef_topline = max(ys)
+            if not pen.path.isEmpty():
+                rect = pen.path.boundingRect()
+                # Souřadnice v PDF (FontTools) rostou nahoru, boundingRect je zachová
+                notdef_baseline = rect.top()  # Nejnižší bod (PDF baseline)
+                notdef_topline = rect.bottom()  # Nejvyšší bod
 
         # Filter out .notdef from the list shown to user
         glyph_names = [name for name in glyph_names if name != '.notdef']
@@ -2198,17 +2167,23 @@ class FontWidget(QMainWindow):
         self.notdef_topline = notdef_topline
         self.current_index = 0
 
-    # Generates a thumbnail image of a glyph for the list widget
+    # Generates a thumbnail image of a glyph natively via Qt (Hyper-optimized)
     def generate_icon(self, glyph_name, size=(128, 128), draw_lines=False):
-        # Create a small Matplotlib figure
-        fig = Figure(figsize=(1.0, 1.0), dpi=200)
-        ax = fig.add_subplot()
-        ax.axis('off')
+        pix = QPixmap(size[0], size[1])
+        pix.fill(QtCore.Qt.white)
 
+        if not hasattr(self, 'current_glyph_set') or glyph_name not in self.current_glyph_set:
+            return pix
+
+        # Draw the glyph path using our fast QtPen
         glyph = self.current_glyph_set[glyph_name]
-        pen = MatplotlibPen(self.current_glyph_set)
+        pen = QtPen(self.current_glyph_set)
         glyph.draw(pen)
 
+        if pen.path.isEmpty():
+            return pix
+
+        # Determine reference heights for scaling
         if self.notdef_baseline is not None and self.notdef_topline is not None:
             ref_min = self.notdef_baseline
             ref_max = self.notdef_topline
@@ -2219,45 +2194,48 @@ class FontWidget(QMainWindow):
         ref_height = max(ref_max - ref_min, 1)
         ref_midpoint = (ref_max + ref_min) / 2
 
-        scale = 0.65 / ref_height
+        # Bounding box for horizontal centering
+        br = pen.path.boundingRect()
+        center_x = br.center().x()
 
-        def ty(y):
-            return (y - ref_midpoint) * scale
+        # Set up QPainter
+        painter = QtGui.QPainter(pix)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
-        if pen.vertices:
-            xs, _ = zip(*pen.vertices)
-            min_x, max_x = min(xs), max(xs)
-            width = max_x - min_x
+        # Center in the pixmap
+        painter.translate(size[0] / 2.0, size[1] / 2.0)
 
-            vertices = []
-            for x, y in pen.vertices:
-                x_t = (x - min_x - width / 2) * scale
-                y_t = ty(y)
-                vertices.append((x_t, y_t))
+        # Scale the path (Y must be negative because Qt's Y axis points down, unlike PDF)
+        scale = (size[1] * 0.45) / ref_height
+        painter.scale(scale, -scale)
 
-            path = Path(vertices, pen.codes)
-            patch = patches.PathPatch(path, facecolor='black', lw=0)
-            ax.add_patch(patch)
+        # Move the specific glyph to the exact visual center
+        painter.translate(-center_x, -ref_midpoint)
 
+        # Draw the solid black shape
+        painter.setBrush(QtGui.QBrush(QtGui.QColor("black")))
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.drawPath(pen.path)
+
+        # Draw optional alignment lines for the selected item
         if draw_lines:
+            line_pen = QtGui.QPen()
+            line_pen.setStyle(QtCore.Qt.DotLine)
+            line_pen.setWidthF(0)  # 0 means a 1-pixel cosmetic line independent of zoom scale
+
+            painter.setBrush(QtCore.Qt.NoBrush)
             if self.notdef_baseline is not None:
-                ax.axhline(y=ty(self.notdef_baseline), color='blue', linestyle=':', linewidth=1)
-                ax.axhline(y=ty(self.notdef_topline), color='blue', linestyle=':', linewidth=1)
-
+                line_pen.setColor(QtGui.QColor("blue"))
+                painter.setPen(line_pen)
+                painter.drawLine(QtCore.QLineF(-10000, self.notdef_baseline, 10000, self.notdef_baseline))
+                painter.drawLine(QtCore.QLineF(-10000, self.notdef_topline, 10000, self.notdef_topline))
             else:
-                ax.axhline(y=ty(0), color='red', linestyle=':', linewidth=1)
+                line_pen.setColor(QtGui.QColor("red"))
+                painter.setPen(line_pen)
+                painter.drawLine(QtCore.QLineF(-10000, 0, 10000, 0))
 
-        ax.set_xlim(-0.5, 0.5)
-        ax.set_ylim(-0.7, 0.7)
-        ax.set_aspect('equal')
-
-        # Convert Figure to QPixmap
-        canvas = FigureCanvasAgg(fig)
-        canvas.draw()
-        buf = canvas.buffer_rgba()
-        arr = asarray(buf)
-        img = QImage(arr.data, arr.shape[1], arr.shape[0], QImage.Format_RGBA8888)
-        return QPixmap.fromImage(img).scaled(*size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        painter.end()
+        return pix
 
     # Fills the QListWidget with glyph thumbnails
     def populate_glyph_list(self):
@@ -2384,7 +2362,6 @@ class FontWidget(QMainWindow):
             self.update_suggestions_ui(name, self.current_font_name)
             self.char_input.setFocus()
 
-    # Opens PDF file, scans structure, calculates hashes, and populates menus
     def open_pdf(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select PDF file to repair", "", "PDF Files (*.pdf)")
         if not file_path:
@@ -2397,7 +2374,7 @@ class FontWidget(QMainWindow):
 
         try:
             self.load_db_cache()
-            self.menu_structure = extract_pdf_data(file_path)
+            self.menu_structure = {}
             self.font_cache.clear()
 
             with fitz.open(file_path) as doc:
@@ -2406,6 +2383,7 @@ class FontWidget(QMainWindow):
                 # Iterate through all pages
                 for page_num in range(len(doc)):
                     page = doc.load_page(page_num)
+                    cff_names_on_page = []
 
                     # Analyze fonts on each page
                     for font in page.get_fonts(full=True):
@@ -2418,21 +2396,23 @@ class FontWidget(QMainWindow):
                                 if has_tounicode(doc, xref):
                                     continue
 
-                                tmp_font = CFFFontSet()
-                                tmp_font.decompile(BytesIO(buffer), None)
-                                glyph_set = tmp_font.topDictIndex[0].CharStrings
+                                cff_names_on_page.append(name)
 
-                                # Fiter out .notdef
-                                valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
-                                total_glyphs = len(valid_glyph_names)
+                                if (page_num, name) not in self.font_cache:
+                                    tmp_font = CFFFontSet()
+                                    tmp_font.decompile(BytesIO(buffer), None)
+                                    glyph_set = tmp_font.topDictIndex[0].CharStrings
 
-                                # Calculate hashes for all glyphs in this font instance
-                                current_font_hashes = {}
-                                agl_count = 0
-                                for gname in valid_glyph_names:
-                                    if gname in EXTENDED_AGL:
-                                        agl_count += 1
-                                    try:
+                                    # Fiter out .notdef
+                                    valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+                                    total_glyphs = len(valid_glyph_names)
+
+                                    current_font_hashes = {}
+                                    agl_count = 0
+                                    for gname in valid_glyph_names:
+                                        if gname in EXTENDED_AGL:
+                                            agl_count += 1
+
                                         glyph = glyph_set[gname]
                                         pen = SignaturePen(glyph_set)
                                         glyph.draw(pen)
@@ -2444,27 +2424,25 @@ class FontWidget(QMainWindow):
                                             sig = pen.get_signature()
                                             ghash = md5(sig.encode('utf-8')).hexdigest()
                                         current_font_hashes[gname] = ghash
-                                    except:
-                                        pass
 
-                                mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
+                                    mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
 
-                                # Cache the data
-                                self.font_cache[(page_num, name)] = {
-                                    'glyph_count': total_glyphs,
-                                    'mapped_count': mapped_count,
-                                    'agl_count': agl_count,
-                                    'glyph_hashes': current_font_hashes,
-                                    'data': buffer
-                                }
+                                    #Cache the data
+                                    self.font_cache[(page_num, name)] = {
+                                        'glyph_count': total_glyphs,
+                                        'mapped_count': mapped_count,
+                                        'agl_count': agl_count,
+                                        'glyph_hashes': current_font_hashes,
+                                        'data': buffer
+                                    }
 
                                 if first_page is None:
                                     first_page, first_name = page_num, name
                         except Exception as e:
                             print(f"Error parsing font {name}: {e}")
-                            self.font_cache[(page_num, name)] = {
-                                'glyph_count': 0, 'mapped_count': 0, 'agl_count': 0, 'glyph_hashes': []
-                            }
+
+                    if cff_names_on_page:
+                        self.menu_structure[page_num] = cff_names_on_page
 
             if first_page is not None:
                 self.load_font(first_page, first_name)
@@ -2520,6 +2498,9 @@ class FontWidget(QMainWindow):
         #Track exact matches for specific fonts to solve global hash collisions
         self.exact_db_matches = set()
 
+        self.global_db_map = {}
+        self.global_db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
+
         path = self.CSV_PATH
         if os.path.exists(path):
             try:
@@ -2541,6 +2522,10 @@ class FontWidget(QMainWindow):
 
                             self.db_records.append(row)
                             self.exact_db_matches.add((h, fname, gname))
+
+                            if h not in self.global_db_map:
+                                self.global_db_map[h] = []
+                            self.global_db_map[h].append(row)
             except Exception as e:
                 print(f"DB Cache Error: {e}")
 
@@ -2761,7 +2746,6 @@ class FontWidget(QMainWindow):
                     writer.writerow(row)
 
             # Refresh application state
-            self.db_cache.clear()
             self.load_db_cache()
             self.update_statistics()
             self.statusBar().showMessage(f"Saved. Total DB size: {len(existing_data)}", 3000)
@@ -2774,44 +2758,31 @@ class FontWidget(QMainWindow):
     # Checks the database for any glyphs in the current font that we already know
     def load_mappings_for_current_font(self):
         self.user_glyph_to_char = {}
-        db_map = {}
 
-        # Add intrinsic empty space hash mapping
-        space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
-        db_map[space_hash] = [{"unicode_hex": "0020", "AGN": "space", "GlyphName": "", "font_name": ""}]
-
-        # Load DB into memory
-        if os.path.exists(self.CSV_PATH):
-            try:
-                with open(self.CSV_PATH, 'r', encoding='utf-8', newline='') as f:
-                    reader = csv.DictReader(f, delimiter='|', quotechar='"')
-                    if "glyph_hash" in reader.fieldnames:
-                        for row in reader:
-                            h = row["glyph_hash"]
-                            if h not in db_map:
-                                db_map[h] = []
-                            db_map[h].append(row)
-            except Exception:
-                pass
+        if not hasattr(self, 'global_db_map'):
+            self.load_db_cache()
+        db_map = self.global_db_map
 
         current_clean_font = self.current_font_name.split('+', 1)[
             -1] if self.current_font_name and '+' in self.current_font_name else (self.current_font_name or "")
 
+        cached_hashes = self.font_cache.get((self.current_page, self.current_font_name), {}).get('glyph_hashes', {})
+
         # Check each glyph in current font against DB
         for name in self.current_font_glyph_names:
 
-            # Absolute AGL priority: If the glyph is in our AGL list,
-            # ignore the database entirely to prevent overriding it with wrong hashes.
+            # Absolute AGL priority
             if name in EXTENDED_AGL and name != '.notdef':
                 continue
 
-            g_hash = self.get_glyph_hash(name)
+            g_hash = cached_hashes.get(name) or self.get_glyph_hash(name)
+
             if g_hash and g_hash in db_map:
                 rows = db_map[g_hash]
 
                 exact_match = None
                 for r in rows:
-                    db_clean_font = r.get("font_name", "").split('+', 1)[-1] if '+' in r.get("font_name",  "") else r.get("font_name", "")
+                    db_clean_font = r.get("font_name", "").split('+', 1)[-1] if '+' in r.get("font_name", "") else r.get("font_name", "")
                     if r.get("GlyphName") == name and db_clean_font == current_clean_font:
                         exact_match = r
                         break
@@ -2832,9 +2803,9 @@ class FontWidget(QMainWindow):
                             "AGN": row["AGN"]
                         }
 
-        # Special handling for .notdef (default missing character)
+        # Special handling for .notdef
         if '.notdef' in self.current_glyph_set:
-            nhash = self.get_glyph_hash('.notdef')
+            nhash = cached_hashes.get('.notdef') or self.get_glyph_hash('.notdef')
             if nhash in db_map:
                 row = db_map[nhash][0]
                 self.user_glyph_to_char['.notdef'] = {
