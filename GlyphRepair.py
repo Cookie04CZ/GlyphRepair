@@ -118,12 +118,11 @@ class GlyphQtWidget(QWidget):
         self.path = None
         self.baseline = None
         self.topline = None
-        self.msg = None  # Nové: Pro ukládání stavové zprávy
+        self.msg = None
         self.font_bbox = [0, -200, 0, 1000]
         self.setMinimumSize(400, 400)
 
     def draw_glyph(self, glyphset, glyph_name, notdef_max_y, notdef_min_y):
-        # Reset zprávy
         self.msg = None
 
         if not glyphset or glyph_name not in glyphset:
@@ -138,7 +137,6 @@ class GlyphQtWidget(QWidget):
 
         self.path = pen.path
 
-        # Detekce prázdného znaku (např. mezera)
         if self.path.isEmpty():
             self.msg = "Empty glyph\n(likely space)"
 
@@ -351,7 +349,6 @@ class PageSelectionDialog(QDialog):
                 page_agl += info.get('agl_count', 0)
 
             # Get status text and color simultaneously
-            # (Předpokládá, že máš metodu _get_status_info ve FontWidget a parent je předán)
             status_text, color_code = parent._get_status_info(page_mapped, page_total, page_agl) if parent else ("—", "#888888")
 
             item = QTreeWidgetItem([f"Page {page_num + 1}", status_text])
@@ -655,239 +652,29 @@ class FontSelectionDialog(QDialog):
         item = self.list_widget.currentItem()
         return item.data(QtCore.Qt.UserRole)['target_page'], item.data(QtCore.Qt.UserRole)['name'] if item else None
 
-# Dialog window for configuring PDF Export and Repair parameters
-'''class ExportDialog(QDialog):
-    def __init__(self, current_pdf_path, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Export & Repair Settings")
-        self.setMinimumWidth(800)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(15)
-
-        doc_group = QGroupBox("Target Document")
-        doc_group.setStyleSheet("QGroupBox { font-weight: bold; }")
-        doc_layout = QVBoxLayout(doc_group)
-
-        self.radio_current = QRadioButton("Current loaded document")
-        self.radio_other = QRadioButton("Other document or folder:")
-
-        other_file_layout = QHBoxLayout()
-        self.other_path_input = QLineEdit()
-        self.other_path_input.setPlaceholderText("Path to another PDF file or folder...")
-
-        self.btn_browse_file = QPushButton("Browse File...")
-        self.btn_browse_file.clicked.connect(self.browse_other_file)
-
-        self.btn_browse_folder = QPushButton("Browse Folder...")
-        self.btn_browse_folder.clicked.connect(self.browse_other_folder)
-
-        other_file_layout.addWidget(self.other_path_input)
-        other_file_layout.addWidget(self.btn_browse_file)
-        other_file_layout.addWidget(self.btn_browse_folder)
-
-        doc_layout.addWidget(self.radio_current)
-        doc_layout.addWidget(self.radio_other)
-        doc_layout.addLayout(other_file_layout)
-        main_layout.addWidget(doc_group)
-
-        self.radio_other.toggled.connect(self.toggle_other_inputs)
-
-        if current_pdf_path:
-            self.radio_current.setChecked(True)
-            self.toggle_other_inputs(False)
-        else:
-            self.radio_current.setEnabled(False)
-            self.radio_current.setText("Current loaded document (None)")
-            self.radio_other.setChecked(True)
-            self.toggle_other_inputs(True)
-
-        bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(15)
-
-        self.group_visual = QGroupBox("Method A: Visual / Automatic Repair")
-        self.group_visual.setCheckable(True)
-        self.group_visual.setChecked(True)  # Defaultně aktivní
-        param_layout = QVBoxLayout(self.group_visual)
-
-        self.radio_all_pages = QRadioButton("All pages")
-        self.radio_all_pages.setChecked(True)
-        self.radio_spec_pages = QRadioButton("Specific pages:")
-
-        self.spec_pages_input = QLineEdit()
-        self.spec_pages_input.setPlaceholderText("e.g. 1-5, 8, 11-13")
-        self.spec_pages_input.setEnabled(False)
-        self.radio_spec_pages.toggled.connect(self.spec_pages_input.setEnabled)
-
-        param_layout.addWidget(self.radio_all_pages)
-        param_layout.addWidget(self.radio_spec_pages)
-        param_layout.addWidget(self.spec_pages_input)
-
-        line1 = QWidget()
-        line1.setFixedHeight(1)
-        line1.setStyleSheet("background-color: #555;")
-        param_layout.addWidget(line1)
-
-        slider_layout = QHBoxLayout()
-        slider_layout.addWidget(QLabel("Required mapped glyphs:"))
-        self.lbl_threshold_val = QLabel("100%")
-        self.lbl_threshold_val.setStyleSheet("font-weight: bold; color: #3d7eff;")
-        slider_layout.addWidget(self.lbl_threshold_val)
-        slider_layout.addStretch()
-
-        self.slider_threshold = QSlider(QtCore.Qt.Horizontal)
-        self.slider_threshold.setRange(1, 100)
-        self.slider_threshold.setValue(100)
-        self.slider_threshold.valueChanged.connect(lambda v: self.lbl_threshold_val.setText(f"{v}%"))
-
-        param_layout.addLayout(slider_layout)
-        param_layout.addWidget(self.slider_threshold)
-
-        param_layout.addWidget(QLabel("Differences Method:"))
-        self.combo_method = QComboBox()
-        self.combo_method.addItems([
-            "Respect only full differences",
-            "Force broken differences",
-            "Both (Differences + Force)"
-        ])
-        param_layout.addWidget(self.combo_method)
-        param_layout.addStretch()
-
-        bottom_layout.addWidget(self.group_visual, 1)
-
-        self.group_legacy = QGroupBox("Method B: Type1ToUnicode Mapping")
-        self.group_legacy.setCheckable(True)
-        self.group_legacy.setChecked(False)
-        legacy_layout = QVBoxLayout(self.group_legacy)
-
-        self.lbl_map = QLabel("Font Map JSON File:")
-        legacy_layout.addWidget(self.lbl_map)
-
-        map_file_layout = QHBoxLayout()
-        self.map_file_input = QLineEdit()
-        self.map_file_input.setPlaceholderText("Path to font_map.json...")
-        self.btn_browse_map = QPushButton("Browse...")
-        self.btn_browse_map.clicked.connect(self.browse_map_file)
-
-        map_file_layout.addWidget(self.map_file_input)
-        map_file_layout.addWidget(self.btn_browse_map)
-        legacy_layout.addLayout(map_file_layout)
-
-        line2 = QWidget()
-        line2.setFixedHeight(1)
-        line2.setStyleSheet("background-color: #555;")
-        legacy_layout.addWidget(line2)
-
-        self.chk_verbose = QCheckBox("Enable verbose logging")
-        self.chk_verbose.setChecked(False)
-        self.chk_save_log = QCheckBox("Save detailed log as text file")
-        self.chk_save_log.setChecked(False)
-        legacy_layout.addWidget(self.chk_verbose)
-        legacy_layout.addWidget(self.chk_save_log)
-        legacy_layout.addStretch()
-
-        bottom_layout.addWidget(self.group_legacy, 1)
-
-        main_layout.addLayout(bottom_layout)
-
-        self.group_visual.toggled.connect(self.on_visual_toggled)
-        self.group_legacy.toggled.connect(self.on_legacy_toggled)
-
-        self.update_group_styles()
-
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.button_box.button(QDialogButtonBox.Ok).setText("Run Repair")
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
-        main_layout.addWidget(self.button_box)
-
-    def toggle_other_inputs(self, checked):
-        self.other_path_input.setEnabled(checked)
-        self.btn_browse_file.setEnabled(checked)
-        self.btn_browse_folder.setEnabled(checked)
-
-    def on_visual_toggled(self, checked):
-        if checked:
-            self.group_legacy.setChecked(False)
-        elif not self.group_legacy.isChecked():
-            self.group_visual.setChecked(True)
-        self.update_group_styles()
-
-    def on_legacy_toggled(self, checked):
-        if checked:
-            self.group_visual.setChecked(False)
-        elif not self.group_visual.isChecked():
-            self.group_legacy.setChecked(True)
-        self.update_group_styles()
-
-    def update_group_styles(self):
-        active_style = "QGroupBox { font-weight: bold; border: 1px solid #3d7eff; border-radius: 4px; margin-top: 1ex; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }"
-        inactive_style = "QGroupBox { font-weight: normal; border: 1px solid #444; border-radius: 4px; margin-top: 1ex; color: #777; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #777; }"
-
-        if self.group_visual.isChecked():
-            self.group_visual.setStyleSheet(active_style)
-            self.group_legacy.setStyleSheet(inactive_style)
-        else:
-            self.group_visual.setStyleSheet(inactive_style)
-            self.group_legacy.setStyleSheet(active_style)
-
-    def browse_other_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select PDF to repair", "", "PDF Files (*.pdf)")
-        if path:
-            self.other_path_input.setText(path)
-
-    def browse_other_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Select folder with PDFs")
-        if path:
-            self.other_path_input.setText(path)
-
-    def browse_map_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select Font Map", "", "JSON Files (*.json)")
-        if path:
-            self.map_file_input.setText(path)
-
-    def get_settings(self):
-        return {
-            "target_pdf": "current" if self.radio_current.isChecked() else self.other_path_input.text(),
-            "mode": "visual" if self.group_visual.isChecked() else "type1tounicode",
-            "pages": "all" if self.radio_all_pages.isChecked() else self.spec_pages_input.text(),
-            "threshold_pct": self.slider_threshold.value(),
-            "repair_method_idx": self.combo_method.currentIndex(),
-            "gtu_map_file": self.map_file_input.text(),
-            "gtu_verbose": self.chk_verbose.isChecked(),
-            "gtu_save_log": self.chk_save_log.isChecked()
-        }
-'''
-
 
 class IntegratedRepairDialog(QDialog):
     def __init__(self, page_font_map, total_unique, ready_unique, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Oprava PDF dokumentu")
+        self.setWindowTitle("PDF Repair")
         self.setMinimumSize(600, 450)
         self.setWindowModality(QtCore.Qt.WindowModal)
 
         self.main_layout = QVBoxLayout(self)
 
-        # --- SEKCE 1: KONTROLA ---
-        self.setup_group = QGroupBox("Kontrola fontů před opravou")
+        self.setup_group = QGroupBox("Font check before repair")
         setup_layout = QVBoxLayout(self.setup_group)
 
-        # Odstraněn ten chybný sčítací for-cyklus a použita přímo unikátní čísla
         self.lbl_summary = QLabel(
-            f"Bude opraveno <span style='color:#228B22; font-weight:bold;'>{ready_unique}</span> "
-            f"z celkového počtu <span style='font-weight:bold;'>{total_unique}</span> unikátních CFF fontů."
+            f"GlypRepair will repair <span style='color:#228B22; font-weight:bold;'>{ready_unique}</span> "
+            f"out of <span style='font-weight:bold;'>{total_unique}</span> CFF fonts."
         )
         self.lbl_summary.setStyleSheet("font-size: 15px; margin-bottom: 5px;")
         setup_layout.addWidget(self.lbl_summary)
 
-        # 3. Stromové zobrazení
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Název položky", "Stav namapování"])
         self.tree.setAlternatingRowColors(True)
-        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.tree.setColumnWidth(1, 140)  # O chloupek širší sloupec pro pbar
+        self.tree.setColumnWidth(1, 140)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
 
         self.ready_count = 0
@@ -902,10 +689,9 @@ class IntegratedRepairDialog(QDialog):
                 if f_info['total'] == 0 or f_info['mapped'] < f_info['total']:
                     page_all_ok = False
 
-            page_item = QTreeWidgetItem([f"Stránka {p_num + 1}", ""])
+            page_item = QTreeWidgetItem([f"Page {p_num + 1}", ""])
             page_item.setData(0, QtCore.Qt.UserRole, (p_num, None))
 
-            # Nastavení výšky řádku (vytvoří padding kolem 18px progress baru)
             page_item.setSizeHint(0, QtCore.QSize(0, 30))
 
             color = "#228B22" if page_all_ok else "#FF8C00"
@@ -926,7 +712,6 @@ class IntegratedRepairDialog(QDialog):
                 font_item = QTreeWidgetItem([f_info['name'], ""])
                 font_item.setData(0, QtCore.Qt.UserRole, (p_num, f_info['name']))
 
-                # Menší padding pro podpoložky fontů
                 font_item.setSizeHint(0, QtCore.QSize(0, 26))
 
                 f_color = "#228B22" if is_ok else "#FF8C00"
@@ -943,8 +728,7 @@ class IntegratedRepairDialog(QDialog):
         setup_layout.addWidget(self.tree)
         self.main_layout.addWidget(self.setup_group)
 
-        # --- SEKCE 2: LOG ---
-        self.log_group = QGroupBox("Průběh zpracování")
+        self.log_group = QGroupBox("Repair progress")
         log_layout = QVBoxLayout(self.log_group)
         self.text_log = QTextEdit()
         self.text_log.setReadOnly(True)
@@ -954,40 +738,35 @@ class IntegratedRepairDialog(QDialog):
         self.log_group.setVisible(False)
         self.main_layout.addWidget(self.log_group)
 
-        # --- TLAČÍTKA ---
         self.button_layout = QHBoxLayout()
-        self.button_layout.setSpacing(10)  # Pěkná mezera mezi tlačítky uprostřed
+        self.button_layout.setSpacing(10)
 
-        self.btn_cancel = QPushButton("Zrušit")
-        self.btn_cancel.setFixedHeight(40)  # Vyšší tlačítko
-        self.btn_cancel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Roztáhne se na 50%
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setFixedHeight(40)
+        self.btn_cancel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_cancel.setStyleSheet("font-weight: bold; background-color: #444444; color: white; border-radius: 4px;")
 
-        self.btn_repair = QPushButton(f"Spustit opravu ({ready_unique} fontů)")
-        self.btn_repair.setFixedHeight(40)  # Vyšší tlačítko
-        self.btn_repair.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Roztáhne se na 50%
+        self.btn_repair = QPushButton(f"Start repair ({ready_unique} fonts)")
+        self.btn_repair.setFixedHeight(40)
+        self.btn_repair.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_repair.setStyleSheet("font-weight: bold; background-color: #228B22; color: white; border-radius: 4px;")
 
-        # Stretch je pryč, tlačítka vyplní prostor
         self.button_layout.addWidget(self.btn_cancel)
         self.button_layout.addWidget(self.btn_repair)
         self.main_layout.addLayout(self.button_layout)
 
-        # PROPOJENÍ
         self.jump_target = None
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_repair.clicked.connect(self.start_repair_flow)
 
     def _create_progress_bar_widget(self, mapped, total):
-        """Vygeneruje QProgressBar obalený v QWidgetu pro zajištění mezer ve stromu."""
         container = QWidget()
         layout = QVBoxLayout(container)
-        # Margin: (vlevo, nahoře, vpravo, dole)
-        layout.setContentsMargins(5, 5, 10, 5)
+        layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(0)
 
         pbar = QProgressBar()
-        pbar.setFixedHeight(16)  # O trochu tenčí, ať zbyde víc místa na mezery
+        pbar.setFixedHeight(16)
 
         is_ok = (total > 0 and mapped >= total)
         color = "#228B22" if is_ok else "#FF8C00"
@@ -1035,7 +814,7 @@ class IntegratedRepairDialog(QDialog):
         self.log_group.setVisible(True)
         self.btn_repair.setVisible(False)
         self.btn_cancel.setEnabled(False)
-        self.btn_cancel.setText("Pracuji...")
+        self.btn_cancel.setText("Working...")
         QApplication.processEvents()
 
     def log(self, message):
@@ -1045,7 +824,7 @@ class IntegratedRepairDialog(QDialog):
 
     def finish(self):
         self.btn_cancel.setEnabled(True)
-        self.btn_cancel.setText("Zavřít")
+        self.btn_cancel.setText("Close")
         self.btn_cancel.setStyleSheet("font-weight: bold; background-color: #3d7eff; color: white; border-radius: 4px;")
 
     def _create_status_icon(self, color_str):
@@ -1217,13 +996,6 @@ class FontWidget(QMainWindow):
         self.current_pdf_action.setIcon(current_pdf_icon)
         self.current_pdf_action.setEnabled(False)
         self.current_pdf_action.triggered.connect(self.repair_current_pdf_100)
-
-        '''
-        self.export_action = toolbar.addAction("Repair PDF")
-        export_icon = qta.icon('fa5s.save', color='white')
-        self.export_action.setIcon(export_icon)
-        self.export_action.triggered.connect(self.open_export_settings)
-        '''
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1600,42 +1372,6 @@ class FontWidget(QMainWindow):
             if selected_data:
                 page, font_name = selected_data
                 self.load_font(page, font_name)
-
-    '''def open_export_settings(self):
-        dialog = ExportDialog(self.pdf_path, self)
-        if dialog.exec():
-            settings = dialog.get_settings()
-
-            if settings["target_pdf"] != "current" and not settings["target_pdf"]:
-                QMessageBox.warning(self, "Invalid Input", "Please select a target document or folder.")
-                return
-
-            if settings["mode"] == "visual":
-                self.run_visual_repair(settings)
-            else:
-                if not settings["gtu_map_file"]:
-                    QMessageBox.warning(self, "Invalid Input", "Please select a JSON font map file for Type1toUnicode.")
-                    return
-                self.run_type1_repair(settings)
-    '''
-
-    def run_repair_process(self, settings):
-
-        target = self.pdf_path if settings["target_pdf"] == "current" else settings["target_pdf"]
-
-        info_text = (
-            f"<b>Target:</b> {target}<br>"
-            f"<b>Pages:</b> {settings['pages']}<br>"
-            f"<b>Required Mapped:</b> {settings['threshold_pct']}%<br>"
-            f"<b>Method:</b> {settings.get('repair_method_name', 'Default')}<br>"
-            f"<b>Glyph to Unicode:</b> {settings['apply_glyph_to_unicode']}"
-        )
-
-        QMessageBox.information(
-            self,
-            "Repair Started",
-            f"PDF Repair initiated with the following settings:<br><br>{info_text}<br><br><i>(PDF manipulation implementation TBD)</i>"
-        )
 
     # Helper method to change page mode dynamically from the UI
     def set_page_mode(self, mode):
@@ -2258,9 +1994,8 @@ class FontWidget(QMainWindow):
             glyphSet['.notdef'].draw(pen)
             if not pen.path.isEmpty():
                 rect = pen.path.boundingRect()
-                # Souřadnice v PDF (FontTools) rostou nahoru, boundingRect je zachová
-                notdef_baseline = rect.top()  # Nejnižší bod (PDF baseline)
-                notdef_topline = rect.bottom()  # Nejvyšší bod
+                notdef_baseline = rect.top()
+                notdef_topline = rect.bottom()
 
         # Filter out .notdef from the list shown to user
         glyph_names = [name for name in glyph_names if name != '.notdef']
@@ -2361,8 +2096,7 @@ class FontWidget(QMainWindow):
             )
 
             # Generate the version with guidelines for the large selected state
-            pix_large_lines = self.generate_icon(name, size=(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE),
-                                                 draw_lines=True)
+            pix_large_lines = self.generate_icon(name, size=(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE), draw_lines=True)
 
             item = QListWidgetItem(QIcon(pix_small), "")
             item.setData(QtCore.Qt.UserRole, name)
@@ -2558,20 +2292,14 @@ class FontWidget(QMainWindow):
                 self.clear_ui_state()
                 QMessageBox.information(
                     self,
-                    "Dokument je v pořádku",
-                    "Tento PDF dokument neobsahuje žádné fonty vyžadující manuální mapování.\n\n"
-                    "Texty už jsou buď standardně čitelné a mapované, nebo dokument obsahuje pouze křivky a obrázky bez vložených textových dat."
+                    "Nothing to repair",
+                    "This document does not contain any fonts to be repaired.\n\n"
                 )
-                self.statusBar().showMessage("PDF nevyžaduje opravu", 5000)
+                self.statusBar().showMessage("Nothing to repair", 5000)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error while loading PDF:\n{e}")
             self.clear_ui_state()
-
-    # Placeholder for future save functionality
-    def save_pdf(self):
-        QMessageBox.information(self, "Save PDF", "Feature coming soon (TBD)")
-        return
 
     # Helper method to robustly calculate mapped glyphs for any given font
     def calculate_font_mapped_count(self, page, font_name, glyph_hashes):
@@ -2964,7 +2692,6 @@ class FontWidget(QMainWindow):
         if not self.pdf_path: return
         if getattr(self, 'unsaved_changes', False): self.save_to_db()
 
-        # Příprava mapy a sledování unikátních ID (xrefů)
         page_font_map = {}
         all_unique_xrefs = set()
         ready_xrefs_set = set()
@@ -2984,18 +2711,16 @@ class FontWidget(QMainWindow):
                 page_font_map[p_num].append(f_stats)
 
                 if found_xref:
-                    all_unique_xrefs.add(found_xref)  # Přidání do celkové množiny unikátů
+                    all_unique_xrefs.add(found_xref)
                     if f_stats['total'] > 0 and f_stats['mapped'] >= f_stats['total']:
-                        ready_xrefs_set.add(found_xref)  # Přidání do připravené množiny unikátů
+                        ready_xrefs_set.add(found_xref)
 
         total_unique_cff_fonts = len(all_unique_xrefs)
         ready_xrefs = list(ready_xrefs_set)
 
-        # Předání správných, unikátních čísel do dialogu
         dialog = IntegratedRepairDialog(page_font_map, total_unique_cff_fonts, len(ready_xrefs), self)
         result = dialog.exec()
 
-        # 1. ZPRACOVÁNÍ SKOKU
         if result == QDialog.Accepted + 1:
             p_num, f_name = dialog.jump_target
             if f_name:
@@ -3004,16 +2729,15 @@ class FontWidget(QMainWindow):
                 fonts_on_page = self.menu_structure.get(p_num, [])
                 if fonts_on_page:
                     self.load_font(p_num, fonts_on_page[0])
-            self.statusBar().showMessage(f"Navigováno na vybrané místo", 3000)
+            self.statusBar().showMessage(f"Jump to font/page {f_name}", 3000)
             return
 
-        # 2. SPUŠTĚNÍ OPRAVY
         if result == QDialog.Accepted:
             dialog.show()
 
             try:
                 dialog.log("=========================================")
-                dialog.log("      START HLOUBKOVÉ OPRAVY PDF         ")
+                dialog.log("          PDF Repair started...          ")
                 dialog.log("=========================================")
 
                 db_map = load_db(self.PSV_PATH)
@@ -3022,18 +2746,17 @@ class FontWidget(QMainWindow):
                 doc_vizual = fitz.open(self.pdf_path)
                 font_cache_local = {}
 
-                dialog.log("[INFO] Skenování vizuálních sekvencí...")
-                vizualni_sekvence = nacti_sekvenci(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual")
+                dialog.log("[INFO] Visual order scanning...")
+                vizualni_sekvence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual")
                 vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
 
                 ready_fonts_count = len(vizualni_sekvence)
                 dialog.log(
-                    f"[INFO] Nalezeno {ready_fonts_count} připravených fontů z celkových {total_unique_cff_fonts} k rekonstrukci.\n")
+                    f"[INFO] Found {ready_fonts_count} fonts out of {total_unique_cff_fonts} for reconscruction.\n")
 
-                # KROK 1: Dummy CMAP
-                dialog.log("[1/3] FÁZE 1: Injekce DUMMY (zkušebních) CMAP tabulek")
+                dialog.log("[1/3] DUMMY ToUnicode injection")
                 dialog.log("-" * 40)
-                dummy_cmap_str = generuj_dummy_cmap()
+                dummy_cmap_str = generate_dummy_tounicode()
 
                 for idx, xref in enumerate(vizualni_sekvence.keys(), 1):
                     dummy_xref = doc_vizual.get_new_xref()
@@ -3041,34 +2764,32 @@ class FontWidget(QMainWindow):
                     doc_vizual.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
                     doc_vizual.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
 
-                    font_name = font_cache_local.get(xref, {}).get("name", "Neznámý")
-                    dialog.log(f"  [{idx}/{ready_fonts_count}] Font '{font_name}' (ID: {xref})")
-                    dialog.log(f"      -> Vytvořen nový dummy xref: {dummy_xref}")
+                    font_name = font_cache_local.get(xref, {}).get("name", "Not found")
+                    dialog.log(f"  [{idx}/{ready_fonts_count}] Font '{font_name}'")
+                    dialog.log(f"      -> New DUMMY xref: {dummy_xref}")
 
-                dialog.log("\n[INFO] Ukládání upraveného PDF do mezipaměti...")
+                dialog.log("\n[INFO] Saving PDF to cache ...")
                 dummy_pdf_bytes = doc_vizual.tobytes()
                 doc_vizual.close()
 
-                # KROK 2: Interní ID
-                dialog.log("\n[2/3] FÁZE 2: Extrakce surových interních PDF ID znaků")
+                dialog.log("\n[2/3] ChatacterCode extraction")
                 dialog.log("-" * 40)
                 doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
-                interni_sekvence = nacti_sekvenci(doc_dummy, custom_flags, db_map, font_cache_local, rezim="dummy")
+                interni_sekvence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, rezim="dummy")
                 doc_dummy.close()
-                dialog.log(f"  -> Extrakce úspěšná u {len(interni_sekvence)} fontů.")
+                dialog.log(f"  -> Extraction succeeded for {len(interni_sekvence)} fonts.")
 
-                # KROK 3: Finální sestavení
-                dialog.log("\n[3/3] FÁZE 3: Matematické slícování a zápis finálních tabulek")
+                dialog.log("\n[3/3] Final ToUnicode mapping")
                 dialog.log("-" * 40)
                 doc_final = fitz.open(self.pdf_path)
                 success_count = 0
 
                 for idx, (xref, v_seq) in enumerate(vizualni_sekvence.items(), 1):
                     i_seq = interni_sekvence.get(xref, [])
-                    font_name = font_cache_local.get(xref, {}).get("name", "Neznámý")
+                    font_name = font_cache_local.get(xref, {}).get("name", "Not found")
 
-                    dialog.log(f"  [{idx}/{ready_fonts_count}] Zpracovávám: '{font_name}' (ID: {xref})")
-                    dialog.log(f"      -> Detekované znaky - Vizuální: {len(v_seq)} | Interní PDF: {len(i_seq)}")
+                    dialog.log(f"  [{idx}/{ready_fonts_count}] Processing font: '{font_name}'")
+                    dialog.log(f"      -> Characters detected - Visual: {len(v_seq)} | Internal: {len(i_seq)}")
 
                     if len(v_seq) == len(i_seq):
                         mapping = {}
@@ -3076,24 +2797,22 @@ class FontWidget(QMainWindow):
                             if i_id not in mapping:
                                 mapping[i_id] = v_hex
 
-                        real_cmap = generuj_real_cmap(mapping)
+                        real_cmap = generate_real_tounicode(mapping)
                         new_xref = doc_final.get_new_xref()
                         doc_final.update_object(new_xref, "<<>>")
                         doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
                         doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
 
                         success_count += 1
-                        dialog.log(f"      -> CMAP tabulka vygenerována (Velikost: {len(real_cmap)} bytů)")
-                        dialog.log(f"      -> Vložena pod nový xref: {new_xref}")
-                        dialog.log(f"      -> [ÚSPĚCH] Slícováno {len(mapping)} unikátních znaků.")
+                        dialog.log(f"      -> ToUnicode generated (Size: {len(real_cmap)} bytes)")
+                        dialog.log(f"      -> Injected under xref: {new_xref}")
+                        dialog.log(f"      -> [SUCCESS] {len(mapping)} unique glyphs mapped")
                     else:
-                        dialog.log(f"      -> [CHYBA] Délky sekvencí nesouhlasí! Font byl přeskočen.")
+                        dialog.log(f"      -> [ERROR] Sequence lengths do not match, skipping font...")
 
-                # Uložení
-                dialog.log("\n[INFO] Čištění a zápis finálního souboru na disk...")
+                dialog.log("\n[INFO] Cleanup and file saving to disk...")
                 base, ext = os.path.splitext(self.pdf_path)
 
-                # ROZHODOVACÍ LOGIKA PRO PŘÍPONU NÁZVU - Teď se porovnává se správným číslem!
                 if success_count == total_unique_cff_fonts:
                     out_path = f"{base}_Repaired{ext}"
                 else:
@@ -3102,23 +2821,22 @@ class FontWidget(QMainWindow):
                 doc_final.save(out_path)
                 doc_final.close()
 
-                # Výsledek
                 dialog.log("\n" + "=" * 45)
-                dialog.log("             OPRAVA DOKONČENA                ")
+                dialog.log("             Repair finished                ")
                 dialog.log("=" * 45)
-                dialog.log(f"Výsledný soubor: {os.path.basename(out_path)}")
-                dialog.log(f"Zrekonstruováno fontů: {success_count} / {total_unique_cff_fonts}")
+                dialog.log(f"Repaired file: {os.path.basename(out_path)}")
+                dialog.log(f"Fonts reconstructed: {success_count} / {total_unique_cff_fonts}")
                 if success_count == total_unique_cff_fonts:
-                    dialog.log("Stav: 100% PERFEKTNÍ ÚSPĚCH")
+                    dialog.log("[STATUS] All fonts in pdf were repaired successfully.")
                 else:
-                    dialog.log("Stav: DOKONČENO S CHYBAMI (některé fonty přeskočeny)")
+                    dialog.log("[STATUS] Finished with errors, some fonts skipped...")
                 dialog.log("=" * 45)
 
                 dialog.finish()
                 dialog.exec()
 
             except Exception as e:
-                dialog.log(f"\n[KRITICKÁ CHYBA] Zpracování havarovalo:\n{str(e)}")
+                dialog.log(f"\n[CRITICAL ERROR] Something went wrong:\n{str(e)}")
                 dialog.finish()
                 dialog.exec()
 
@@ -3145,7 +2863,7 @@ def load_db(psv_path="glyph_mappings.psv"):
                 if g_hash not in db_map: db_map[g_hash] = []
                 db_map[g_hash].append({"unicode_hex": u_hex, "font_name": f_name, "GlyphName": g_name})
     except Exception as e:
-        print(f"Poznámka: DB chyba ({e}).")
+        print(f"DB ERROR ({e}).")
     return db_map
 
 def get_standalone_glyph_hash(glyph_set, g_name):
@@ -3175,7 +2893,7 @@ def find_best_unicode(g_hash, g_name, f_name, db_map):
     if len(unique_hexes) == 1: return list(unique_hexes)[0]
     return None
 
-def ziskej_pdf_differences(doc, xref):
+def get_differences(doc, xref):
     try:
         enc_obj = doc.xref_get_key(xref, "Encoding")
         raw_enc = doc.xref_object(xref) if enc_obj[0] == "dict" else doc.xref_object(int(enc_obj[1].split()[0]))
@@ -3194,7 +2912,7 @@ def ziskej_pdf_differences(doc, xref):
         pass
     return {}
 
-def generuj_dummy_cmap():
+def generate_dummy_tounicode():
     cmap = [
         "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
         "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
@@ -3210,7 +2928,7 @@ def generuj_dummy_cmap():
     cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
     return "\n".join(cmap)
 
-def generuj_real_cmap(mapping_dict):
+def generate_real_tounicode(mapping_dict):
     cmap = [
         "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
         "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
@@ -3227,7 +2945,7 @@ def generuj_real_cmap(mapping_dict):
     cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
     return "\n".join(cmap)
 
-def nacti_sekvenci(doc, flags, db_map, font_cache, rezim="vizual"):
+def load_sequence(doc, flags, db_map, font_cache, rezim="vizual"):
     sekvence = {}
     for page in doc:
         fonts_on_page = {f[0]: f[3] for f in page.get_fonts()}
@@ -3250,7 +2968,7 @@ def nacti_sekvenci(doc, flags, db_map, font_cache, rezim="vizual"):
                                 cff = CFFFontSet()
                                 cff.decompile(BytesIO(buffer), None)
                                 glyph_set = cff[0].CharStrings
-                                pdf_diffs = ziskej_pdf_differences(doc, xref)
+                                pdf_diffs = get_differences(doc, xref)
                                 try:
                                     internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
                                 except:
@@ -3272,7 +2990,7 @@ def nacti_sekvenci(doc, flags, db_map, font_cache, rezim="vizual"):
                                 g_name = f_data["diffs"].get(b, f_data["enc"].get(b, ".notdef"))
                                 g_hash = get_standalone_glyph_hash(f_data["glyph_set"], g_name)
                                 u_hex = find_best_unicode(g_hash, g_name, f_data["name"], db_map)
-                                sekvence[xref].append(u_hex if u_hex else "003F")  # 003F = Otazník
+                                sekvence[xref].append(u_hex if u_hex else "003F")
                         else:
                             val = ord(raw_char)
                             if 0xE000 <= val <= 0xE0FF:
@@ -3283,36 +3001,30 @@ def nacti_sekvenci(doc, flags, db_map, font_cache, rezim="vizual"):
 
 
 def calculate_file_hash(filepath):
-    """Vypočítá MD5 hash celého souboru."""
     try:
         with open(filepath, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 md5().update(chunk)
         return md5().hexdigest()
     except Exception as e:
-        print(f"Chyba při čtení souboru {filepath}: {e}")
+        print(f"Error while loading font {filepath}: {e}")
         return None
 
 
 def load_file_hash_db(db_path):
-    """Načte povolené hashe souborů z PSV tabulky."""
     valid_hashes = set()
     if not os.path.exists(db_path):
         return valid_hashes
 
     with open(db_path, 'r', encoding='utf-8') as f:
-        # Očekávaný formát: MD5_HASH|jmeno_souboru.pdf
         for line in f:
             parts = line.strip().split('|')
-            if parts and len(parts[0]) == 32:  # MD5 hash má 32 znaků
+            if parts and len(parts[0]) == 32:
                 valid_hashes.add(parts[0].strip().lower())
     return valid_hashes
 
 
 def headless_repair(pdf_path, glyph_db_map, verbose=False):
-    """Provede kompletní opravu PDF bez použití GUI prvků."""
-
-    # Pomocná funkce pro verbose výpisy
     def vprint(msg):
         if verbose:
             print(msg)
@@ -3323,8 +3035,7 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
         ready_xrefs = set()
         font_cache_local = {}
 
-        vprint("  [DEBUG] Fáze 0: Skenování fontů v dokumentu...")
-        # 1. Analýza fontů
+        vprint("  [DEBUG] Phase 0: Scanning for fonts in PDF...")
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             for f in page.get_fonts(full=True):
@@ -3358,49 +3069,47 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
 
                     if total_glyphs > 0 and mapped_count >= total_glyphs:
                         ready_xrefs.add(xref)
-                        vprint(f"    -> Připraveno: Font '{name}' (ID: {xref}) - {mapped_count}/{total_glyphs} znaků")
+                        vprint(f"    -> Ready: Font '{name}' - {mapped_count}/{total_glyphs} chars")
                     else:
-                        vprint(f"    -> Nekompletní: Font '{name}' (ID: {xref}) - {mapped_count}/{total_glyphs} znaků")
+                        vprint(f"    -> Nekompletní: Font '{name}' - {mapped_count}/{total_glyphs} chars")
 
         if not all_unique_xrefs:
-            print("  [SKIP] V dokumentu nejsou žádné CFF fonty k opravě.")
+            print("  [SKIP] Document does not contain repairabel CFF fonts")
             doc.close()
             return
 
         if not ready_xrefs:
-            print(f"  [SKIP] Nalezeno {len(all_unique_xrefs)} CFF fontů, ale žádný není 100% namapovaný.")
+            print(f"  [SKIP] Found {len(all_unique_xrefs)} CFF fonts, none are 100% mapped.")
             doc.close()
             return
 
-        print(f"  [INFO] Opravuji {len(ready_xrefs)} z {len(all_unique_xrefs)} CFF fontů...")
+        print(f"  [INFO] Repairing {len(ready_xrefs)} of {len(all_unique_xrefs)} CFF fonts...")
 
         custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
 
-        vprint("  [DEBUG] Načítání vizuálních sekvencí...")
-        vizualni_sekvence = nacti_sekvenci(doc, custom_flags, glyph_db_map, font_cache_local, rezim="vizual")
+        vprint("  [DEBUG] Visual sequence loading...")
+        vizualni_sekvence = load_sequence(doc, custom_flags, glyph_db_map, font_cache_local, rezim="vizual")
         vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
 
-        # Generování dummy CMAP
-        vprint("  [DEBUG] Krok 1: Injekce DUMMY CMAP tabulek")
-        dummy_cmap_str = generuj_dummy_cmap()
+        vprint("  [DEBUG] Step 1/3: DUMMY ToUnicode injection")
+        dummy_cmap_str = generate_dummy_tounicode()
         for xref in vizualni_sekvence.keys():
             dummy_xref = doc.get_new_xref()
             doc.update_object(dummy_xref, "<<>>")
             doc.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
             doc.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
-            vprint(f"    -> Vytvořen dummy xref {dummy_xref} pro font {xref}")
+            vprint(f"    -> Dummy xref {dummy_xref} for font {xref} created")
 
         dummy_pdf_bytes = doc.tobytes()
         doc.close()
 
-        # Interní sekvence
-        vprint("  [DEBUG] Krok 2: Extrakce interních identifikátorů v paměti")
+        vprint("  [DEBUG] Step 2/3: Internal ID extraction")
         doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
-        interni_sekvence = nacti_sekvenci(doc_dummy, custom_flags, glyph_db_map, font_cache_local, rezim="dummy")
+        interni_sekvence = load_sequence(doc_dummy, custom_flags, glyph_db_map, font_cache_local, rezim="dummy")
         doc_dummy.close()
 
         # Finální oprava
-        vprint("  [DEBUG] Krok 3: Finální sestavení CMAP tabulek")
+        vprint("  [DEBUG] Step 3/3: Final ToUnicode creation")
         doc_final = fitz.open(pdf_path)
         success_count = 0
 
@@ -3408,17 +3117,17 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
             i_seq = interni_sekvence.get(xref, [])
             if len(v_seq) == len(i_seq):
                 mapping = {i_id: v_hex for v_hex, i_id in zip(v_seq, i_seq)}
-                real_cmap = generuj_real_cmap(mapping)
+                real_cmap = generate_real_tounicode(mapping)
                 new_xref = doc_final.get_new_xref()
                 doc_final.update_object(new_xref, "<<>>")
                 doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
                 doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
                 success_count += 1
                 vprint(
-                    f"    -> [OK] Font {xref} opraven. Namapováno {len(mapping)} unikátních znaků z {len(v_seq)} záchytů.")
+                    f"    -> [OK] Font {xref} repaired. Mapped {len(mapping)} unique chars out of {len(v_seq)}")
             else:
                 vprint(
-                    f"    -> [CHYBA] Font {xref} přeskočen! Nesouhlasí délky (Vizuální: {len(v_seq)} | Interní: {len(i_seq)})")
+                    f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
 
         base, ext = os.path.splitext(pdf_path)
         if success_count == len(all_unique_xrefs):
@@ -3428,34 +3137,31 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
 
         doc_final.save(out_path)
         doc_final.close()
-        print(f"  [SUCCESS] Uloženo jako {os.path.basename(out_path)} ({success_count}/{len(all_unique_xrefs)} fontů)")
+        print(f"  [SUCCESS] Saved as {os.path.basename(out_path)} ({success_count}/{len(all_unique_xrefs)} fonts)")
 
     except Exception as e:
-        print(f"  [ERROR] Selhání při zpracování: {e}")
+        print(f"  [ERROR] Failed in processing: {e}")
 
 
 def run_cli_mode(args):
-    """Hlavní smyčka pro spuštění z příkazové řádky."""
-    print(f"=== Spuštěn CLI Glyph Repair ===")
+    print(f"=== CLI Glyph Repair ===")
 
-    # 1. Kontrola PSV hash databáze (NYNÍ STRIKTNĚ POVINNÁ)
     if not args.hash_db:
-        print("[ERROR] Chybí povinný parametr -d (--hash-db) s cestou k PSV tabulce hashů.")
-        print("Příklad spuštění: python main.py C:\\slozka -m -d hashe.psv")
-        sys.exit(1)  # Okamžité tvrdé ukončení programu s chybovým kódem 1
+        print("[ERROR] Parameter -d (--hash-db) with path to database missing")
+        #print("Run with: python main.py C:\\folder -m -d hashes.psv")
+        sys.exit(1)
 
     valid_hashes = load_file_hash_db(args.hash_db)
     if not valid_hashes:
-        print(f"[ERROR] PSV tabulka hashů '{args.hash_db}' nebyla nalezena nebo je prázdná.")
+        print(f"[ERROR] PSV database '{args.hash_db}' missing or empty.")
         sys.exit(1)
 
-    print(f"[INFO] Načteno {len(valid_hashes)} povolených hashů pro validaci.")
+    print(f"[INFO] Loaded {len(valid_hashes)} validation hashes.")
 
-    # 2. Sběr souborů ke zpracování
     target_files = []
     if args.multiple:
         if not os.path.isdir(args.target):
-            print(f"[ERROR] Cíl '{args.target}' není složka (vyžadováno pro parametr -m).")
+            print(f"[ERROR] Target '{args.target}' is not a folder (required for -m).")
             sys.exit(1)
 
         for root, dirs, files in os.walk(args.target):
@@ -3463,37 +3169,33 @@ def run_cli_mode(args):
                 if file.lower().endswith('.pdf'):
                     target_files.append(os.path.join(root, file))
             if not args.recursive:
-                break  # Zastaví procházení podadresářů
+                break
     else:
         if not os.path.isfile(args.target):
-            print(f"[ERROR] Soubor '{args.target}' nebyl nalezen.")
+            print(f"[ERROR] File '{args.target}' not found")
             sys.exit(1)
         target_files.append(args.target)
 
     if not target_files:
-        print("[INFO] Nebyly nalezeny žádné PDF soubory.")
+        print("[INFO] No PDFs found.")
         sys.exit(0)
 
-    # 3. Zpracování
-    glyph_db_map = load_db(FontWidget.PSV_PATH)  # Využijeme konstantu pro cestu k PSV s mapováním
-    print(f"[INFO] Bude zpracováno {len(target_files)} souborů...\n")
+    glyph_db_map = load_db(FontWidget.PSV_PATH)
+    print(f"[INFO] Mapping {len(target_files)} files...\n")
 
     for pdf_path in target_files:
         print(f"-> {os.path.basename(pdf_path)}")
 
-        # Validace hashe
         if valid_hashes:
             file_hash = calculate_file_hash(pdf_path)
             if file_hash not in valid_hashes:
-                print(f"  [BLOCKED] Hash souboru nesouhlasí s DB! Přeskakuji.")
+                print(f"  [BLOCKED] File hash not in database.")
                 continue
 
-        # Spuštění opravy
         headless_repair(pdf_path, glyph_db_map, verbose=args.verbose)
 
 
 def apply_dark_theme(app):
-    """Nastaví tmavou paletu a globální styly pro aplikaci."""
     app.setStyle("Fusion")
 
     dark_palette = QtGui.QPalette()
@@ -3540,7 +3242,6 @@ def apply_dark_theme(app):
 
 
 def run_gui_mode():
-    """Inicializuje QApplication, aplikuje styly a spustí hlavní okno."""
     app = QApplication(sys.argv)
     apply_dark_theme(app)
 
@@ -3552,13 +3253,12 @@ def run_gui_mode():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PDF Glyph Repair Tool - GUI & CLI")
 
-    parser.add_argument("target", nargs='?', help="Cesta k PDF souboru nebo složce (pro GUI nechte prázdné)")
+    parser.add_argument("target", nargs='?', help="Path for file/folder to repair")
 
-    # Přepínače (Flags)
-    parser.add_argument("-m", "--multiple", action="store_true", help="Cíl je složka, zpracuje více souborů")
-    parser.add_argument("-r", "--recursive", action="store_true", help="Hledá soubory ve složce rekurzivně (funguje jen s -m)")
-    parser.add_argument("-d", "--hash-db", dest="hash_db", help="Cesta k PSV souboru s MD5 hashi pro validaci")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Povolí detailní výpis procesu opravy do konzole")
+    parser.add_argument("-m", "--multiple", action="store_true", help="Folder path, repairs multiple files")
+    parser.add_argument("-r", "--recursive", action="store_true", help="Repair recursively (-m required)")
+    parser.add_argument("-d", "--hash-db", dest="hash_db", help="Path to PSV file containing md5 hashes")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enables verbose output")
 
     args = parser.parse_args()
 
