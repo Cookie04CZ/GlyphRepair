@@ -265,7 +265,7 @@ class SettingsDialog(QDialog):
         )
         self._add_setting_row(
             "Auto-save database at 100%",
-            "Automatically save your progress to the CSV file when a font is fully mapped.",
+            "Automatically save your progress to the PSV file when a font is fully mapped.",
             self.chk_auto_save_100
         )
         self._add_setting_row(
@@ -948,7 +948,7 @@ class RepairSummaryDialog(QDialog):
 class FontWidget(QMainWindow):
     ICON_SIZE_LARGE = 128
     ICON_SIZE_SMALL = 64
-    CSV_PATH = "glyph_mappings.csv"  # Database file path
+    PSV_PATH = "glyph_mappings.psv"  # Database file path
 
     KNOWN_LIGATURES = {
         "IJ": "0132",
@@ -1009,7 +1009,7 @@ class FontWidget(QMainWindow):
         # Dictionaries for data storage
         self.user_glyph_to_char = {}  # Stores current session mappings
         self.font_cache = {}  # Caches extracted font data to avoid re-parsing
-        self.known_glyph_hashes = set()  # Stores hashes already in the CSV database
+        self.known_glyph_hashes = set()  # Stores hashes already in the PSV database
         self.history_stack = []
 
         # Setup GUI components
@@ -2496,7 +2496,7 @@ class FontWidget(QMainWindow):
         self.global_db_map = {}
         self.global_db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
 
-        path = self.CSV_PATH
+        path = self.PSV_PATH
         if os.path.exists(path):
             try:
                 with open(path, 'r', encoding='utf-8', newline='') as f:
@@ -2692,9 +2692,9 @@ class FontWidget(QMainWindow):
         self.char_input.setText(char)
         self.save_glyph()
 
-    # Saves current session work to the CSV file
+    # Saves current session work to the PSV file
     def save_to_db(self):
-        path = self.CSV_PATH
+        path = self.PSV_PATH
         fieldnames = ["glyph_hash", "font_name", "GlyphName", "unicode_hex", "AGN"]
 
         existing_data = {}
@@ -2853,7 +2853,7 @@ class FontWidget(QMainWindow):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
 
         try:
-            db_map = load_db(self.CSV_PATH)
+            db_map = load_db(self.PSV_PATH)
             custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
 
             doc_vizual = fitz.open(self.pdf_path)
@@ -3003,16 +3003,16 @@ class FontWidget(QMainWindow):
             QApplication.restoreOverrideCursor()
             self.statusBar().showMessage("Oprava skončila", 5000)
 
-def load_db(csv_path="glyph_mappings.csv"):
+def load_db(psv_path="glyph_mappings.psv"):
     db_map = {}
     space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
     db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space"}]
 
-    if not os.path.exists(csv_path):
+    if not os.path.exists(psv_path):
         return db_map
 
     try:
-        with open(csv_path, 'r', encoding='utf-8') as f:
+        with open(psv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f, delimiter='|')
             for row in reader:
                 g_hash = row.get("glyph_hash", "")
