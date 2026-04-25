@@ -3492,11 +3492,66 @@ def run_cli_mode(args):
         headless_repair(pdf_path, glyph_db_map, verbose=args.verbose)
 
 
+def apply_dark_theme(app):
+    """Nastaví tmavou paletu a globální styly pro aplikaci."""
+    app.setStyle("Fusion")
+
+    dark_palette = QtGui.QPalette()
+    dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#1e1e1e"))
+    dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#121212"))
+    dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor("#1a1a1a"))
+    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#121212"))
+    dark_palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#2a2a2a"))
+    dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
+    dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
+    dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
+    dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
+    dark_palette.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor("#898989"))
+
+    app.setPalette(dark_palette)
+
+    app.setStyleSheet("""
+        QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
+        QMenuBar::item:selected { background: #3d7eff; }
+
+        QToolBar { 
+            border: none;
+            border-bottom: 1px solid #333;
+            background: #1e1e1e;
+            padding: 3px;
+        }
+
+        QToolBar QToolButton {
+            border: none;
+            border-radius: 4px;
+            padding: 4px;
+            margin: 2px;
+        }
+        QToolBar QToolButton:hover {
+            background-color: #3d3d3d;
+        }
+        QToolBar QToolButton:pressed {
+            background-color: #3d7eff;
+        }
+    """)
+
+
+def run_gui_mode():
+    """Inicializuje QApplication, aplikuje styly a spustí hlavní okno."""
+    app = QApplication(sys.argv)
+    apply_dark_theme(app)
+
+    window = FontWidget()
+    window.show()
+    sys.exit(app.exec())
+
+
 if __name__ == "__main__":
-    # Nastavení argumentů pro příkazovou řádku
     parser = argparse.ArgumentParser(description="PDF Glyph Repair Tool - GUI & CLI")
 
-    # Target (volitelný - pokud chybí, spustí se GUI)
     parser.add_argument("target", nargs='?', help="Cesta k PDF souboru nebo složce (pro GUI nechte prázdné)")
 
     # Přepínače (Flags)
@@ -3511,51 +3566,4 @@ if __name__ == "__main__":
         run_cli_mode(args)
 
     else:
-        app = QApplication(sys.argv)
-        app.setStyle("Fusion")
-
-        dark_palette = QtGui.QPalette()
-        dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#1e1e1e"))
-        dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#f0f0f0"))
-        dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#121212"))
-        dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor("#1a1a1a"))
-        dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#f0f0f0"))
-        dark_palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#121212"))
-        dark_palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f0f0f0"))
-        dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#2a2a2a"))
-        dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
-        dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
-        dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
-        dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
-        dark_palette.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor("#898989"))
-
-        app.setPalette(dark_palette)
-
-        app.setStyleSheet("""
-            QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
-            QMenuBar::item:selected { background: #3d7eff; }
-
-            QToolBar { 
-                border: none;
-                border-bottom: 1px solid #333;
-                background: #1e1e1e;
-                padding: 3px;
-            }
-
-            QToolBar QToolButton {
-                border: none;
-                border-radius: 4px;
-                padding: 4px;
-                margin: 2px;
-            }
-            QToolBar QToolButton:hover {
-                background-color: #3d3d3d;
-            }
-            QToolBar QToolButton:pressed {
-                background-color: #3d7eff;
-            }
-        """)
-
-        window = FontWidget()
-        window.show()
-        sys.exit(app.exec())
+        run_gui_mode()
