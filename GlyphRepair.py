@@ -328,13 +328,6 @@ class PageSelectionDialog(QDialog):
         self.setMinimumSize(400, 450)
         layout = QVBoxLayout(self)
 
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search page (e.g., '12')...")
-        self.search_input.setStyleSheet("padding: 5px; font-size: 14px;")
-        self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(self.apply_filters)
-        layout.addWidget(self.search_input)
-
         self.tree = QTreeWidget()
         self.tree.setColumnCount(2)
         self.tree.setHeaderHidden(True)
@@ -384,7 +377,6 @@ class PageSelectionDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
-        self.search_input.setFocus()
         if item_to_scroll:
             self.tree.setCurrentItem(item_to_scroll)
             self.tree.scrollToItem(item_to_scroll, QTreeWidget.PositionAtCenter)
@@ -642,13 +634,16 @@ class FontSelectionDialog(QDialog):
         search_text = self.search_input.text().lower()
         hide_100 = self.chk_hide_100.isChecked()
         selected_page = self.combo_page.currentData()
+
+        effective_page_filter = None if search_text else selected_page
+
         first_visible = None
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             data = item.data(QtCore.Qt.UserRole)
             is_visible = (search_text in item.text().lower()) and \
                          (not (hide_100 and data['mapped'] == data['total'])) and \
-                         (selected_page is None or selected_page in data['all_pages'])
+                         (effective_page_filter is None or effective_page_filter in data['all_pages'])
             item.setHidden(not is_visible)
             if is_visible and first_visible is None: first_visible = item
         if first_visible and (not self.list_widget.currentItem() or self.list_widget.currentItem().isHidden()):
