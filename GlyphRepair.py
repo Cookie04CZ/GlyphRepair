@@ -859,12 +859,12 @@ class FontSelectionDialog(QDialog):
         }
 '''
 
+
 class IntegratedRepairDialog(QDialog):
-    def __init__(self, page_font_map, parent=None):
+    def __init__(self, page_font_map, total_unique, ready_unique, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Oprava PDF dokumentu")
-        # Zmenšeno okno pro lepší kompaktnost
-        self.setMinimumSize(550, 400)
+        self.setMinimumSize(600, 450)
         self.setWindowModality(QtCore.Qt.WindowModal)
 
         self.main_layout = QVBoxLayout(self)
@@ -873,26 +873,21 @@ class IntegratedRepairDialog(QDialog):
         self.setup_group = QGroupBox("Kontrola fontů před opravou")
         setup_layout = QVBoxLayout(self.setup_group)
 
-        total_fonts = 0
-        ready_fonts = 0
-        for fonts in page_font_map.values():
-            for f in fonts:
-                total_fonts += 1
-                if f['mapped'] >= f['total'] and f['total'] > 0:
-                    ready_fonts += 1
-
+        # Odstraněn ten chybný sčítací for-cyklus a použita přímo unikátní čísla
         self.lbl_summary = QLabel(
-            f"Bude opraveno <span style='color:#228B22; font-weight:bold;'>{ready_fonts}</span> "
-            f"z celkového počtu <span style='font-weight:bold;'>{total_fonts}</span> nalezených CFF fontů."
+            f"Bude opraveno <span style='color:#228B22; font-weight:bold;'>{ready_unique}</span> "
+            f"z celkového počtu <span style='font-weight:bold;'>{total_unique}</span> unikátních CFF fontů."
         )
         self.lbl_summary.setStyleSheet("font-size: 15px; margin-bottom: 5px;")
         setup_layout.addWidget(self.lbl_summary)
 
-        # 3. Stromové zobrazení (pouze 2 sloupce)
+        # 3. Stromové zobrazení
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Název položky", "Stav namapování"])
         self.tree.setAlternatingRowColors(True)
         self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.tree.setColumnWidth(1, 140)  # O chloupek širší sloupec pro pbar
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
 
         self.ready_count = 0
@@ -907,28 +902,33 @@ class IntegratedRepairDialog(QDialog):
                 if f_info['total'] == 0 or f_info['mapped'] < f_info['total']:
                     page_all_ok = False
 
-            page_item = QTreeWidgetItem([f"Stránka {p_num + 1}", f"{page_mapped} / {page_total}"])
+            page_item = QTreeWidgetItem([f"Stránka {p_num + 1}", ""])
             page_item.setData(0, QtCore.Qt.UserRole, (p_num, None))
 
-            # Nastavení ikony tečky pro stránku
+            # Nastavení výšky řádku (vytvoří padding kolem 18px progress baru)
+            page_item.setSizeHint(0, QtCore.QSize(0, 30))
+
             color = "#228B22" if page_all_ok else "#FF8C00"
             page_item.setIcon(0, self._create_status_icon(color))
 
-            # Zvýraznění tučným písmem (bez změny barvy textu)
-            for i in range(2):
-                f = page_item.font(i)
-                f.setBold(True)
-                page_item.setFont(i, f)
+            f = page_item.font(0)
+            f.setBold(True)
+            page_item.setFont(0, f)
 
             page_item.setExpanded(True)
             self.tree.addTopLevelItem(page_item)
 
+            pbar_page_widget = self._create_progress_bar_widget(page_mapped, page_total)
+            self.tree.setItemWidget(page_item, 1, pbar_page_widget)
+
             for f_info in page_font_map[p_num]:
                 is_ok = f_info['mapped'] >= f_info['total'] and f_info['total'] > 0
-                font_item = QTreeWidgetItem([f_info['name'], f"{f_info['mapped']} / {f_info['total']}"])
+                font_item = QTreeWidgetItem([f_info['name'], ""])
                 font_item.setData(0, QtCore.Qt.UserRole, (p_num, f_info['name']))
 
-                # Nastavení ikony tečky pro konkrétní font
+                # Menší padding pro podpoložky fontů
+                font_item.setSizeHint(0, QtCore.QSize(0, 26))
+
                 f_color = "#228B22" if is_ok else "#FF8C00"
                 font_item.setIcon(0, self._create_status_icon(f_color))
 
@@ -936,6 +936,9 @@ class IntegratedRepairDialog(QDialog):
                     self.ready_count += 1
 
                 page_item.addChild(font_item)
+
+                pbar_font_widget = self._create_progress_bar_widget(f_info['mapped'], f_info['total'])
+                self.tree.setItemWidget(font_item, 1, pbar_font_widget)
 
         setup_layout.addWidget(self.tree)
         self.main_layout.addWidget(self.setup_group)
@@ -953,11 +956,19 @@ class IntegratedRepairDialog(QDialog):
 
         # --- TLAČÍTKA ---
         self.button_layout = QHBoxLayout()
-        self.btn_cancel = QPushButton("Zrušit")
-        self.btn_repair = QPushButton(f"Spustit opravu ({ready_fonts} fontů)")
-        self.btn_repair.setStyleSheet("font-weight: bold; background-color: #228B22; color: white; padding: 6px 20px;")
+        self.button_layout.setSpacing(10)  # Pěkná mezera mezi tlačítky uprostřed
 
-        self.button_layout.addStretch()
+        self.btn_cancel = QPushButton("Zrušit")
+        self.btn_cancel.setFixedHeight(40)  # Vyšší tlačítko
+        self.btn_cancel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Roztáhne se na 50%
+        self.btn_cancel.setStyleSheet("font-weight: bold; background-color: #444444; color: white; border-radius: 4px;")
+
+        self.btn_repair = QPushButton(f"Spustit opravu ({ready_unique} fontů)")
+        self.btn_repair.setFixedHeight(40)  # Vyšší tlačítko
+        self.btn_repair.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Roztáhne se na 50%
+        self.btn_repair.setStyleSheet("font-weight: bold; background-color: #228B22; color: white; border-radius: 4px;")
+
+        # Stretch je pryč, tlačítka vyplní prostor
         self.button_layout.addWidget(self.btn_cancel)
         self.button_layout.addWidget(self.btn_repair)
         self.main_layout.addLayout(self.button_layout)
@@ -966,6 +977,49 @@ class IntegratedRepairDialog(QDialog):
         self.jump_target = None
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_repair.clicked.connect(self.start_repair_flow)
+
+    def _create_progress_bar_widget(self, mapped, total):
+        """Vygeneruje QProgressBar obalený v QWidgetu pro zajištění mezer ve stromu."""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        # Margin: (vlevo, nahoře, vpravo, dole)
+        layout.setContentsMargins(5, 5, 10, 5)
+        layout.setSpacing(0)
+
+        pbar = QProgressBar()
+        pbar.setFixedHeight(16)  # O trochu tenčí, ať zbyde víc místa na mezery
+
+        is_ok = (total > 0 and mapped >= total)
+        color = "#228B22" if is_ok else "#FF8C00"
+
+        if total == 0:
+            pbar.setMaximum(1)
+            pbar.setValue(1)
+            pbar.setFormat("0 / 0")
+            color = "#888888"
+        else:
+            pbar.setMaximum(total)
+            pbar.setValue(mapped)
+            pbar.setFormat("%v / %m")
+
+        pbar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #444;
+                border-radius: 3px;
+                background-color: #2a2a2a;
+                text-align: center;
+                color: white;
+                font-weight: bold;
+                font-size: 11px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color};
+                border-radius: 2px;
+            }}
+        """)
+
+        layout.addWidget(pbar)
+        return container
 
     def on_item_double_clicked(self, item, column):
         self.jump_target = item.data(0, QtCore.Qt.UserRole)
@@ -992,9 +1046,20 @@ class IntegratedRepairDialog(QDialog):
     def finish(self):
         self.btn_cancel.setEnabled(True)
         self.btn_cancel.setText("Zavřít")
-        self.btn_cancel.setStyleSheet("font-weight: bold; background-color: #3d7eff; color: white;")
+        self.btn_cancel.setStyleSheet("font-weight: bold; background-color: #3d7eff; color: white; border-radius: 4px;")
 
-    # Helper method to create a colored dot icon
+    def _create_status_icon(self, color_str):
+        size = 14
+        pix = QPixmap(size, size)
+        pix.fill(QtCore.Qt.transparent)
+        p = QtGui.QPainter(pix)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setBrush(QtGui.QBrush(QtGui.QColor(color_str)))
+        p.setPen(QtCore.Qt.NoPen)
+        p.drawEllipse(2, 2, size - 4, size - 4)
+        p.end()
+        return QIcon(pix)
+
     def _create_status_icon(self, color_str):
         size = 14
         pix = QPixmap(size, size)
@@ -2491,7 +2556,13 @@ class FontWidget(QMainWindow):
                 self.current_pdf_action.setEnabled(True)
             else:
                 self.clear_ui_state()
-                self.statusBar().showMessage("No CFF fonts found", 3000)
+                QMessageBox.information(
+                    self,
+                    "Dokument je v pořádku",
+                    "Tento PDF dokument neobsahuje žádné fonty vyžadující manuální mapování.\n\n"
+                    "Texty už jsou buď standardně čitelné a mapované, nebo dokument obsahuje pouze křivky a obrázky bez vložených textových dat."
+                )
+                self.statusBar().showMessage("PDF nevyžaduje opravu", 5000)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error while loading PDF:\n{e}")
@@ -2893,9 +2964,11 @@ class FontWidget(QMainWindow):
         if not self.pdf_path: return
         if getattr(self, 'unsaved_changes', False): self.save_to_db()
 
-        # Příprava mapy (stejná jako dříve)
+        # Příprava mapy a sledování unikátních ID (xrefů)
         page_font_map = {}
-        ready_xrefs = []
+        all_unique_xrefs = set()
+        ready_xrefs_set = set()
+
         with fitz.open(self.pdf_path) as doc_temp:
             for (p_num, f_name), info in self.font_cache.items():
                 if p_num not in page_font_map: page_font_map[p_num] = []
@@ -2905,16 +2978,36 @@ class FontWidget(QMainWindow):
                     if ext == "cff" and name == f_name:
                         found_xref = f[0]
                         break
+
                 f_stats = {'name': f_name, 'mapped': info.get('mapped_count', 0), 'total': info.get('glyph_count', 0),
                            'xref': found_xref}
                 page_font_map[p_num].append(f_stats)
-                if f_stats['total'] > 0 and f_stats['mapped'] >= f_stats['total'] and found_xref:
-                    ready_xrefs.append(found_xref)
 
-        dialog = IntegratedRepairDialog(page_font_map, self)
+                if found_xref:
+                    all_unique_xrefs.add(found_xref)  # Přidání do celkové množiny unikátů
+                    if f_stats['total'] > 0 and f_stats['mapped'] >= f_stats['total']:
+                        ready_xrefs_set.add(found_xref)  # Přidání do připravené množiny unikátů
+
+        total_unique_cff_fonts = len(all_unique_xrefs)
+        ready_xrefs = list(ready_xrefs_set)
+
+        # Předání správných, unikátních čísel do dialogu
+        dialog = IntegratedRepairDialog(page_font_map, total_unique_cff_fonts, len(ready_xrefs), self)
         result = dialog.exec()
 
-        # 1. Pokud uživatel poklepal na font (skok)
+        # 1. ZPRACOVÁNÍ SKOKU
+        if result == QDialog.Accepted + 1:
+            p_num, f_name = dialog.jump_target
+            if f_name:
+                self.load_font(p_num, f_name)
+            else:
+                fonts_on_page = self.menu_structure.get(p_num, [])
+                if fonts_on_page:
+                    self.load_font(p_num, fonts_on_page[0])
+            self.statusBar().showMessage(f"Navigováno na vybrané místo", 3000)
+            return
+
+        # 2. SPUŠTĚNÍ OPRAVY
         if result == QDialog.Accepted:
             dialog.show()
 
@@ -2933,8 +3026,9 @@ class FontWidget(QMainWindow):
                 vizualni_sekvence = nacti_sekvenci(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual")
                 vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
 
-                total_fonts = len(vizualni_sekvence)
-                dialog.log(f"[INFO] Nalezeno {total_fonts} potvrzených fontů k rekonstrukci.\n")
+                ready_fonts_count = len(vizualni_sekvence)
+                dialog.log(
+                    f"[INFO] Nalezeno {ready_fonts_count} připravených fontů z celkových {total_unique_cff_fonts} k rekonstrukci.\n")
 
                 # KROK 1: Dummy CMAP
                 dialog.log("[1/3] FÁZE 1: Injekce DUMMY (zkušebních) CMAP tabulek")
@@ -2948,7 +3042,7 @@ class FontWidget(QMainWindow):
                     doc_vizual.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
 
                     font_name = font_cache_local.get(xref, {}).get("name", "Neznámý")
-                    dialog.log(f"  [{idx}/{total_fonts}] Font '{font_name}' (ID: {xref})")
+                    dialog.log(f"  [{idx}/{ready_fonts_count}] Font '{font_name}' (ID: {xref})")
                     dialog.log(f"      -> Vytvořen nový dummy xref: {dummy_xref}")
 
                 dialog.log("\n[INFO] Ukládání upraveného PDF do mezipaměti...")
@@ -2973,7 +3067,7 @@ class FontWidget(QMainWindow):
                     i_seq = interni_sekvence.get(xref, [])
                     font_name = font_cache_local.get(xref, {}).get("name", "Neznámý")
 
-                    dialog.log(f"  [{idx}/{total_fonts}] Zpracovávám: '{font_name}' (ID: {xref})")
+                    dialog.log(f"  [{idx}/{ready_fonts_count}] Zpracovávám: '{font_name}' (ID: {xref})")
                     dialog.log(f"      -> Detekované znaky - Vizuální: {len(v_seq)} | Interní PDF: {len(i_seq)}")
 
                     if len(v_seq) == len(i_seq):
@@ -2998,7 +3092,13 @@ class FontWidget(QMainWindow):
                 # Uložení
                 dialog.log("\n[INFO] Čištění a zápis finálního souboru na disk...")
                 base, ext = os.path.splitext(self.pdf_path)
-                out_path = f"{base}_Repaired{ext}"
+
+                # ROZHODOVACÍ LOGIKA PRO PŘÍPONU NÁZVU - Teď se porovnává se správným číslem!
+                if success_count == total_unique_cff_fonts:
+                    out_path = f"{base}_Repaired{ext}"
+                else:
+                    out_path = f"{base}_Partially_Repaired{ext}"
+
                 doc_final.save(out_path)
                 doc_final.close()
 
@@ -3007,8 +3107,8 @@ class FontWidget(QMainWindow):
                 dialog.log("             OPRAVA DOKONČENA                ")
                 dialog.log("=" * 45)
                 dialog.log(f"Výsledný soubor: {os.path.basename(out_path)}")
-                dialog.log(f"Zrekonstruováno fontů: {success_count} / {total_fonts}")
-                if success_count == total_fonts:
+                dialog.log(f"Zrekonstruováno fontů: {success_count} / {total_unique_cff_fonts}")
+                if success_count == total_unique_cff_fonts:
                     dialog.log("Stav: 100% PERFEKTNÍ ÚSPĚCH")
                 else:
                     dialog.log("Stav: DOKONČENO S CHYBAMI (některé fonty přeskočeny)")
