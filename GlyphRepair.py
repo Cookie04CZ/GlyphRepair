@@ -4,6 +4,7 @@ import re
 import sys
 import webbrowser
 import difflib
+import argparse
 from hashlib import md5
 from io import BytesIO
 
@@ -19,8 +20,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
-    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView, QRadioButton,
-    QSlider, QTextEdit
+    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView, QTextEdit
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -3281,53 +3281,281 @@ def nacti_sekvenci(doc, flags, db_map, font_cache, rezim="vizual"):
                                 sekvence[xref].append(val % 256)
     return sekvence
 
+
+def calculate_file_hash(filepath):
+    """Vypočítá MD5 hash celého souboru."""
+    try:
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                md5().update(chunk)
+        return md5().hexdigest()
+    except Exception as e:
+        print(f"Chyba při čtení souboru {filepath}: {e}")
+        return None
+
+
+def load_file_hash_db(db_path):
+    """Načte povolené hashe souborů z PSV tabulky."""
+    valid_hashes = set()
+    if not os.path.exists(db_path):
+        return valid_hashes
+
+    with open(db_path, 'r', encoding='utf-8') as f:
+        # Očekávaný formát: MD5_HASH|jmeno_souboru.pdf
+        for line in f:
+            parts = line.strip().split('|')
+            if parts and len(parts[0]) == 32:  # MD5 hash má 32 znaků
+                valid_hashes.add(parts[0].strip().lower())
+    return valid_hashes
+
+
+def headless_repair(pdf_path, glyph_db_map, verbose=False):
+    """Provede kompletní opravu PDF bez použití GUI prvků."""
+
+    # Pomocná funkce pro verbose výpisy
+    def vprint(msg):
+        if verbose:
+            print(msg)
+
+    try:
+        doc = fitz.open(pdf_path)
+        all_unique_xrefs = set()
+        ready_xrefs = set()
+        font_cache_local = {}
+
+        vprint("  [DEBUG] Fáze 0: Skenování fontů v dokumentu...")
+        # 1. Analýza fontů
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            for f in page.get_fonts(full=True):
+                xref = f[0]
+                if xref in all_unique_xrefs: continue
+
+                name, ext, _, buffer = doc.extract_font(xref)
+                if ext and ext.lower() == "cff" and not has_tounicode(doc, xref):
+                    all_unique_xrefs.add(xref)
+
+                    cff = CFFFontSet()
+                    cff.decompile(BytesIO(buffer), None)
+                    glyph_set = cff.topDictIndex[0].CharStrings
+                    valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+
+                    total_glyphs = len(valid_glyph_names)
+                    mapped_count = 0
+
+                    for g_name in valid_glyph_names:
+                        if g_name in EXTENDED_AGL:
+                            mapped_count += 1
+                        else:
+                            g_hash = get_standalone_glyph_hash(glyph_set, g_name)
+                            u_hex = find_best_unicode(g_hash, g_name, name, glyph_db_map)
+                            if u_hex: mapped_count += 1
+
+                    font_cache_local[xref] = {
+                        "name": name, "glyph_set": glyph_set,
+                        "mapped": mapped_count, "total": total_glyphs
+                    }
+
+                    if total_glyphs > 0 and mapped_count >= total_glyphs:
+                        ready_xrefs.add(xref)
+                        vprint(f"    -> Připraveno: Font '{name}' (ID: {xref}) - {mapped_count}/{total_glyphs} znaků")
+                    else:
+                        vprint(f"    -> Nekompletní: Font '{name}' (ID: {xref}) - {mapped_count}/{total_glyphs} znaků")
+
+        if not all_unique_xrefs:
+            print("  [SKIP] V dokumentu nejsou žádné CFF fonty k opravě.")
+            doc.close()
+            return
+
+        if not ready_xrefs:
+            print(f"  [SKIP] Nalezeno {len(all_unique_xrefs)} CFF fontů, ale žádný není 100% namapovaný.")
+            doc.close()
+            return
+
+        print(f"  [INFO] Opravuji {len(ready_xrefs)} z {len(all_unique_xrefs)} CFF fontů...")
+
+        custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
+
+        vprint("  [DEBUG] Načítání vizuálních sekvencí...")
+        vizualni_sekvence = nacti_sekvenci(doc, custom_flags, glyph_db_map, font_cache_local, rezim="vizual")
+        vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
+
+        # Generování dummy CMAP
+        vprint("  [DEBUG] Krok 1: Injekce DUMMY CMAP tabulek")
+        dummy_cmap_str = generuj_dummy_cmap()
+        for xref in vizualni_sekvence.keys():
+            dummy_xref = doc.get_new_xref()
+            doc.update_object(dummy_xref, "<<>>")
+            doc.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
+            doc.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
+            vprint(f"    -> Vytvořen dummy xref {dummy_xref} pro font {xref}")
+
+        dummy_pdf_bytes = doc.tobytes()
+        doc.close()
+
+        # Interní sekvence
+        vprint("  [DEBUG] Krok 2: Extrakce interních identifikátorů v paměti")
+        doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
+        interni_sekvence = nacti_sekvenci(doc_dummy, custom_flags, glyph_db_map, font_cache_local, rezim="dummy")
+        doc_dummy.close()
+
+        # Finální oprava
+        vprint("  [DEBUG] Krok 3: Finální sestavení CMAP tabulek")
+        doc_final = fitz.open(pdf_path)
+        success_count = 0
+
+        for xref, v_seq in vizualni_sekvence.items():
+            i_seq = interni_sekvence.get(xref, [])
+            if len(v_seq) == len(i_seq):
+                mapping = {i_id: v_hex for v_hex, i_id in zip(v_seq, i_seq)}
+                real_cmap = generuj_real_cmap(mapping)
+                new_xref = doc_final.get_new_xref()
+                doc_final.update_object(new_xref, "<<>>")
+                doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
+                doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+                success_count += 1
+                vprint(
+                    f"    -> [OK] Font {xref} opraven. Namapováno {len(mapping)} unikátních znaků z {len(v_seq)} záchytů.")
+            else:
+                vprint(
+                    f"    -> [CHYBA] Font {xref} přeskočen! Nesouhlasí délky (Vizuální: {len(v_seq)} | Interní: {len(i_seq)})")
+
+        base, ext = os.path.splitext(pdf_path)
+        if success_count == len(all_unique_xrefs):
+            out_path = f"{base}_Repaired{ext}"
+        else:
+            out_path = f"{base}_Partially_Repaired{ext}"
+
+        doc_final.save(out_path)
+        doc_final.close()
+        print(f"  [SUCCESS] Uloženo jako {os.path.basename(out_path)} ({success_count}/{len(all_unique_xrefs)} fontů)")
+
+    except Exception as e:
+        print(f"  [ERROR] Selhání při zpracování: {e}")
+
+
+def run_cli_mode(args):
+    """Hlavní smyčka pro spuštění z příkazové řádky."""
+    print(f"=== Spuštěn CLI Glyph Repair ===")
+
+    # 1. Kontrola PSV hash databáze (NYNÍ STRIKTNĚ POVINNÁ)
+    if not args.hash_db:
+        print("[ERROR] Chybí povinný parametr -d (--hash-db) s cestou k PSV tabulce hashů.")
+        print("Příklad spuštění: python main.py C:\\slozka -m -d hashe.psv")
+        sys.exit(1)  # Okamžité tvrdé ukončení programu s chybovým kódem 1
+
+    valid_hashes = load_file_hash_db(args.hash_db)
+    if not valid_hashes:
+        print(f"[ERROR] PSV tabulka hashů '{args.hash_db}' nebyla nalezena nebo je prázdná.")
+        sys.exit(1)
+
+    print(f"[INFO] Načteno {len(valid_hashes)} povolených hashů pro validaci.")
+
+    # 2. Sběr souborů ke zpracování
+    target_files = []
+    if args.multiple:
+        if not os.path.isdir(args.target):
+            print(f"[ERROR] Cíl '{args.target}' není složka (vyžadováno pro parametr -m).")
+            sys.exit(1)
+
+        for root, dirs, files in os.walk(args.target):
+            for file in files:
+                if file.lower().endswith('.pdf'):
+                    target_files.append(os.path.join(root, file))
+            if not args.recursive:
+                break  # Zastaví procházení podadresářů
+    else:
+        if not os.path.isfile(args.target):
+            print(f"[ERROR] Soubor '{args.target}' nebyl nalezen.")
+            sys.exit(1)
+        target_files.append(args.target)
+
+    if not target_files:
+        print("[INFO] Nebyly nalezeny žádné PDF soubory.")
+        sys.exit(0)
+
+    # 3. Zpracování
+    glyph_db_map = load_db(FontWidget.PSV_PATH)  # Využijeme konstantu pro cestu k PSV s mapováním
+    print(f"[INFO] Bude zpracováno {len(target_files)} souborů...\n")
+
+    for pdf_path in target_files:
+        print(f"-> {os.path.basename(pdf_path)}")
+
+        # Validace hashe
+        if valid_hashes:
+            file_hash = calculate_file_hash(pdf_path)
+            if file_hash not in valid_hashes:
+                print(f"  [BLOCKED] Hash souboru nesouhlasí s DB! Přeskakuji.")
+                continue
+
+        # Spuštění opravy
+        headless_repair(pdf_path, glyph_db_map, verbose=args.verbose)
+
+
 if __name__ == "__main__":
-    app = QApplication()
+    # Nastavení argumentů pro příkazovou řádku
+    parser = argparse.ArgumentParser(description="PDF Glyph Repair Tool - GUI & CLI")
 
-    app.setStyle("Fusion")
+    # Target (volitelný - pokud chybí, spustí se GUI)
+    parser.add_argument("target", nargs='?', help="Cesta k PDF souboru nebo složce (pro GUI nechte prázdné)")
 
-    dark_palette = QtGui.QPalette()
-    dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#1e1e1e"))
-    dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#121212"))
-    dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor("#1a1a1a"))
-    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#121212"))
-    dark_palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#2a2a2a"))
-    dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
-    dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
-    dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
-    dark_palette.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor("#898989"))
+    # Přepínače (Flags)
+    parser.add_argument("-m", "--multiple", action="store_true", help="Cíl je složka, zpracuje více souborů")
+    parser.add_argument("-r", "--recursive", action="store_true", help="Hledá soubory ve složce rekurzivně (funguje jen s -m)")
+    parser.add_argument("-d", "--hash-db", dest="hash_db", help="Cesta k PSV souboru s MD5 hashi pro validaci")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Povolí detailní výpis procesu opravy do konzole")
 
-    app.setPalette(dark_palette)
+    args = parser.parse_args()
 
-    app.setStyleSheet("""
-        QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
-        QMenuBar::item:selected { background: #3d7eff; }
-        
-        QToolBar { 
-            border: none;
-            border-bottom: 1px solid #333;
-            background: #1e1e1e;
-            padding: 3px;
-        }
-        
-        QToolBar QToolButton {
-            border: none;
-            border-radius: 4px;
-            padding: 4px;
-            margin: 2px;
-        }
-        QToolBar QToolButton:hover {
-            background-color: #3d3d3d;
-        }
-        QToolBar QToolButton:pressed {
-            background-color: #3d7eff;
-        }
-    """)
+    if args.target:
+        run_cli_mode(args)
 
-    window = FontWidget()
-    window.show()
-    sys.exit(app.exec())
+    else:
+        app = QApplication(sys.argv)
+        app.setStyle("Fusion")
+
+        dark_palette = QtGui.QPalette()
+        dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#1e1e1e"))
+        dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#f0f0f0"))
+        dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#121212"))
+        dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor("#1a1a1a"))
+        dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#f0f0f0"))
+        dark_palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#121212"))
+        dark_palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f0f0f0"))
+        dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#2a2a2a"))
+        dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
+        dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
+        dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
+        dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
+        dark_palette.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor("#898989"))
+
+        app.setPalette(dark_palette)
+
+        app.setStyleSheet("""
+            QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
+            QMenuBar::item:selected { background: #3d7eff; }
+
+            QToolBar { 
+                border: none;
+                border-bottom: 1px solid #333;
+                background: #1e1e1e;
+                padding: 3px;
+            }
+
+            QToolBar QToolButton {
+                border: none;
+                border-radius: 4px;
+                padding: 4px;
+                margin: 2px;
+            }
+            QToolBar QToolButton:hover {
+                background-color: #3d3d3d;
+            }
+            QToolBar QToolButton:pressed {
+                background-color: #3d7eff;
+            }
+        """)
+
+        window = FontWidget()
+        window.show()
+        sys.exit(app.exec())
