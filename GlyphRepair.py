@@ -3002,12 +3002,13 @@ def load_sequence(doc, flags, db_map, font_cache, rezim="vizual"):
 
 def calculate_file_hash(filepath):
     try:
+        file_hash = md5()
         with open(filepath, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
-                md5().update(chunk)
-        return md5().hexdigest()
+                file_hash.update(chunk)
+        return file_hash.hexdigest()
     except Exception as e:
-        print(f"Error while loading font {filepath}: {e}")
+        print(f"Error while hashing file {filepath}: {e}")
         return None
 
 
@@ -3019,8 +3020,10 @@ def load_file_hash_db(db_path):
     with open(db_path, 'r', encoding='utf-8') as f:
         for line in f:
             parts = line.strip().split('|')
-            if parts and len(parts[0]) == 32:
-                valid_hashes.add(parts[0].strip().lower())
+            if parts:
+                clean_hash = parts[0].strip().lower()
+                if len(clean_hash) == 32:
+                    valid_hashes.add(clean_hash)
     return valid_hashes
 
 
@@ -3062,9 +3065,19 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                             u_hex = find_best_unicode(g_hash, g_name, name, glyph_db_map)
                             if u_hex: mapped_count += 1
 
+                    pdf_diffs = get_differences(doc, xref)
+                    try:
+                        internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
+                    except:
+                        internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+
                     font_cache_local[xref] = {
-                        "name": name, "glyph_set": glyph_set,
-                        "mapped": mapped_count, "total": total_glyphs
+                        "name": name,
+                        "glyph_set": glyph_set,
+                        "diffs": pdf_diffs,  # Doplněno
+                        "enc": internal_enc,  # Doplněno
+                        "mapped": mapped_count,
+                        "total": total_glyphs
                     }
 
                     if total_glyphs > 0 and mapped_count >= total_glyphs:
