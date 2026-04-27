@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
-    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView, QTextEdit
+    QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView, QTextEdit,
+    QStyledItemDelegate, QStyle
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -315,23 +316,50 @@ class SettingsDialog(QDialog):
         self.main_layout.addLayout(row_layout)
 
 
-# Dialog window for selecting a specific page from the loaded PDF
-# Uses QTreeWidget with status icons (dots) for visual feedback
 class PageSelectionDialog(QDialog):
     def __init__(self, menu_data, font_cache, current_page, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Page")
-        self.setMinimumSize(400, 450)
+        self.setMinimumSize(450, 500)
         layout = QVBoxLayout(self)
 
-        self.tree = QTreeWidget()
-        self.tree.setColumnCount(2)
-        self.tree.setHeaderHidden(True)
-        self.tree.setRootIsDecorated(False)
-        self.tree.setAlternatingRowColors(True)
+        # --- HORNÍ PANEL: Vyhledávání a filtry ---
+        filter_layout = QHBoxLayout()
 
-        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search page (e.g. 15)...")
+        self.search_input.setStyleSheet("padding: 5px; font-size: 14px;")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self.apply_filters)
+
+        self.chk_hide_100 = QCheckBox("Hide 100% mapped")
+        self.chk_hide_100.stateChanged.connect(self.apply_filters)
+
+        filter_layout.addWidget(self.search_input)
+        filter_layout.addWidget(self.chk_hide_100)
+        layout.addLayout(filter_layout)
+
+        # --- SEZNAM ---
+        self.list_widget = QListWidget()
+
+        # Explicitní potlačení modrého hoveru a nastylování selekce
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                outline: none;
+            }
+            QListWidget::item:hover {
+                background-color: #2a2a2a; /* Decentní zesvětlení místo modré */
+                border-radius: 4px;
+            }
+            QListWidget::item:selected {
+                background-color: transparent;
+                border: 1px solid #ffffff;
+                border-radius: 4px;
+            }
+        """)
+
+        self.list_widget.setAlternatingRowColors(True)
+        self.list_widget.itemDoubleClicked.connect(self.accept)
 
         item_to_scroll = None
 
@@ -348,76 +376,140 @@ class PageSelectionDialog(QDialog):
                 page_mapped += info.get('mapped_count', 0)
                 page_agl += info.get('agl_count', 0)
 
-            # Get status text and color simultaneously
-            status_text, color_code = parent._get_status_info(page_mapped, page_total, page_agl) if parent else ("—", "#888888")
+            status_text, color_code = parent._get_status_info(page_mapped, page_total, page_agl) if parent else ("—",
+                                                                                                                 "#888888")
+            is_100_percent = (page_total > 0 and page_mapped >= page_total)
 
-            item = QTreeWidgetItem([f"Page {page_num + 1}", status_text])
-            item.setData(0, QtCore.Qt.UserRole, page_num)
-            item.setTextAlignment(1, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            # Záměrně nevyplňujeme text ani ikonu. Vše obstará náš custom widget.
+            item = QListWidgetItem()
+            item.setData(QtCore.Qt.UserRole, page_num)
+            item.setData(QtCore.Qt.UserRole + 1, is_100_percent)
+            item.setSizeHint(QtCore.QSize(0, 32))  # O fous vyšší řádek pro lepší dýchání
 
-            # Add status icon
-            if parent:
-                item.setIcon(0, parent._create_status_icon(color_code))
+            self.list_widget.addItem(item)
 
-            if page_num == current_page:
-                font = item.font(0)
-                font.setBold(True)
-                item.setFont(0, font)
-                item.setFont(1, font)
+            # Sestavení custom widgetu
+            is_current = (page_num == current_page)
+            row_widget = self._create_list_item_widget(
+                page_num, len(font_names), page_mapped, page_total, color_code, is_current, parent
+            )
+            self.list_widget.setItemWidget(item, row_widget)
+
+            if is_current:
                 item_to_scroll = item
 
-            self.tree.addTopLevelItem(item)
+        layout.addWidget(self.list_widget)
 
-        self.tree.itemDoubleClicked.connect(self.accept)
-        layout.addWidget(self.tree)
-
+        # --- SPODNÍ TLAČÍTKA ---
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
+        self.search_input.returnPressed.connect(self.accept)
+
         if item_to_scroll:
-            self.tree.setCurrentItem(item_to_scroll)
-            self.tree.scrollToItem(item_to_scroll, QTreeWidget.PositionAtCenter)
+            self.list_widget.setCurrentItem(item_to_scroll)
+            self.list_widget.scrollToItem(item_to_scroll, QListWidget.PositionAtCenter)
 
-    # Helper method to create a colored dot icon
-    def _create_status_icon(self, color_str):
-        size = 14
-        pix = QPixmap(size, size)
-        pix.fill(QtCore.Qt.transparent)
-        p = QtGui.QPainter(pix)
-        p.setRenderHint(QtGui.QPainter.Antialiasing)
-        p.setBrush(QtGui.QBrush(QtGui.QColor(color_str)))
-        p.setPen(QtCore.Qt.NoPen)
-        p.drawEllipse(2, 2, size - 4, size - 4)
-        p.end()
-        return QIcon(pix)
+        self.search_input.setFocus()
+        self.apply_filters()
 
-    # Improved logic for status text and color
-    def _get_status_info(self, mapped, total):
-        if total == 0: return "—", "#888888"
-        perc = (mapped / total) * 100
-        if perc >= 100:
-            return "100%", "#228B22"  # Green
-        elif perc > 0:
-            return f"{int(perc)}%", "#FF8C00"  # Orange
-        return "0%", "#888888"  # Gray
+    def _create_list_item_widget(self, page_num, font_count, mapped, total, color_code, is_current, parent):
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(5, 0, 5, 0)
+        layout.setSpacing(10)
+
+        # 1. Ikona (vygenerována rodičem jako QIcon, převedena na QPixmap)
+        lbl_icon = QLabel()
+        if parent:
+            icon = parent._create_status_icon(color_code)
+            lbl_icon.setPixmap(icon.pixmap(14, 14))
+
+        # 2. Text "Page X"
+        lbl_page = QLabel(f"Page {page_num + 1}")
+        page_style = "font-weight: bold; color: white;" if is_current else "color: white;"
+        lbl_page.setStyleSheet(page_style)
+
+        # Spacer - tento vytlačí zbytek obsahu doprava
+        layout.addWidget(lbl_icon)
+        layout.addWidget(lbl_page)
+        layout.addStretch()
+
+        # 3. Počet fontů
+        lbl_fonts = QLabel(f"{font_count} fonts")
+        lbl_fonts.setFixedWidth(55)
+        lbl_fonts.setStyleSheet("color: #aaaaaa;")
+        lbl_fonts.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+
+        # 4. Progress bar
+        pbar = QProgressBar()
+        pbar.setFixedHeight(14)
+        pbar.setFixedWidth(140)  # Rozšířeno pro lepší poměr vzhledem k textům
+
+        if total == 0:
+            pbar.setMaximum(1)
+            pbar.setValue(1)
+            pbar.setFormat("—")
+            color_code = "#888888"
+        else:
+            pbar.setMaximum(total)
+            pbar.setValue(mapped)
+            perc = int((mapped / total) * 100)
+            pbar.setFormat(f"{perc}%")
+
+        pbar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #444;
+                border-radius: 3px;
+                background-color: #2a2a2a;
+                text-align: center;
+                color: white;
+                font-weight: bold;
+                font-size: 10px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color_code};
+                border-radius: 2px;
+            }}
+        """)
+
+        layout.addWidget(lbl_fonts)
+        layout.addWidget(pbar)
+
+        return container
 
     def apply_filters(self):
         search_text = self.search_input.text().lower()
+        hide_100 = self.chk_hide_100.isChecked()
+
         first_visible_item = None
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
-            matches = search_text in item.text(0).lower()
-            item.setHidden(not matches)
-            if matches and first_visible_item is None:
+
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            page_num = item.data(QtCore.Qt.UserRole)
+            is_100 = item.data(QtCore.Qt.UserRole + 1)
+
+            # Vyhledáváme generováním textu on-the-fly, jelikož item.text() je kvůli layoutu prázdný
+            search_target = f"page {page_num + 1}".lower()
+            matches_search = search_text in search_target
+            matches_hide = not (hide_100 and is_100)
+
+            is_visible = matches_search and matches_hide
+            item.setHidden(not is_visible)
+
+            if is_visible and first_visible_item is None:
                 first_visible_item = item
-        if first_visible_item:
-            self.tree.setCurrentItem(first_visible_item)
+
+        if first_visible_item and (not self.list_widget.currentItem() or self.list_widget.currentItem().isHidden()):
+            self.list_widget.setCurrentItem(first_visible_item)
 
     def get_selected_page(self):
-        item = self.tree.currentItem()
-        return item.data(0, QtCore.Qt.UserRole) if item else None
+        item = self.list_widget.currentItem()
+        return item.data(QtCore.Qt.UserRole) if item else None
 
 
 class FontSelectionDialog(QDialog):
@@ -576,7 +668,13 @@ class FontSelectionDialog(QDialog):
             p.drawEllipse(2, 2, size - 4, size - 4)
 
         p.end()
-        return QIcon(pix)
+        icon = QIcon()
+        icon.addPixmap(pix, QIcon.Normal, QIcon.Off)
+        icon.addPixmap(pix, QIcon.Selected, QIcon.Off)
+        icon.addPixmap(pix, QIcon.Normal, QIcon.On)
+        icon.addPixmap(pix, QIcon.Selected, QIcon.On)
+
+        return icon
 
     def _get_status_info(self, mapped, total, agl_count=0):
         if total == 0: return "—", "#888888"
@@ -657,24 +755,26 @@ class IntegratedRepairDialog(QDialog):
     def __init__(self, page_font_map, total_unique, ready_unique, parent=None):
         super().__init__(parent)
         self.setWindowTitle("PDF Repair")
-        self.setMinimumSize(600, 450)
+        self.setMinimumSize(550, 400)
         self.setWindowModality(QtCore.Qt.WindowModal)
 
         self.main_layout = QVBoxLayout(self)
-
-        self.setup_group = QGroupBox("Font check before repair")
-        setup_layout = QVBoxLayout(self.setup_group)
 
         self.lbl_summary = QLabel(
             f"GlypRepair will repair <span style='color:#228B22; font-weight:bold;'>{ready_unique}</span> "
             f"out of <span style='font-weight:bold;'>{total_unique}</span> CFF fonts."
         )
         self.lbl_summary.setStyleSheet("font-size: 15px; margin-bottom: 5px;")
-        setup_layout.addWidget(self.lbl_summary)
+        self.main_layout.addWidget(self.lbl_summary)
 
         self.tree = QTreeWidget()
+        self.tree.setColumnCount(2)
         self.tree.setAlternatingRowColors(True)
-        self.tree.setColumnWidth(1, 140)
+        self.tree.setHeaderLabels(["Pages and Fonts", "Progress"])
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.tree.setColumnWidth(1, 200)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
 
         self.ready_count = 0
@@ -725,8 +825,7 @@ class IntegratedRepairDialog(QDialog):
                 pbar_font_widget = self._create_progress_bar_widget(f_info['mapped'], f_info['total'])
                 self.tree.setItemWidget(font_item, 1, pbar_font_widget)
 
-        setup_layout.addWidget(self.tree)
-        self.main_layout.addWidget(self.setup_group)
+        self.main_layout.addWidget(self.tree)
 
         self.log_group = QGroupBox("Repair progress")
         log_layout = QVBoxLayout(self.log_group)
@@ -837,19 +936,13 @@ class IntegratedRepairDialog(QDialog):
         p.setPen(QtCore.Qt.NoPen)
         p.drawEllipse(2, 2, size - 4, size - 4)
         p.end()
-        return QIcon(pix)
+        icon = QIcon()
+        icon.addPixmap(pix, QIcon.Normal, QIcon.Off)
+        icon.addPixmap(pix, QIcon.Selected, QIcon.Off)
+        icon.addPixmap(pix, QIcon.Normal, QIcon.On)
+        icon.addPixmap(pix, QIcon.Selected, QIcon.On)
 
-    def _create_status_icon(self, color_str):
-        size = 14
-        pix = QPixmap(size, size)
-        pix.fill(QtCore.Qt.transparent)
-        p = QtGui.QPainter(pix)
-        p.setRenderHint(QtGui.QPainter.Antialiasing)
-        p.setBrush(QtGui.QBrush(QtGui.QColor(color_str)))
-        p.setPen(QtCore.Qt.NoPen)
-        p.drawEllipse(2, 2, size - 4, size - 4)
-        p.end()
-        return QIcon(pix)
+        return icon
 
 # Main Application Window Class
 class FontWidget(QMainWindow):
@@ -930,11 +1023,11 @@ class FontWidget(QMainWindow):
         self.resize_snap_timer.timeout.connect(self.apply_snap_resize)
 
         # Window configuration
-        self.setMinimumSize(1200, 810)
-        self.resize(1200, 810)
+        self.setMinimumSize(1200, 823)
+        self.resize(1200, 823)
 
         # Base size defines the starting point for the increments
-        self.setBaseSize(1200, 810)
+        self.setBaseSize(1200, 823)
 
         # Force window to resize horizontally by 1px (freely) and vertically by exactly 68px (one list item)
         item_height = self.ICON_SIZE_SMALL + 4
@@ -1043,6 +1136,8 @@ class FontWidget(QMainWindow):
         self.setCentralWidget(central)
         # Create left sidebar list
         self.glyph_list = QListWidget()
+        self.glyph_list.setObjectName("glyphList")
+        self.glyph_list.setItemDelegate(CleanSelectionDelegate(self.glyph_list))
         self.glyph_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.glyph_list.setIconSize(QtCore.QSize(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE))
         self.glyph_list.setSpacing(0)
@@ -1473,7 +1568,13 @@ class FontWidget(QMainWindow):
             p.drawEllipse(2, 2, size - 4, size - 4)
 
         p.end()
-        return QIcon(pix)
+        icon = QIcon()
+        icon.addPixmap(pix, QIcon.Normal, QIcon.Off)
+        icon.addPixmap(pix, QIcon.Selected, QIcon.Off)
+        icon.addPixmap(pix, QIcon.Normal, QIcon.On)
+        icon.addPixmap(pix, QIcon.Selected, QIcon.On)
+
+        return icon
 
     # Resets the UI elements when no font is loaded
     def clear_ui_state(self):
@@ -3207,31 +3308,82 @@ def run_cli_mode(args):
 
         headless_repair(pdf_path, glyph_db_map, verbose=args.verbose)
 
+class CleanSelectionDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        option.state &= ~QStyle.State_Selected
+        super().paint(painter, option, index)
 
+# Applies a custom dark theme to the application using strictly QSS (Qt Style Sheets)
+# This avoids the 'Fusion' style while ensuring native OS styles don't override the colors
 def apply_dark_theme(app):
-    app.setStyle("Fusion")
-
-    dark_palette = QtGui.QPalette()
-    dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#1e1e1e"))
-    dark_palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#121212"))
-    dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor("#1a1a1a"))
-    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#121212"))
-    dark_palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#2a2a2a"))
-    dark_palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
-    dark_palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff0000"))
-    dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#3d7eff"))
-    dark_palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
-    dark_palette.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor("#898989"))
-
-    app.setPalette(dark_palette)
-
     app.setStyleSheet("""
-        QToolTip { color: #f0f0f0; background-color: #2a2a2a; border: 1px solid #444; }
-        QMenuBar::item:selected { background: #3d7eff; }
+        /* Base application window and typography */
+        QWidget {
+            background-color: #1e1e1e;
+            color: #f0f0f0;
+            outline: none; /* Globally removes the dotted focus rectangle */
+        }
 
+        /* Input fields and text areas */
+        QLineEdit, QTextEdit {
+            background-color: #121212;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 4px;
+        }
+
+        /* List and tree views */
+        QListWidget, QTreeWidget {
+            background-color: #121212;
+            border: none;
+            border-radius: 6px;
+            padding: 2px;
+            outline: 0; /* Ensures no focus outline in the list */
+            selection-background-color: transparent;
+        }
+
+        QListWidget::item:selected, QTreeWidget::item:selected {
+            background-color: transparent;
+            color: #ffffff;
+            border: 1px solid #ffffff; /* Všude jinde bude bílý rámeček */
+            border-radius: 4px;
+            outline: none;
+        }
+
+        /* Výjimka pouze pro hlavní glyph list - naprosto čistý */
+        #glyphList::item:selected {
+            border: none;
+        }
+        
+        QTreeView::item:hover {
+                background-color: #2a2a2a;
+                border-radius: 4px;
+        }
+
+        /* --- TLAČÍTKA --- */
+        QPushButton, QToolButton {
+            background-color: #2a2a2a;
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 5px 10px;
+        }
+
+        QPushButton:hover, QToolButton:hover {
+            background-color: #3d3d3d;
+        }
+
+        QPushButton:pressed, QToolButton:pressed {
+            background-color: #2a2a2a; /* Pozadí zůstane tmavé */
+            color: white;
+        }
+
+        QPushButton:disabled, QToolButton:disabled {
+            background-color: #1a1a1a;
+            color: #555;
+            border: 1px solid #333;
+        }
+
+        /* Main window toolbar overrides */
         QToolBar { 
             border: none;
             border-bottom: 1px solid #333;
@@ -3241,15 +3393,113 @@ def apply_dark_theme(app):
 
         QToolBar QToolButton {
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             padding: 4px;
             margin: 2px;
+            background-color: transparent;
         }
+
         QToolBar QToolButton:hover {
             background-color: #3d3d3d;
         }
-        QToolBar QToolButton:pressed {
-            background-color: #3d7eff;
+
+        /* Specifically fix disabled buttons in the toolbar */
+        QToolBar QToolButton:disabled {
+            border: none;
+            background-color: transparent;
+            color: #555;
+        }
+
+        /* Group boxes - Floating text style */
+        QGroupBox {
+            border: 1px solid #444;
+            border-radius: 6px;
+            margin-top: 24px;
+            padding-top: 5px;
+            font-weight: bold;
+        }
+
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0px;
+            left: 5px;
+            top: 4px;
+            color: #aaaaaa;
+        }
+
+        /* Dropdown menus (ComboBox) */
+        QComboBox {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 3px 10px;
+        }
+
+        QComboBox QAbstractItemView {
+            background-color: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            selection-background-color: #2a2a2a;
+            outline: 0;
+        }
+
+        /* SCROLLBAR STYLING */
+        QScrollBar:vertical {
+            border: none;
+            background-color: transparent; /* Zruší jakýkoliv základní rámeček */
+            width: 12px;
+            margin: 2px 0px 2px 0px;
+        }
+
+        QScrollBar::handle:vertical {
+            background-color: #555555;
+            min-height: 30px;
+            border-radius: 4px; /* Zaoblení jezdce */
+            margin: 0px 2px 0px 2px; /* Drobné odsazení od okrajů */
+        }
+
+        QScrollBar::handle:vertical:hover {
+            background-color: #777777; /* Zesvětlení při najetí myší */
+        }
+
+        /* Odstranění tlačítek se šipkami nahoře a dole */
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0px;
+            background: none;
+        }
+
+        /* TOTO OPRAVUJE TEČKOVANÉ POZADÍ (prostor nad a pod jezdcem) */
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: none;
+        }
+
+        /* --- HORIZONTAL SCROLLBAR --- */
+        QScrollBar:horizontal {
+            border: none;
+            background: transparent;
+            height: 12px;
+            margin: 0px 2px 0px 2px;
+        }
+
+        QScrollBar::handle:horizontal {
+            background-color: #555555;
+            min-width: 30px;
+            border-radius: 4px;
+            margin: 2px 0px 2px 0px;
+        }
+
+        QScrollBar::handle:horizontal:hover {
+            background-color: #777777;
+        }
+
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            width: 0px;
+            background: none;
+        }
+
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+            background: none;
         }
     """)
 
