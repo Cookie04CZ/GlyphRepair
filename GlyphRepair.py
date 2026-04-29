@@ -3397,19 +3397,16 @@ def apply_dark_theme(app):
     app.setPalette(dark_palette)
 
     app.setStyleSheet("""
-        /* Base application window, dialogs, and typography */
         QWidget, QDialog, QMessageBox {
             background-color: #1e1e1e;
             color: #f0f0f0;
             outline: none; /* Globally removes the dotted focus rectangle */
         }
 
-        /* Explicitly target labels in dialogs to ensure they don't render black-on-dark */
         QMessageBox QLabel {
             color: #f0f0f0;
         }
 
-        /* Input fields and text areas */
         QLineEdit, QTextEdit {
             background-color: #121212;
             border: 1px solid #444;
@@ -3418,7 +3415,6 @@ def apply_dark_theme(app):
             color: white;
         }
 
-        /* List and tree views */
         QListWidget, QTreeWidget {
             background-color: #121212;
             border: none;
@@ -3436,7 +3432,6 @@ def apply_dark_theme(app):
             outline: none;
         }
 
-        /* Výjimka pouze pro hlavní glyph list - naprosto čistý */
         #glyphList::item:selected {
             border: none;
         }
@@ -3446,7 +3441,6 @@ def apply_dark_theme(app):
                 border-radius: 4px;
         }
 
-        /* --- TLAČÍTKA --- */
         QPushButton, QToolButton {
             background-color: #2a2a2a;
             border: 1px solid #555;
@@ -3470,7 +3464,6 @@ def apply_dark_theme(app):
             border: 1px solid #333;
         }
 
-        /* Main window toolbar overrides */
         QToolBar { 
             border: none;
             border-bottom: 1px solid #333;
@@ -3490,14 +3483,12 @@ def apply_dark_theme(app):
             background-color: #3d3d3d;
         }
 
-        /* Specifically fix disabled buttons in the toolbar */
         QToolBar QToolButton:disabled {
             border: none;
             background-color: transparent;
             color: #555;
         }
 
-        /* Group boxes - Floating text style */
         QGroupBox {
             border: 1px solid #444;
             border-radius: 6px;
@@ -3515,7 +3506,6 @@ def apply_dark_theme(app):
             color: #aaaaaa;
         }
 
-        /* Dropdown menus (ComboBox) */
         QComboBox {
             background-color: #2a2a2a;
             border: 1px solid #444;
@@ -3533,7 +3523,6 @@ def apply_dark_theme(app):
             color: white;
         }
 
-        /* SCROLLBAR STYLING */
         QScrollBar:vertical {
             border: none;
             background-color: transparent; /* Zruší jakýkoliv základní rámeček */
@@ -3552,13 +3541,11 @@ def apply_dark_theme(app):
             background-color: #777777; /* Zesvětlení při najetí myší */
         }
 
-        /* Odstranění tlačítek se šipkami nahoře a dole */
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
             height: 0px;
             background: none;
         }
 
-        /* TOTO OPRAVUJE TEČKOVANÉ POZADÍ (prostor nad a pod jezdcem) */
         QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             background: none;
         }
