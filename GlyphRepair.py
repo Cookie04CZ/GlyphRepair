@@ -909,7 +909,8 @@ class IntegratedRepairDialog(QDialog):
         self.accept()
 
     def switch_to_log_mode(self):
-        self.setup_group.setVisible(False)
+        self.lbl_summary.setVisible(False)
+        self.tree.setVisible(False)
         self.log_group.setVisible(True)
         self.btn_repair.setVisible(False)
         self.btn_cancel.setEnabled(False)
@@ -3313,15 +3314,41 @@ class CleanSelectionDelegate(QStyledItemDelegate):
         option.state &= ~QStyle.State_Selected
         super().paint(painter, option, index)
 
+
 # Applies a custom dark theme to the application using strictly QSS (Qt Style Sheets)
-# This avoids the 'Fusion' style while ensuring native OS styles don't override the colors
+# and a dark QPalette, explicitly targeting dialogs to override native Windows Light Mode
 def apply_dark_theme(app):
+    # Create a completely dark palette as a fallback for standard widgets
+    # We omit setStyle("Fusion"), so native style is preserved but darkened where possible
+    dark_palette = QtGui.QPalette()
+    dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor(30, 30, 30))
+    dark_palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
+    dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor(18, 18, 18))
+    dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(42, 42, 42))
+    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.white)
+    dark_palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
+    dark_palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
+    dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor(42, 42, 42))
+    dark_palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
+    dark_palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
+    dark_palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
+    dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
+    dark_palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
+
+    # Apply the dark palette to the entire application
+    app.setPalette(dark_palette)
+
     app.setStyleSheet("""
-        /* Base application window and typography */
-        QWidget {
+        /* Base application window, dialogs, and typography */
+        QWidget, QDialog, QMessageBox {
             background-color: #1e1e1e;
             color: #f0f0f0;
             outline: none; /* Globally removes the dotted focus rectangle */
+        }
+
+        /* Explicitly target labels in dialogs to ensure they don't render black-on-dark */
+        QMessageBox QLabel {
+            color: #f0f0f0;
         }
 
         /* Input fields and text areas */
@@ -3330,6 +3357,7 @@ def apply_dark_theme(app):
             border: 1px solid #444;
             border-radius: 6px;
             padding: 4px;
+            color: white;
         }
 
         /* List and tree views */
@@ -3354,7 +3382,7 @@ def apply_dark_theme(app):
         #glyphList::item:selected {
             border: none;
         }
-        
+
         QTreeView::item:hover {
                 background-color: #2a2a2a;
                 border-radius: 4px;
@@ -3366,6 +3394,7 @@ def apply_dark_theme(app):
             border: 1px solid #555;
             border-radius: 6px;
             padding: 5px 10px;
+            color: white;
         }
 
         QPushButton:hover, QToolButton:hover {
@@ -3434,6 +3463,7 @@ def apply_dark_theme(app):
             border: 1px solid #444;
             border-radius: 6px;
             padding: 3px 10px;
+            color: white;
         }
 
         QComboBox QAbstractItemView {
@@ -3442,6 +3472,7 @@ def apply_dark_theme(app):
             border-radius: 6px;
             selection-background-color: #2a2a2a;
             outline: 0;
+            color: white;
         }
 
         /* SCROLLBAR STYLING */
@@ -3504,11 +3535,28 @@ def apply_dark_theme(app):
     """)
 
 
+# Initializes the GUI application and applies Windows-specific styling
+# It calls the dark theme and injects a dark title bar via ctypes before launching
 def run_gui_mode():
     app = QApplication(sys.argv)
     apply_dark_theme(app)
 
     window = FontWidget()
+
+    # Force Windows DWM (Desktop Window Manager) to render the title bar in Dark Mode
+    # This requires calling the Windows API directly via ctypes for Windows 10 and 11
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            # 20 represents DWMWA_USE_IMMERSIVE_DARK_MODE in newer Windows builds
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
+            hwnd = window.winId()
+            value = ctypes.c_int(2)
+            set_window_attribute(int(hwnd), DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value))
+        except Exception:
+            pass
+
     window.show()
     sys.exit(app.exec())
 
