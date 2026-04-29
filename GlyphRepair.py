@@ -1485,21 +1485,11 @@ class FontWidget(QMainWindow):
 
         # Load base statistics and hashes from the static cache
         info = self.font_cache.get((self.current_page, self.current_font_name), {})
-        total = info.get('glyph_count', 0)
-        agl_count = info.get('agl_count', 0)
         hashes_dict = info.get('glyph_hashes', {})
 
-        # Calculate live mapped characters for the progress bar only
-        current_session_mapped = set()
-        for gname in self.current_font_glyph_names:
-            if gname in self.user_glyph_to_char:
-                current_session_mapped.add(gname)
-            elif gname in EXTENDED_AGL:
-                current_session_mapped.add(gname)
-            elif hashes_dict.get(gname) in self.known_glyph_hashes:
-                current_session_mapped.add(gname)
-
-        actual_mapped = len(current_session_mapped)
+        actual_mapped = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
+        total = info.get('glyph_count', 0)
+        agl_count = info.get('agl_count', 0)
 
         # Keep the static cache instantly synchronized with the live UI session
         if (self.current_page, self.current_font_name) in self.font_cache:
@@ -1840,15 +1830,7 @@ class FontWidget(QMainWindow):
         info = self.font_cache.get((self.current_page, self.current_font_name), {})
         hashes_dict = info.get('glyph_hashes', {})
 
-        mapped_count = 0
-        for g in self.current_font_glyph_names:
-            if g in self.user_glyph_to_char:
-                mapped_count += 1
-            elif g in EXTENDED_AGL:
-                mapped_count += 1
-            elif hashes_dict.get(g) in self.known_glyph_hashes:
-                mapped_count += 1
-
+        mapped_count = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
         total_count = len(self.current_font_glyph_names)
         is_100_percent = (mapped_count == total_count)
 
@@ -2276,9 +2258,6 @@ class FontWidget(QMainWindow):
         if item:
             self.glyph_list.setCurrentItem(item)
 
-            # Force the list to immediately recalculate heights after dynamic resize
-            self.glyph_list.doItemsLayout()
-
             # Align the selected item exactly to the bottom edge of the viewport
             self.glyph_list.scrollToItem(item, QListWidget.ScrollHint.EnsureVisible)
 
@@ -2406,20 +2385,45 @@ class FontWidget(QMainWindow):
     # Helper method to robustly calculate mapped glyphs for any given font
     def calculate_font_mapped_count(self, page, font_name, glyph_hashes):
         mapped_count = 0
-        clean_font_name = font_name.split('+', 1)[-1] if '+' in font_name else font_name
-
-        # If calculating for the currently active font, include live unsaved mappings
         is_current = (page == self.current_page and font_name == self.current_font_name)
 
-        for gname, h in glyph_hashes.items():
+        if not hasattr(self, 'global_db_map'):
+            return 0
+        db_map = self.global_db_map
+
+        hash_to_curr_names = {}
+        for gname, g_hash in glyph_hashes.items():
+            if gname in EXTENDED_AGL and gname != '.notdef': continue
+            if g_hash:
+                if g_hash not in hash_to_curr_names:
+                    hash_to_curr_names[g_hash] = set()
+                hash_to_curr_names[g_hash].add(gname)
+
+        for gname, g_hash in glyph_hashes.items():
             if gname in EXTENDED_AGL:
                 mapped_count += 1
-            elif is_current and gname in getattr(self, 'user_glyph_to_char', {}):
+                continue
+
+            if is_current and gname in getattr(self, 'user_glyph_to_char', {}):
                 mapped_count += 1
-            elif (h, clean_font_name, gname) in getattr(self, 'exact_db_matches', set()):
-                mapped_count += 1
-            elif h in self.known_glyph_hashes:
-                mapped_count += 1
+                continue
+
+            if not g_hash or g_hash not in db_map:
+                continue
+
+            same_hash_names = hash_to_curr_names.get(g_hash, set())
+
+            if len(same_hash_names) > 1:
+                if hasattr(self, 'db_font_glyph_sets'):
+                    for db_gname_set in self.db_font_glyph_sets:
+                        if same_hash_names.issubset(db_gname_set):
+                            mapped_count += 1
+                            break
+            else:
+                records = db_map[g_hash]
+                unique_hexes = set(r["unicode_hex"] for r in records)
+                if len(unique_hexes) == 1:
+                    mapped_count += 1
 
         return mapped_count
 
@@ -2454,10 +2458,7 @@ class FontWidget(QMainWindow):
                         for row in reader:
                             h = row["glyph_hash"]
                             u = row["unicode_hex"]
-                            # Clean the font name from subset prefixes (e.g., ABCDEF+)
-                            fname = row.get("font_name", "").split('+', 1)[-1] if '+' in row.get("font_name",
-                                                                                                 "") else row.get(
-                                "font_name", "")
+                            fname = row.get("font_name", "")
                             gname = row.get("GlyphName", "")
 
                             if h not in hash_counts:
@@ -2474,6 +2475,14 @@ class FontWidget(QMainWindow):
                 print(f"DB Cache Error: {e}")
 
         self.known_glyph_hashes = {h for h, unics in hash_counts.items() if len(unics) == 1}
+        self.db_font_glyph_sets = []
+        font_to_gnames = {}
+        for row in self.db_records:
+            fname = row.get("font_name", "")
+            if fname not in font_to_gnames:
+                font_to_gnames[fname] = set()
+            font_to_gnames[fname].add(row.get("GlyphName", ""))
+        self.db_font_glyph_sets = list(font_to_gnames.values())
 
     # Generates suggestions based on GlyphName and fuzzy matching of font_name
     def get_suggestions(self, glyph_name, font_name, current_hash=None):
@@ -2707,45 +2716,56 @@ class FontWidget(QMainWindow):
             self.load_db_cache()
         db_map = self.global_db_map
 
-        current_clean_font = self.current_font_name.split('+', 1)[
-            -1] if self.current_font_name and '+' in self.current_font_name else (self.current_font_name or "")
-
         cached_hashes = self.font_cache.get((self.current_page, self.current_font_name), {}).get('glyph_hashes', {})
+
+        hash_to_curr_names = {}
+        for name in self.current_font_glyph_names:
+            if name in EXTENDED_AGL and name != '.notdef': continue
+            g_hash = cached_hashes.get(name) or self.get_glyph_hash(name)
+            if g_hash:
+                if g_hash not in hash_to_curr_names:
+                    hash_to_curr_names[g_hash] = set()
+                hash_to_curr_names[g_hash].add(name)
 
         # Check each glyph in current font against DB
         for name in self.current_font_glyph_names:
-
-            # Absolute AGL priority
             if name in EXTENDED_AGL and name != '.notdef':
                 continue
 
             g_hash = cached_hashes.get(name) or self.get_glyph_hash(name)
+            if not g_hash or g_hash not in db_map:
+                continue
 
-            if g_hash and g_hash in db_map:
-                rows = db_map[g_hash]
+            records = db_map[g_hash]
+            same_hash_names = hash_to_curr_names.get(g_hash, set())
 
-                exact_match = None
-                for r in rows:
-                    db_clean_font = r.get("font_name", "").split('+', 1)[-1] if '+' in r.get("font_name", "") else r.get("font_name", "")
-                    if r.get("GlyphName") == name and db_clean_font == current_clean_font:
-                        exact_match = r
-                        break
+            if len(same_hash_names) > 1:
+                db_fonts = {}
+                for r in records:
+                    f_name = r["font_name"]
+                    if f_name not in db_fonts:
+                        db_fonts[f_name] = {}
+                    db_fonts[f_name][r["GlyphName"]] = r
 
-                if exact_match:
-                    self.user_glyph_to_char[name] = {
-                        "glyph_hash": g_hash,
-                        "unicode_hex": exact_match["unicode_hex"],
-                        "AGN": exact_match["AGN"]
-                    }
-                else:
-                    unique_hexes = list(set(r["unicode_hex"] for r in rows))
-                    if len(unique_hexes) == 1:
-                        row = next(r for r in rows if r["unicode_hex"] == unique_hexes[0])
+                for f_name, db_glyph_dict in db_fonts.items():
+                    if same_hash_names.issubset(db_glyph_dict.keys()):
+                        row = db_glyph_dict[name]
                         self.user_glyph_to_char[name] = {
                             "glyph_hash": g_hash,
                             "unicode_hex": row["unicode_hex"],
                             "AGN": row["AGN"]
                         }
+                        break
+
+            else:
+                unique_hexes = list(set(r["unicode_hex"] for r in records))
+                if len(unique_hexes) == 1:
+                    row = next(r for r in records if r["unicode_hex"] == unique_hexes[0])
+                    self.user_glyph_to_char[name] = {
+                        "glyph_hash": g_hash,
+                        "unicode_hex": row["unicode_hex"],
+                        "AGN": row["AGN"]
+                    }
 
         # Special handling for .notdef
         if '.notdef' in self.current_glyph_set:
@@ -2959,7 +2979,7 @@ def load_db(psv_path="glyph_mappings.psv"):
                 if not u_hex or not g_hash: continue
                 if g_hash == space_hash and u_hex != "0020": continue
 
-                f_name = row.get("font_name", "").split('+')[-1]
+                f_name = row.get("font_name", "")
                 g_name = row.get("GlyphName", "")
 
                 if g_hash not in db_map: db_map[g_hash] = []
@@ -2980,19 +3000,29 @@ def get_standalone_glyph_hash(glyph_set, g_name):
     except Exception:
         return None
 
-def find_best_unicode(g_hash, g_name, f_name, db_map):
+def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
     if g_hash not in db_map: return None
     records = db_map[g_hash]
     space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
     if g_hash == space_hash: return "0020"
 
-    clean_f_name = f_name.split('+')[-1] if f_name else ""
-    for r in records:
-        if r["GlyphName"] == g_name and r["font_name"] == clean_f_name: return r["unicode_hex"]
-    for r in records:
-        if r["GlyphName"] == g_name: return r["unicode_hex"]
+    if same_hash_names and len(same_hash_names) > 1:
+        db_fonts = {}
+        for r in records:
+            f_name = r["font_name"]
+            if f_name not in db_fonts:
+                db_fonts[f_name] = {}
+            db_fonts[f_name][r["GlyphName"]] = r
+
+        for f_name, db_glyph_dict in db_fonts.items():
+            if same_hash_names.issubset(db_glyph_dict.keys()):
+                return db_glyph_dict[g_name]["unicode_hex"]
+
+        return None
+
     unique_hexes = set(r["unicode_hex"] for r in records)
-    if len(unique_hexes) == 1: return list(unique_hexes)[0]
+    if len(unique_hexes) == 1:
+        return list(unique_hexes)[0]
     return None
 
 def get_differences(doc, xref):
@@ -3091,7 +3121,18 @@ def load_sequence(doc, flags, db_map, font_cache, rezim="vizual"):
                                 f_data = font_cache[xref]
                                 g_name = f_data["diffs"].get(b, f_data["enc"].get(b, ".notdef"))
                                 g_hash = get_standalone_glyph_hash(f_data["glyph_set"], g_name)
-                                u_hex = find_best_unicode(g_hash, g_name, f_data["name"], db_map)
+
+                                if "hash_to_names" not in f_data:
+                                    htn = {}
+                                    for gn in f_data["glyph_set"].keys():
+                                        gh = get_standalone_glyph_hash(f_data["glyph_set"], gn)
+                                        if gh:
+                                            if gh not in htn: htn[gh] = set()
+                                            htn[gh].add(gn)
+                                    f_data["hash_to_names"] = htn
+                                same_hash_names = f_data["hash_to_names"].get(g_hash, set())
+
+                                u_hex = find_best_unicode(g_hash, g_name, db_map, same_hash_names)
                                 sekvence[xref].append(u_hex if u_hex else "003F")
                         else:
                             val = ord(raw_char)
@@ -3159,12 +3200,22 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                     total_glyphs = len(valid_glyph_names)
                     mapped_count = 0
 
+                    hash_to_names = {}
+                    for g_name in valid_glyph_names:
+                        if g_name not in EXTENDED_AGL:
+                            gh = get_standalone_glyph_hash(glyph_set, g_name)
+                            if gh:
+                                if gh not in hash_to_names:
+                                    hash_to_names[gh] = set()
+                                hash_to_names[gh].add(g_name)
+
                     for g_name in valid_glyph_names:
                         if g_name in EXTENDED_AGL:
                             mapped_count += 1
                         else:
                             g_hash = get_standalone_glyph_hash(glyph_set, g_name)
-                            u_hex = find_best_unicode(g_hash, g_name, name, glyph_db_map)
+                            same_hash_names = hash_to_names.get(g_hash, set())
+                            u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
                             if u_hex: mapped_count += 1
 
                     pdf_diffs = get_differences(doc, xref)
