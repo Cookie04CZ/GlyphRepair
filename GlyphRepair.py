@@ -1397,6 +1397,9 @@ class FontWidget(QMainWindow):
         self.shortcut_next_font = QShortcut(QKeySequence("Ctrl+Right"), self)
         self.shortcut_next_font.activated.connect(self.go_to_next_font)
 
+        self.shortcut_github = QShortcut(QKeySequence("F1"), self)
+        self.shortcut_github.activated.connect(self.open_github)
+
     # Opens the settings dialog, applies changes, and saves them persistently
     def open_settings(self):
         dialog = SettingsDialog(self)
@@ -1962,6 +1965,10 @@ class FontWidget(QMainWindow):
         if self.current_font_glyph_names and 0 <= prev_index < len(self.current_font_glyph_names):
             self.current_index = prev_index
             self.show_glyph()
+
+    def open_github(self):
+        # Nezapomeň si tady přepsat URL na svůj skutečný repozitář!
+        webbrowser.open_new_tab("https://github.com/Cookie04CZ/GlyphRepair")
 
     # Opens a web helper for finding symbols
     def open_special(self):
