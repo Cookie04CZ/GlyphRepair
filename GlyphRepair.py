@@ -2306,6 +2306,8 @@ class FontWidget(QMainWindow):
             self.menu_structure = {}
             self.font_cache.clear()
 
+            processed_xrefs = {}
+
             with fitz.open(file_path) as doc:
                 first_page = first_name = None
 
@@ -2319,6 +2321,7 @@ class FontWidget(QMainWindow):
                         try:
                             xref = font[0]
                             name, ext, _, buffer = doc.extract_font(xref)
+
                             # Only process CFF fonts
                             if ext and ext.lower() == "cff":
 
@@ -2327,12 +2330,12 @@ class FontWidget(QMainWindow):
 
                                 cff_names_on_page.append(name)
 
-                                if (page_num, name) not in self.font_cache:
+                                if xref not in processed_xrefs:
                                     tmp_font = CFFFontSet()
                                     tmp_font.decompile(BytesIO(buffer), None)
                                     glyph_set = tmp_font.topDictIndex[0].CharStrings
 
-                                    # Fiter out .notdef
+                                    # Filter out .notdef
                                     valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
                                     total_glyphs = len(valid_glyph_names)
 
@@ -2356,14 +2359,15 @@ class FontWidget(QMainWindow):
 
                                     mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
 
-                                    #Cache the data
-                                    self.font_cache[(page_num, name)] = {
+                                    processed_xrefs[xref] = {
                                         'glyph_count': total_glyphs,
                                         'mapped_count': mapped_count,
                                         'agl_count': agl_count,
                                         'glyph_hashes': current_font_hashes,
                                         'data': buffer
                                     }
+
+                                self.font_cache[(page_num, name)] = processed_xrefs[xref]
 
                                 if first_page is None:
                                     first_page, first_name = page_num, name
