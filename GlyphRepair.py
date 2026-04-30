@@ -2435,7 +2435,9 @@ class FontWidget(QMainWindow):
                 unique_hexes = set(r["unicode_hex"] for r in records)
                 if len(unique_hexes) == 1:
                     mapped_count += 1
-
+                else:
+                    if any(r["GlyphName"] == gname for r in records):
+                        mapped_count += 1
         return mapped_count
 
     # Refreshes menu statistics after a DB update
@@ -2777,6 +2779,15 @@ class FontWidget(QMainWindow):
                         "unicode_hex": row["unicode_hex"],
                         "AGN": row["AGN"]
                     }
+                else:
+                    matched_rows = [r for r in records if r["GlyphName"] == name]
+                    if matched_rows:
+                        row = matched_rows[0]
+                        self.user_glyph_to_char[name] = {
+                            "glyph_hash": g_hash,
+                            "unicode_hex": row["unicode_hex"],
+                            "AGN": row["AGN"]
+                        }
 
         # Special handling for .notdef
         if '.notdef' in self.current_glyph_set:
@@ -3034,6 +3045,11 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
     unique_hexes = set(r["unicode_hex"] for r in records)
     if len(unique_hexes) == 1:
         return list(unique_hexes)[0]
+
+    matched_rows = [r for r in records if r["GlyphName"] == g_name]
+    if matched_rows:
+        return matched_rows[0]["unicode_hex"]
+
     return None
 
 def get_differences(doc, xref):
