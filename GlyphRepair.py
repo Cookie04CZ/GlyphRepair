@@ -965,6 +965,7 @@ class FontWidget(QMainWindow):
         "st": "fb06",
         "AE": "00c6",
         "ae": "00e6",
+        "...": "2026"
     }
 
     def __init__(self):
