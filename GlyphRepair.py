@@ -1,6 +1,5 @@
 import csv
 import os
-import re
 import sys
 import webbrowser
 import difflib
@@ -835,6 +834,25 @@ class IntegratedRepairDialog(QDialog):
         self.text_log.setStyleSheet(
             "background-color: #121212; color: #00ff00; font-family: Consolas; font-size: 12px;")
         log_layout.addWidget(self.text_log)
+        self.repair_progress = QProgressBar()
+        self.repair_progress.setFixedHeight(18)
+        self.repair_progress.setStyleSheet("""
+                    QProgressBar {
+                        border: 1px solid #444;
+                        border-radius: 4px;
+                        background-color: #121212;
+                        text-align: center;
+                        color: white;
+                        font-weight: bold;
+                        font-size: 12px;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #3d7eff; /* Modrá barva průběhu */
+                        border-radius: 3px;
+                    }
+                """)
+        self.repair_progress.setVisible(False)
+        log_layout.addWidget(self.repair_progress)
         self.log_group.setVisible(False)
         self.main_layout.addWidget(self.log_group)
 
@@ -913,9 +931,17 @@ class IntegratedRepairDialog(QDialog):
         self.lbl_summary.setVisible(False)
         self.tree.setVisible(False)
         self.log_group.setVisible(True)
+        self.repair_progress.setVisible(True)
         self.btn_repair.setVisible(False)
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.setText("Working...")
+        QApplication.processEvents()
+
+    def set_progress(self, current, total):
+        if total > 0:
+            self.repair_progress.setMaximum(total)
+            self.repair_progress.setValue(current)
+            self.repair_progress.setFormat(f"Scanning page {current} / {total} (%p%)")
         QApplication.processEvents()
 
     def log(self, message):
@@ -2893,7 +2919,7 @@ class FontWidget(QMainWindow):
                 font_cache_local = {}
 
                 dialog.log("[INFO] Visual order scanning...")
-                vizualni_sekvence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual")
+                vizualni_sekvence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual", progress_callback=dialog.set_progress)
                 vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
 
                 ready_fonts_count = len(vizualni_sekvence)
@@ -2923,7 +2949,7 @@ class FontWidget(QMainWindow):
                 doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
                 interni_sekvence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, rezim="dummy")
                 doc_dummy.close()
-                dialog.log(f"  -> Extraction succeeded for {len(interni_sekvence)} fonts.")
+                dialog.log(f"  -> Extraction succeeded for all {len(interni_sekvence)} fonts (will process {len(vizualni_sekvence)} ready fonts).")
 
                 dialog.log("\n[3/3] Final ToUnicode mapping")
                 dialog.log("-" * 40)
@@ -3138,9 +3164,14 @@ def generate_real_tounicode(mapping_dict):
     cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
     return "\n".join(cmap)
 
-def load_sequence(doc, flags, db_map, font_cache, rezim="vizual"):
+def load_sequence(doc, flags, db_map, font_cache, rezim="vizual", progress_callback=None):
     sekvence = {}
-    for page in doc:
+    total_pages = len(doc)
+
+    for page_idx, page in enumerate(doc):
+        if progress_callback:
+            progress_callback(page_idx + 1, total_pages)
+
         fonts_on_page = {f[0]: f[3] for f in page.get_fonts()}
         raw_text = page.get_text("rawdict", flags=flags)
 
