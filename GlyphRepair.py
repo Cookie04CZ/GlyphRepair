@@ -10,6 +10,7 @@ from io import BytesIO
 
 import fitz  # PyMuPDF
 
+# Icons
 import qtawesome as qta
 
 # GUI Libraries (PySide6) for the application interface
@@ -3055,22 +3056,54 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
 
 def get_differences(doc, xref):
     try:
-        enc_obj = doc.xref_get_key(xref, "Encoding")
-        raw_enc = doc.xref_object(xref) if enc_obj[0] == "dict" else doc.xref_object(int(enc_obj[1].split()[0]))
-        diff_match = re.search(r'/Differences\s*\[(.*?)\]', raw_enc, re.DOTALL)
-        if diff_match:
-            tokens = re.findall(r'/[^\s\[\]/]+|\d+', diff_match.group(1))
-            res, curr = {}, -1
-            for t in tokens:
-                if t.isdigit():
-                    curr = int(t)
-                elif t.startswith('/') and curr != -1:
+        enc_type, enc_val = doc.xref_get_key(xref, "Encoding")
+
+        if enc_type == "null" or enc_type == "name":
+            return {}
+
+        array_str = ""
+
+        if enc_val.endswith("0 R"):
+            enc_xref = int(enc_val.split()[0])
+            diff_type, diff_val = doc.xref_get_key(enc_xref, "Differences")
+
+            if diff_type != "array":
+                return {}
+            array_str = diff_val
+
+        else:
+            raw_enc = doc.xref_object(xref)
+            start_idx = raw_enc.find("/Differences")
+            if start_idx == -1:
+                return {}
+
+            arr_start = raw_enc.find("[", start_idx)
+            arr_end = raw_enc.find("]", arr_start)
+
+            if arr_start == -1 or arr_end == -1:
+                return {}
+
+            array_str = raw_enc[arr_start:arr_end + 1]
+
+        clean_str = array_str.replace('[', ' ').replace(']', ' ').replace('/', ' /')
+        tokens = clean_str.split()
+
+        res = {}
+        curr = -1
+
+        for t in tokens:
+            if t.isdigit():
+                curr = int(t)
+            elif t.startswith('/'):
+                if curr != -1:
                     res[curr] = t[1:]
                     curr += 1
-            return res
-    except:
-        pass
-    return {}
+
+        return res
+
+    except Exception as e:
+        print(f"Error while loading differences: {e}")
+        return {}
 
 def generate_dummy_tounicode():
     cmap = [
