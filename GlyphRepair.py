@@ -1131,7 +1131,7 @@ class FontWidget(QMainWindow):
         self.current_pdf_action.setIcon(current_pdf_icon)
         self.current_pdf_action.setEnabled(False)
         self.current_pdf_action.setToolTip("Start the repair process for the currently loaded PDF")
-        self.current_pdf_action.triggered.connect(self.repair_current_pdf_100)
+        self.current_pdf_action.triggered.connect(self.repair_pdf)
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -2845,7 +2845,7 @@ class FontWidget(QMainWindow):
         else:
             QApplication.beep()
 
-    def repair_current_pdf_100(self):
+    def repair_pdf(self):
         if not self.pdf_path: return
         if getattr(self, 'unsaved_changes', False): self.save_to_db()
 
@@ -2893,7 +2893,6 @@ class FontWidget(QMainWindow):
             dialog.show()
 
             try:
-                # Obarvení hlaviček a výpisů do příslušných barev
                 dialog.log("=========================================", "#aaaaaa")
                 dialog.log("          PDF Repair started...          ", "#3d7eff")
                 dialog.log("=========================================", "#aaaaaa")
@@ -2913,6 +2912,23 @@ class FontWidget(QMainWindow):
                 dialog.log(
                     f"[INFO] Found {ready_fonts_count} fonts out of {total_unique_cff_fonts} for reconscruction.\n",
                     "#aaaaaa")
+
+                ghost_xrefs = set(ready_xrefs) - set(vizualni_sekvence.keys())
+                if ghost_xrefs:
+                    dialog.log(f"[WARNING] {len(ghost_xrefs)} font(s) skipped (no physical text detected):", "#FF8C00")
+                    for gxref in ghost_xrefs:
+                        gx_name = "Unknown"
+                        gx_pages = []
+                        for p_num, f_list in page_font_map.items():
+                            for f_info in f_list:
+                                if f_info['xref'] == gxref:
+                                    gx_name = f_info['name']
+                                    if (p_num + 1) not in gx_pages:
+                                        gx_pages.append(p_num + 1)
+
+                        pages_str = ", ".join(map(str, gx_pages))
+                        dialog.log(f"      -> '{gx_name}' (found on page(s): {pages_str})", "#888888")
+                    dialog.log("", "#aaaaaa")
 
                 dialog.log("[1/3] DUMMY ToUnicode injection", "#3d7eff")
                 dialog.log("-" * 40, "#aaaaaa")
@@ -2976,7 +2992,7 @@ class FontWidget(QMainWindow):
                 dialog.log("\n[INFO] Cleanup and file saving to disk...", "#aaaaaa")
                 base, ext = os.path.splitext(self.pdf_path)
 
-                if success_count == total_unique_cff_fonts:
+                if success_count == ready_fonts_count:
                     out_path = f"{base}_Repaired{ext}"
                 else:
                     out_path = f"{base}_Partially_Repaired{ext}"
@@ -2988,14 +3004,17 @@ class FontWidget(QMainWindow):
                 dialog.log("             Repair finished                ", "#3d7eff")
                 dialog.log("=" * 45, "#aaaaaa")
                 dialog.log(f"Repaired file: {os.path.basename(out_path)}")
-                dialog.log(f"Fonts reconstructed: {success_count} / {total_unique_cff_fonts}")
+                dialog.log(f"Active fonts reconstructed: {success_count} / {ready_fonts_count}")
 
-                # Vyhodnocení konečného stavu a zvukový doprovod
-                if success_count == total_unique_cff_fonts:
-                    dialog.log("[STATUS] All fonts in pdf were repaired successfully.", "#00ff00")
+                if success_count == ready_fonts_count:
+                    if ghost_xrefs:
+                        dialog.log(f"[STATUS] Success! (Ignored {len(ghost_xrefs)} ghost fonts without text)",
+                                   "#00ff00")
+                    else:
+                        dialog.log("[STATUS] All active fonts in pdf were repaired successfully.", "#00ff00")
                     self.play_sound(success=True)
                 else:
-                    dialog.log("[STATUS] Finished with errors, some fonts skipped...", "#FF8C00")
+                    dialog.log("[STATUS] Finished with errors, some active fonts skipped...", "#FF8C00")
                     self.play_sound(success=False)
                 dialog.log("=" * 45, "#aaaaaa")
 
