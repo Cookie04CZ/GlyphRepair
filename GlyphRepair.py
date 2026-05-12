@@ -39,6 +39,8 @@ EXTENDED_AGL.update({
     # Add any other missing glyphs you want to auto-map here
 })
 
+GLYPH_DATABASE = "glyph_mappings_cleaned.psv"
+
 
 # Function to extract raw font data from a specific page in a PDF
 # It looks for a font with a specific name in CFF format (without ToUnicode) and returns its binary buffer
@@ -976,7 +978,6 @@ class IntegratedRepairDialog(QDialog):
 class FontWidget(QMainWindow):
     ICON_SIZE_LARGE = 128
     ICON_SIZE_SMALL = 64
-    PSV_PATH = "glyph_mappings.psv"  # Database file path
 
     KNOWN_LIGATURES = {
         "IJ": "0132",
@@ -2430,14 +2431,6 @@ class FontWidget(QMainWindow):
             return 0
         db_map = self.global_db_map
 
-        hash_to_curr_names = {}
-        for gname, g_hash in glyph_hashes.items():
-            if gname in EXTENDED_AGL and gname != '.notdef': continue
-            if g_hash:
-                if g_hash not in hash_to_curr_names:
-                    hash_to_curr_names[g_hash] = set()
-                hash_to_curr_names[g_hash].add(gname)
-
         for gname, g_hash in glyph_hashes.items():
             if gname in EXTENDED_AGL:
                 mapped_count += 1
@@ -2450,22 +2443,13 @@ class FontWidget(QMainWindow):
             if not g_hash or g_hash not in db_map:
                 continue
 
-            same_hash_names = hash_to_curr_names.get(g_hash, set())
-
-            if len(same_hash_names) > 1:
-                if hasattr(self, 'db_font_glyph_sets'):
-                    for db_gname_set in self.db_font_glyph_sets:
-                        if same_hash_names.issubset(db_gname_set):
-                            mapped_count += 1
-                            break
+            records = db_map[g_hash]
+            unique_hexes = set(r["unicode_hex"] for r in records)
+            if len(unique_hexes) == 1:
+                mapped_count += 1
             else:
-                records = db_map[g_hash]
-                unique_hexes = set(r["unicode_hex"] for r in records)
-                if len(unique_hexes) == 1:
+                if any(r["GlyphName"] == gname for r in records):
                     mapped_count += 1
-                else:
-                    if any(r["GlyphName"] == gname for r in records):
-                        mapped_count += 1
         return mapped_count
 
     # Refreshes menu statistics after a DB update
@@ -2490,7 +2474,7 @@ class FontWidget(QMainWindow):
         self.global_db_map = {}
         self.global_db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
 
-        path = self.PSV_PATH
+        path = GLYPH_DATABASE
         if os.path.exists(path):
             try:
                 with open(path, 'r', encoding='utf-8', newline='') as f:
@@ -2693,7 +2677,7 @@ class FontWidget(QMainWindow):
 
     # Saves current session work to the PSV file
     def save_to_db(self):
-        path = self.PSV_PATH
+        path = GLYPH_DATABASE
         fieldnames = ["glyph_hash", "font_name", "GlyphName", "unicode_hex", "AGN"]
 
         existing_data = {}
@@ -2721,6 +2705,13 @@ class FontWidget(QMainWindow):
             g_hash = data.get("glyph_hash") or self.get_glyph_hash(gname)
 
             if g_hash:
+                records = self.global_db_map.get(g_hash, [])
+
+                already_known = any(r["unicode_hex"] == data["unicode_hex"] and r["GlyphName"] == gname for r in records)
+
+                if already_known:
+                    continue
+
                 key = (g_hash, current_font_name, gname)
                 existing_data[key] = {
                     "glyph_hash": g_hash,
@@ -2759,15 +2750,6 @@ class FontWidget(QMainWindow):
 
         cached_hashes = self.font_cache.get((self.current_page, self.current_font_name), {}).get('glyph_hashes', {})
 
-        hash_to_curr_names = {}
-        for name in self.current_font_glyph_names:
-            if name in EXTENDED_AGL and name != '.notdef': continue
-            g_hash = cached_hashes.get(name) or self.get_glyph_hash(name)
-            if g_hash:
-                if g_hash not in hash_to_curr_names:
-                    hash_to_curr_names[g_hash] = set()
-                hash_to_curr_names[g_hash].add(name)
-
         # Check each glyph in current font against DB
         for name in self.current_font_glyph_names:
             if name in EXTENDED_AGL and name != '.notdef':
@@ -2778,44 +2760,23 @@ class FontWidget(QMainWindow):
                 continue
 
             records = db_map[g_hash]
-            same_hash_names = hash_to_curr_names.get(g_hash, set())
-
-            if len(same_hash_names) > 1:
-                db_fonts = {}
-                for r in records:
-                    f_name = r["font_name"]
-                    if f_name not in db_fonts:
-                        db_fonts[f_name] = {}
-                    db_fonts[f_name][r["GlyphName"]] = r
-
-                for f_name, db_glyph_dict in db_fonts.items():
-                    if same_hash_names.issubset(db_glyph_dict.keys()):
-                        row = db_glyph_dict[name]
-                        self.user_glyph_to_char[name] = {
-                            "glyph_hash": g_hash,
-                            "unicode_hex": row["unicode_hex"],
-                            "AGN": row["AGN"]
-                        }
-                        break
-
+            unique_hexes = list(set(r["unicode_hex"] for r in records))
+            if len(unique_hexes) == 1:
+                row = next(r for r in records if r["unicode_hex"] == unique_hexes[0])
+                self.user_glyph_to_char[name] = {
+                    "glyph_hash": g_hash,
+                    "unicode_hex": row["unicode_hex"],
+                    "AGN": row["AGN"]
+                }
             else:
-                unique_hexes = list(set(r["unicode_hex"] for r in records))
-                if len(unique_hexes) == 1:
-                    row = next(r for r in records if r["unicode_hex"] == unique_hexes[0])
+                matched_rows = [r for r in records if r["GlyphName"] == name]
+                if matched_rows:
+                    row = matched_rows[0]
                     self.user_glyph_to_char[name] = {
                         "glyph_hash": g_hash,
                         "unicode_hex": row["unicode_hex"],
                         "AGN": row["AGN"]
                     }
-                else:
-                    matched_rows = [r for r in records if r["GlyphName"] == name]
-                    if matched_rows:
-                        row = matched_rows[0]
-                        self.user_glyph_to_char[name] = {
-                            "glyph_hash": g_hash,
-                            "unicode_hex": row["unicode_hex"],
-                            "AGN": row["AGN"]
-                        }
 
         # Special handling for .notdef
         if '.notdef' in self.current_glyph_set:
@@ -2912,7 +2873,7 @@ class FontWidget(QMainWindow):
                 dialog.log("          PDF Repair started...          ")
                 dialog.log("=========================================")
 
-                db_map = load_db(self.PSV_PATH)
+                db_map = load_db(GLYPH_DATABASE)
                 custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
 
                 doc_vizual = fitz.open(self.pdf_path)
@@ -3012,7 +2973,7 @@ class FontWidget(QMainWindow):
                 dialog.finish()
                 dialog.exec()
 
-def load_db(psv_path="glyph_mappings.psv"):
+def load_db(psv_path=GLYPH_DATABASE):
     db_map = {}
     space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
     db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space"}]
@@ -3438,7 +3399,7 @@ def run_cli_mode(args):
         print("[INFO] No PDFs found.")
         sys.exit(0)
 
-    glyph_db_map = load_db(FontWidget.PSV_PATH)
+    glyph_db_map = load_db(GLYPH_DATABASE)
     print(f"[INFO] Mapping {len(target_files)} files...\n")
 
     for pdf_path in target_files:
