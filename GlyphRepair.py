@@ -834,7 +834,7 @@ class IntegratedRepairDialog(QDialog):
         self.text_log = QTextEdit()
         self.text_log.setReadOnly(True)
         self.text_log.setStyleSheet(
-            "background-color: #121212; color: #00ff00; font-family: Consolas; font-size: 12px;")
+            "background-color: #121212; color: #ffffff; font-family: Consolas; font-size: 12px;")
         log_layout.addWidget(self.text_log)
         self.repair_progress = QProgressBar()
         self.repair_progress.setFixedHeight(18)
@@ -946,8 +946,19 @@ class IntegratedRepairDialog(QDialog):
             self.repair_progress.setFormat(f"Scanning page {current} / {total} (%p%)")
         QApplication.processEvents()
 
-    def log(self, message):
-        self.text_log.append(message)
+    def log(self, message, color="#ffffff"):
+        cursor = self.text_log.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.End)
+
+        fmt = QtGui.QTextCharFormat()
+        fmt.setForeground(QtGui.QColor(color))
+        cursor.setCharFormat(fmt)
+
+        if not self.text_log.document().isEmpty():
+            cursor.insertText("\n")
+
+        cursor.insertText(message)
+        self.text_log.setTextCursor(cursor)
         self.text_log.verticalScrollBar().setValue(self.text_log.verticalScrollBar().maximum())
         QApplication.processEvents()
 
@@ -1112,12 +1123,14 @@ class FontWidget(QMainWindow):
         open_action = toolbar.addAction("Open PDF")
         open_icon = qta.icon('fa5s.folder-open', color='white')
         open_action.setIcon(open_icon)
+        open_action.setToolTip("Select and open a new PDF file from your computer")
         open_action.triggered.connect(self.open_pdf)
 
         self.current_pdf_action = toolbar.addAction("Repair PDF")
         current_pdf_icon = qta.icon('fa5s.save', color='white')
         self.current_pdf_action.setIcon(current_pdf_icon)
         self.current_pdf_action.setEnabled(False)
+        self.current_pdf_action.setToolTip("Start the repair process for the currently loaded PDF")
         self.current_pdf_action.triggered.connect(self.repair_current_pdf_100)
 
         spacer = QWidget()
@@ -1145,6 +1158,7 @@ class FontWidget(QMainWindow):
         settings_action = toolbar.addAction("Settings")
         settings_icon = qta.icon('fa5s.cog', color='white')
         settings_action.setIcon(settings_icon)
+        settings_action.setToolTip("Configure application preferences")
         settings_action.triggered.connect(self.open_settings)
 
     def toggle_auto_save_timer(self, checked):
@@ -2821,6 +2835,16 @@ class FontWidget(QMainWindow):
         if current_height != target_height:
             self.resize(current_width, target_height)
 
+    def play_sound(self, success=True):
+        if sys.platform == "win32":
+            import winsound
+            if success:
+                winsound.MessageBeep(winsound.MB_OK)
+            else:
+                winsound.MessageBeep(winsound.MB_ICONHAND)
+        else:
+            QApplication.beep()
+
     def repair_current_pdf_100(self):
         if not self.pdf_path: return
         if getattr(self, 'unsaved_changes', False): self.save_to_db()
@@ -2869,9 +2893,10 @@ class FontWidget(QMainWindow):
             dialog.show()
 
             try:
-                dialog.log("=========================================")
-                dialog.log("          PDF Repair started...          ")
-                dialog.log("=========================================")
+                # Obarvení hlaviček a výpisů do příslušných barev
+                dialog.log("=========================================", "#aaaaaa")
+                dialog.log("          PDF Repair started...          ", "#3d7eff")
+                dialog.log("=========================================", "#aaaaaa")
 
                 db_map = load_db(GLYPH_DATABASE)
                 custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
@@ -2879,16 +2904,18 @@ class FontWidget(QMainWindow):
                 doc_vizual = fitz.open(self.pdf_path)
                 font_cache_local = {}
 
-                dialog.log("[INFO] Visual order scanning...")
-                vizualni_sekvence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual", progress_callback=dialog.set_progress)
+                dialog.log("[INFO] Visual order scanning...", "#aaaaaa")
+                vizualni_sekvence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual",
+                                                  progress_callback=dialog.set_progress)
                 vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
 
                 ready_fonts_count = len(vizualni_sekvence)
                 dialog.log(
-                    f"[INFO] Found {ready_fonts_count} fonts out of {total_unique_cff_fonts} for reconscruction.\n")
+                    f"[INFO] Found {ready_fonts_count} fonts out of {total_unique_cff_fonts} for reconscruction.\n",
+                    "#aaaaaa")
 
-                dialog.log("[1/3] DUMMY ToUnicode injection")
-                dialog.log("-" * 40)
+                dialog.log("[1/3] DUMMY ToUnicode injection", "#3d7eff")
+                dialog.log("-" * 40, "#aaaaaa")
                 dummy_cmap_str = generate_dummy_tounicode()
 
                 for idx, xref in enumerate(vizualni_sekvence.keys(), 1):
@@ -2899,21 +2926,23 @@ class FontWidget(QMainWindow):
 
                     font_name = font_cache_local.get(xref, {}).get("name", "Not found")
                     dialog.log(f"  [{idx}/{ready_fonts_count}] Font '{font_name}'")
-                    dialog.log(f"      -> New DUMMY xref: {dummy_xref}")
+                    dialog.log(f"      -> New DUMMY xref: {dummy_xref}", "#aaaaaa")
 
-                dialog.log("\n[INFO] Saving PDF to cache ...")
+                dialog.log("\n[INFO] Saving PDF to cache ...", "#aaaaaa")
                 dummy_pdf_bytes = doc_vizual.tobytes()
                 doc_vizual.close()
 
-                dialog.log("\n[2/3] ChatacterCode extraction")
-                dialog.log("-" * 40)
+                dialog.log("\n[2/3] CharacterCode extraction", "#3d7eff")
+                dialog.log("-" * 40, "#aaaaaa")
                 doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
                 interni_sekvence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, rezim="dummy")
                 doc_dummy.close()
-                dialog.log(f"  -> Extraction succeeded for all {len(interni_sekvence)} fonts (will process {len(vizualni_sekvence)} ready fonts).")
+                dialog.log(
+                    f"  -> Extraction succeeded for all {len(interni_sekvence)} fonts (will process {len(vizualni_sekvence)} ready fonts).",
+                    "#228B22")
 
-                dialog.log("\n[3/3] Final ToUnicode mapping")
-                dialog.log("-" * 40)
+                dialog.log("\n[3/3] Final ToUnicode mapping", "#3d7eff")
+                dialog.log("-" * 40, "#aaaaaa")
                 doc_final = fitz.open(self.pdf_path)
                 success_count = 0
 
@@ -2922,7 +2951,8 @@ class FontWidget(QMainWindow):
                     font_name = font_cache_local.get(xref, {}).get("name", "Not found")
 
                     dialog.log(f"  [{idx}/{ready_fonts_count}] Processing font: '{font_name}'")
-                    dialog.log(f"      -> Characters detected - Visual: {len(v_seq)} | Internal: {len(i_seq)}")
+                    dialog.log(f"      -> Characters detected - Visual: {len(v_seq)} | Internal: {len(i_seq)}",
+                               "#aaaaaa")
 
                     if len(v_seq) == len(i_seq):
                         mapping = {}
@@ -2937,13 +2967,13 @@ class FontWidget(QMainWindow):
                         doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
 
                         success_count += 1
-                        dialog.log(f"      -> ToUnicode generated (Size: {len(real_cmap)} bytes)")
-                        dialog.log(f"      -> Injected under xref: {new_xref}")
-                        dialog.log(f"      -> [SUCCESS] {len(mapping)} unique glyphs mapped")
+                        dialog.log(f"      -> ToUnicode generated (Size: {len(real_cmap)} bytes)", "#aaaaaa")
+                        dialog.log(f"      -> Injected under xref: {new_xref}", "#aaaaaa")
+                        dialog.log(f"      -> [SUCCESS] {len(mapping)} unique glyphs mapped", "#00ff00")
                     else:
-                        dialog.log(f"      -> [ERROR] Sequence lengths do not match, skipping font...")
+                        dialog.log(f"      -> [ERROR] Sequence lengths do not match, skipping font...", "#ff4444")
 
-                dialog.log("\n[INFO] Cleanup and file saving to disk...")
+                dialog.log("\n[INFO] Cleanup and file saving to disk...", "#aaaaaa")
                 base, ext = os.path.splitext(self.pdf_path)
 
                 if success_count == total_unique_cff_fonts:
@@ -2954,22 +2984,27 @@ class FontWidget(QMainWindow):
                 doc_final.save(out_path)
                 doc_final.close()
 
-                dialog.log("\n" + "=" * 45)
-                dialog.log("             Repair finished                ")
-                dialog.log("=" * 45)
+                dialog.log("\n" + "=" * 45, "#aaaaaa")
+                dialog.log("             Repair finished                ", "#3d7eff")
+                dialog.log("=" * 45, "#aaaaaa")
                 dialog.log(f"Repaired file: {os.path.basename(out_path)}")
                 dialog.log(f"Fonts reconstructed: {success_count} / {total_unique_cff_fonts}")
+
+                # Vyhodnocení konečného stavu a zvukový doprovod
                 if success_count == total_unique_cff_fonts:
-                    dialog.log("[STATUS] All fonts in pdf were repaired successfully.")
+                    dialog.log("[STATUS] All fonts in pdf were repaired successfully.", "#00ff00")
+                    self.play_sound(success=True)
                 else:
-                    dialog.log("[STATUS] Finished with errors, some fonts skipped...")
-                dialog.log("=" * 45)
+                    dialog.log("[STATUS] Finished with errors, some fonts skipped...", "#FF8C00")
+                    self.play_sound(success=False)
+                dialog.log("=" * 45, "#aaaaaa")
 
                 dialog.finish()
                 dialog.exec()
 
             except Exception as e:
-                dialog.log(f"\n[CRITICAL ERROR] Something went wrong:\n{str(e)}")
+                dialog.log(f"\n[CRITICAL ERROR] Something went wrong:\n{str(e)}", "#ff4444")
+                self.play_sound(success=False)
                 dialog.finish()
                 dialog.exec()
 
@@ -3429,7 +3464,7 @@ def apply_dark_theme(app):
     dark_palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
     dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor(18, 18, 18))
     dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(42, 42, 42))
-    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.white)
+    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor(30, 30, 30))
     dark_palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
     dark_palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
     dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor(42, 42, 42))
@@ -3443,6 +3478,15 @@ def apply_dark_theme(app):
     app.setPalette(dark_palette)
 
     app.setStyleSheet("""
+    
+        QToolTip {
+            background-color: #2a2a2a;
+            color: #ffffff;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            padding: 4px;
+        }
+    
         QWidget, QDialog, QMessageBox {
             background-color: #1e1e1e;
             color: #f0f0f0;
@@ -3483,7 +3527,7 @@ def apply_dark_theme(app):
         }
 
         QTreeView::item:hover {
-                background-color: #2a2a2a;
+                background-color: #3d3d3d;
                 border-radius: 4px;
         }
 
