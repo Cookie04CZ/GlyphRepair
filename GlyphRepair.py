@@ -39,7 +39,7 @@ EXTENDED_AGL.update({
     # Add any other missing glyphs you want to auto-map here
 })
 
-GLYPH_DATABASE = "glyph_mappings.psv"
+GLYPH_DATABASE = "Opet L a I/glyph_mappings.psv"
 
 
 # Function to extract raw font data from a specific page in a PDF
@@ -3294,7 +3294,16 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
     space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
     if g_hash == space_hash: return "0020"
 
+    # Pre-filter records that have an exact GlyphName match
+    matched_rows = [r for r in records if r["GlyphName"] == g_name]
+
+    # Handle internal hash collisions (e.g., lowercase 'l' and uppercase 'I' looking identical)
     if same_hash_names and len(same_hash_names) > 1:
+        # First, simply try to resolve by GlyphName since we know we have a collision
+        if matched_rows:
+            return matched_rows[0]["unicode_hex"]
+
+        # Fallback: strict subset matching if exact name fails
         db_fonts = {}
         for r in records:
             f_name = r["font_name"]
@@ -3308,11 +3317,12 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
 
         return None
 
+    # No internal collision -> try unique hexes first
     unique_hexes = set(r["unicode_hex"] for r in records)
     if len(unique_hexes) == 1:
         return list(unique_hexes)[0]
 
-    matched_rows = [r for r in records if r["GlyphName"] == g_name]
+    # Global collision fallback to GlyphName
     if matched_rows:
         return matched_rows[0]["unicode_hex"]
 
