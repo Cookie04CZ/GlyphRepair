@@ -2121,15 +2121,40 @@ class FontWidget(QMainWindow):
         glyph_names = list(glyphSet.keys())
 
         # Determine baseline from .notdef glyph if possible
-        # .notdef usually represents the "unknown character" box and gives good vertical metrics
         notdef_baseline = notdef_topline = None
         if '.notdef' in glyphSet:
             pen = QtPen(glyphSet)
             glyphSet['.notdef'].draw(pen)
             if not pen.path.isEmpty():
                 rect = pen.path.boundingRect()
-                notdef_baseline = rect.top()
-                notdef_topline = rect.bottom()
+                if rect.height() > 100:
+                    notdef_baseline = rect.top()
+                    notdef_topline = rect.bottom()
+
+        if notdef_baseline is None or notdef_topline is None:
+            min_y, max_y = 0, 1000
+            valid_bounds = False
+            for gname in glyph_names:
+                pen = QtPen(glyphSet)
+                glyphSet[gname].draw(pen)
+                if not pen.path.isEmpty():
+                    rect = pen.path.boundingRect()
+                    if not valid_bounds:
+                        min_y, max_y = rect.top(), rect.bottom()
+                        valid_bounds = True
+                    else:
+                        min_y = min(min_y, rect.top())
+                        max_y = max(max_y, rect.bottom())
+
+            if valid_bounds and (max_y - min_y) > 100:
+                self.fallback_bbox = [0, min_y, 0, max_y]
+                self.canvas.font_bbox = [0, min_y, 0, max_y]
+            else:
+                self.fallback_bbox = [0, -200, 0, 1000]
+                self.canvas.font_bbox = [0, -200, 0, 1000]
+        else:
+            self.fallback_bbox = [0, notdef_baseline, 0, notdef_topline]
+            self.canvas.font_bbox = [0, notdef_baseline, 0, notdef_topline]
 
         # Filter out .notdef from the list shown to user
         glyph_names = [name for name in glyph_names if name != '.notdef']
@@ -2159,13 +2184,12 @@ class FontWidget(QMainWindow):
         if pen.path.isEmpty():
             return pix
 
-        # Determine reference heights for scaling
         if self.notdef_baseline is not None and self.notdef_topline is not None:
             ref_min = self.notdef_baseline
             ref_max = self.notdef_topline
         else:
-            ref_max = getattr(self.current_font, 'FontBBox', [0, 0, 0, 1000])[3]
-            ref_min = getattr(self.current_font, 'FontBBox', [0, -200, 0, 0])[1]
+            ref_min = getattr(self, 'fallback_bbox', [0, -200, 0, 1000])[1]
+            ref_max = getattr(self, 'fallback_bbox', [0, -200, 0, 1000])[3]
 
         ref_height = max(ref_max - ref_min, 1)
         ref_midpoint = (ref_max + ref_min) / 2
@@ -2284,21 +2308,21 @@ class FontWidget(QMainWindow):
 
         # Update Information Label using HTML formatting
         html = f"""
-                        <div style="text-align: center; margin-top: 10px;">
-                            <span style="color: #aaaaaa; font-size: 28px;">Glyph Name</span><br>
-                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{name}</span>
-                            <hr width="95%" color="#aaaaaa" style="margin-top: 6px; margin-bottom: 6px;">
+                        <div style="text-align: center; margin-top: 5px;">
+                            <span style="color: #aaaaaa; font-size: 22px;">Glyph Name</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 26px; font-weight: bold; color: white;">{name}</span>
+                            <hr width="95%" color="#aaaaaa" style="margin-top: 2px; margin-bottom: 2px;">
 
-                            <span style="color: #aaaaaa; font-size: 28px;">Character</span><br>
-                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{ch}</span>
-                            <hr width="95%" color="#aaaaaa" style="margin-top: 6px; margin-bottom: 6px;">
+                            <span style="color: #aaaaaa; font-size: 22px;">Character</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 26px; font-weight: bold; color: white;">{ch}</span>
+                            <hr width="95%" color="#aaaaaa" style="margin-top: 2px; margin-bottom: 2px;">
 
-                            <span style="color: #aaaaaa; font-size: 28px;">Unicode</span><br>
-                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{uhex}</span>
-                            <hr width="95%" color="#aaaaaa" style="margin-top: 6px; margin-bottom: 6px;">
+                            <span style="color: #aaaaaa; font-size: 22px;">Unicode</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 26px; font-weight: bold; color: white;">{uhex}</span>
+                            <hr width="95%" color="#aaaaaa" style="margin-top: 2px; margin-bottom: 2px;">
 
-                            <span style="color: #aaaaaa; font-size: 28px;">Adobe Glyph List</span><br>
-                            <span style="font-family: Consolas, monospace; font-size: 28px; font-weight: bold; color: white;">{agn}</span>
+                            <span style="color: #aaaaaa; font-size: 22px;">Adobe Glyph List</span><br>
+                            <span style="font-family: Consolas, monospace; font-size: 26px; font-weight: bold; color: white;">{agn}</span>
                         </div>
                         """
         self.label.setText(html)
