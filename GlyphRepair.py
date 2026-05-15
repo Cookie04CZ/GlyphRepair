@@ -39,7 +39,7 @@ EXTENDED_AGL.update({
     # Add any other missing glyphs you want to auto-map here
 })
 
-GLYPH_DATABASE = "glyph_mappings.psv"
+GLYPH_DATABASE = "Opet L a I/glyph_mappings.psv"
 
 
 # Function to extract raw font data from a specific page in a PDF
@@ -2421,6 +2421,7 @@ class FontWidget(QMainWindow):
                         self.menu_structure[page_num] = cff_names_on_page
 
             if first_page is not None:
+                self.update_statistics()
                 self.load_font(first_page, first_name)
                 self.current_pdf_action.setEnabled(True)
             else:
@@ -2445,6 +2446,15 @@ class FontWidget(QMainWindow):
             return 0
         db_map = self.global_db_map
 
+        global_hash_names = {}
+        if hasattr(self, 'font_cache'):
+            for (p_num, f_name), cache_info in self.font_cache.items():
+                if f_name == font_name:
+                    for gn, gh in cache_info.get('glyph_hashes', {}).items():
+                        if gh not in global_hash_names:
+                            global_hash_names[gh] = set()
+                        global_hash_names[gh].add(gn)
+
         for gname, g_hash in glyph_hashes.items():
             if gname in EXTENDED_AGL:
                 mapped_count += 1
@@ -2458,12 +2468,18 @@ class FontWidget(QMainWindow):
                 continue
 
             records = db_map[g_hash]
-            unique_hexes = set(r["unicode_hex"] for r in records)
-            if len(unique_hexes) == 1:
-                mapped_count += 1
-            else:
+            has_internal_collision = len(global_hash_names.get(g_hash, set())) > 1
+
+            if has_internal_collision:
                 if any(r["GlyphName"] == gname for r in records):
                     mapped_count += 1
+            else:
+                unique_hexes = set(r["unicode_hex"] for r in records)
+                if len(unique_hexes) == 1:
+                    mapped_count += 1
+                else:
+                    if any(r["GlyphName"] == gname for r in records):
+                        mapped_count += 1
         return mapped_count
 
     # Refreshes menu statistics after a DB update
@@ -2764,7 +2780,14 @@ class FontWidget(QMainWindow):
 
         cached_hashes = self.font_cache.get((self.current_page, self.current_font_name), {}).get('glyph_hashes', {})
 
-        # Check each glyph in current font against DB
+        global_hash_names = {}
+        for (p_num, f_name), cache_info in self.font_cache.items():
+            if f_name == self.current_font_name:
+                for gn, gh in cache_info.get('glyph_hashes', {}).items():
+                    if gh not in global_hash_names:
+                        global_hash_names[gh] = set()
+                    global_hash_names[gh].add(gn)
+
         for name in self.current_font_glyph_names:
             if name in EXTENDED_AGL and name != '.notdef':
                 continue
@@ -2774,15 +2797,9 @@ class FontWidget(QMainWindow):
                 continue
 
             records = db_map[g_hash]
-            unique_hexes = list(set(r["unicode_hex"] for r in records))
-            if len(unique_hexes) == 1:
-                row = next(r for r in records if r["unicode_hex"] == unique_hexes[0])
-                self.user_glyph_to_char[name] = {
-                    "glyph_hash": g_hash,
-                    "unicode_hex": row["unicode_hex"],
-                    "AGN": row["AGN"]
-                }
-            else:
+            has_internal_collision = len(global_hash_names.get(g_hash, set())) > 1
+
+            if has_internal_collision:
                 matched_rows = [r for r in records if r["GlyphName"] == name]
                 if matched_rows:
                     row = matched_rows[0]
@@ -2791,6 +2808,24 @@ class FontWidget(QMainWindow):
                         "unicode_hex": row["unicode_hex"],
                         "AGN": row["AGN"]
                     }
+            else:
+                unique_hexes = list(set(r["unicode_hex"] for r in records))
+                if len(unique_hexes) == 1:
+                    row = next(r for r in records if r["unicode_hex"] == unique_hexes[0])
+                    self.user_glyph_to_char[name] = {
+                        "glyph_hash": g_hash,
+                        "unicode_hex": row["unicode_hex"],
+                        "AGN": row["AGN"]
+                    }
+                else:
+                    matched_rows = [r for r in records if r["GlyphName"] == name]
+                    if matched_rows:
+                        row = matched_rows[0]
+                        self.user_glyph_to_char[name] = {
+                            "glyph_hash": g_hash,
+                            "unicode_hex": row["unicode_hex"],
+                            "AGN": row["AGN"]
+                        }
 
         # Special handling for .notdef
         if '.notdef' in self.current_glyph_set:
