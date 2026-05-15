@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QPushButton, QListWidget, QListWidgetItem, QMainWindow, QFileDialog,
     QToolButton, QMessageBox, QGroupBox, QSizePolicy, QDialog, QDialogButtonBox,
     QCheckBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QComboBox, QProgressBar, QAbstractItemView, QTextEdit,
-    QStyledItemDelegate, QStyle
+    QStyledItemDelegate, QStyle, QMenu, QWidgetAction
 )
 
 # FontTools libraries for parsing font data (CFF format)
@@ -39,7 +39,7 @@ EXTENDED_AGL.update({
     # Add any other missing glyphs you want to auto-map here
 })
 
-GLYPH_DATABASE = "Opet L a I/glyph_mappings.psv"
+GLYPH_DATABASE = "glyph_mappings.psv"
 
 
 # Function to extract raw font data from a specific page in a PDF
@@ -207,6 +207,125 @@ class GlyphQtWidget(QWidget):
         painter.setPen(QtCore.Qt.NoPen)
         painter.drawPath(self.path)
         painter.restore()
+
+# Custom widget for a dropdown menu containing a title and a progress bar
+class ProgressMenuWidget(QWidget):
+    clicked = QtCore.Signal(str)
+
+    def __init__(self, title, metric_id, parent=None):
+        super().__init__(parent)
+        self.metric_id = metric_id
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+
+        self.setStyleSheet("background-color: transparent;")
+        self.setFixedWidth(260)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 8, 5, 8)
+        layout.setSpacing(4)
+
+        self.lbl_title = QLabel(title)
+        self.lbl_title.setStyleSheet(
+            "color: #aaaaaa; font-weight: bold; font-size: 11px; background-color: transparent;")
+
+        self.pbar = QProgressBar()
+        self.pbar.setFixedHeight(16)
+        self.pbar.setFixedWidth(250)
+
+        layout.addWidget(self.lbl_title)
+        layout.addWidget(self.pbar)
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self.clicked.emit(self.metric_id)
+        super().mousePressEvent(event)
+
+    def update_progress(self, current, total, color_code):
+        if total == 0:
+            self.pbar.setMaximum(1)
+            self.pbar.setValue(1)
+            self.pbar.setFormat("—")
+        else:
+            self.pbar.setMaximum(total)
+            self.pbar.setValue(current)
+            self.pbar.setFormat(f"{current} / {total}")
+
+        self.pbar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: #1a1a1a;
+                text-align: center;
+                color: white;
+                font-weight: bold;
+                font-size: 11px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color_code};
+                border-radius: 3px;
+            }}
+        """)
+
+
+# Custom clickable widget for the main toolbar combining a label and a progress bar
+class MainToolbarProgressWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.menu = None
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+
+        self.setFixedWidth(260)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 2, 5, 2)
+        layout.setSpacing(2)
+
+        self.lbl_title = QLabel("Current Font ▼")
+        self.lbl_title.setStyleSheet(
+            "color: #aaaaaa; font-weight: bold; font-size: 11px; background-color: transparent;")
+
+        self.pbar = QProgressBar()
+        self.pbar.setFixedHeight(14)
+        self.pbar.setFixedWidth(250)
+
+        layout.addWidget(self.lbl_title)
+        layout.addWidget(self.pbar)
+
+    def setMenu(self, menu):
+        self.menu = menu
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton and self.menu:
+            self.menu.exec(self.mapToGlobal(QtCore.QPoint(0, self.height())))
+        super().mousePressEvent(event)
+
+    def update_progress(self, title, current, total, color_code):
+        self.lbl_title.setText(f"{title} ▼")
+
+        if total == 0:
+            self.pbar.setMaximum(1)
+            self.pbar.setValue(1)
+            self.pbar.setFormat("—")
+        else:
+            self.pbar.setMaximum(total)
+            self.pbar.setValue(current)
+            self.pbar.setFormat(f"{current} / {total}")
+
+        self.pbar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: #1a1a1a;
+                text-align: center;
+                color: white;
+                font-weight: bold;
+                font-size: 11px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color_code};
+                border-radius: 3px;
+            }}
+        """)
 
 # Dialog window for application settings
 # It allows the user to configure navigation, auto-jump, and saving preferences
@@ -1137,19 +1256,45 @@ class FontWidget(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         toolbar.addWidget(spacer)
 
-        self.font_progress = QProgressBar()
-        self.font_progress.setFixedSize(150, 18)
+        self.main_progress_btn = MainToolbarProgressWidget()
+        self.main_progress_btn.setToolTip("Click for detailed statistics")
 
-        self.action_progress = toolbar.addWidget(self.font_progress)
+        self.progress_menu = QMenu(self)
+        self.progress_menu.setStyleSheet("QMenu { background-color: #2a2a2a; border: 1px solid #444; }")
+        self.main_progress_btn.setMenu(self.progress_menu)
+
+        self.active_progress_metric = "current_font"
+
+        # 1. Progress Bar: Current Font
+        self.act_prog_font = QWidgetAction(self)
+        self.widget_prog_font = ProgressMenuWidget("Current Font", "current_font")
+        self.widget_prog_font.clicked.connect(self.change_progress_metric)
+        self.act_prog_font.setDefaultWidget(self.widget_prog_font)
+        self.progress_menu.addAction(self.act_prog_font)
+
+        # 2. Progress Bar: Global Unique Fonts
+        self.act_prog_global_fonts = QWidgetAction(self)
+        self.widget_prog_global_fonts = ProgressMenuWidget("All Unique Fonts", "global_fonts")
+        self.widget_prog_global_fonts.clicked.connect(self.change_progress_metric)
+        self.act_prog_global_fonts.setDefaultWidget(self.widget_prog_global_fonts)
+        self.progress_menu.addAction(self.act_prog_global_fonts)
+
+        # 3. Progress Bar: Global Pages
+        self.act_prog_pages = QWidgetAction(self)
+        self.widget_prog_pages = ProgressMenuWidget("All Pages", "global_pages")
+        self.widget_prog_pages.clicked.connect(self.change_progress_metric)
+        self.act_prog_pages.setDefaultWidget(self.widget_prog_pages)
+        self.progress_menu.addAction(self.act_prog_pages)
+
+        self.apply_progress_metric_visibility()
+
+        self.action_progress = toolbar.addWidget(self.main_progress_btn)
         self.action_progress.setVisible(False)
 
         spacer_small = QWidget()
         spacer_small.setFixedWidth(15)
         toolbar.addWidget(spacer_small)
 
-        self.lbl_toolbar_info = QLabel("Font - of -")
-        self.lbl_toolbar_info.setStyleSheet("color: #aaaaaa; font-size: 13px; margin-right: 15px;")
-        toolbar.addWidget(self.lbl_toolbar_info)
 
         spacer_small = QWidget()
         spacer_small.setFixedWidth(15)
@@ -1160,6 +1305,21 @@ class FontWidget(QMainWindow):
         settings_action.setIcon(settings_icon)
         settings_action.setToolTip("Configure application preferences")
         settings_action.triggered.connect(self.open_settings)
+
+    def change_progress_metric(self, metric_id):
+        self.active_progress_metric = metric_id
+        self.apply_progress_metric_visibility()
+        self.progress_menu.hide()
+        self.update_progress_bar()
+
+    def apply_progress_metric_visibility(self):
+        self.progress_menu.clear()
+        if self.active_progress_metric != "current_font":
+            self.progress_menu.addAction(self.act_prog_font)
+        if self.active_progress_metric != "global_fonts":
+            self.progress_menu.addAction(self.act_prog_global_fonts)
+        if self.active_progress_metric != "global_pages":
+            self.progress_menu.addAction(self.act_prog_pages)
 
     def toggle_auto_save_timer(self, checked):
         if checked:
@@ -1529,40 +1689,32 @@ class FontWidget(QMainWindow):
 
         self.action_progress.setVisible(True)
 
-        # Load base statistics and hashes from the static cache
+        # A) Current Font
         info = self.font_cache.get((self.current_page, self.current_font_name), {})
         hashes_dict = info.get('glyph_hashes', {})
-
         actual_mapped = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
         total = info.get('glyph_count', 0)
         agl_count = info.get('agl_count', 0)
+        _, color_font = self._get_status_info(actual_mapped, total, agl_count)
 
-        # Keep the static cache instantly synchronized with the live UI session
-        if (self.current_page, self.current_font_name) in self.font_cache:
-            self.font_cache[(self.current_page, self.current_font_name)]['mapped_count'] = actual_mapped
+        # B) All Unique Fonts
+        global_mapped, global_total = 10, 14
+        color_global = "#FF8C00"
 
-        # Update the visual progress bar widget
-        self.font_progress.setMaximum(total)
-        self.font_progress.setValue(actual_mapped)
+        # C) All Pages
+        pages_mapped, pages_total = 5, 45
+        color_pages = "#3d7eff"
 
-        _, color = self._get_status_info(actual_mapped, total, agl_count)
+        self.widget_prog_font.update_progress(actual_mapped, total, color_font)
+        self.widget_prog_global_fonts.update_progress(global_mapped, global_total, color_global)
+        self.widget_prog_pages.update_progress(pages_mapped, pages_total, color_pages)
 
-        self.font_progress.setStyleSheet(f"""
-            QProgressBar {{
-                border: 1px solid #555;
-                border-radius: 4px;
-                background-color: #2a2a2a;
-                text-align: center;
-                color: white;
-                font-weight: bold;
-                font-size: 11px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {color};
-                border-radius: 3px;
-            }}
-        """)
-        self.font_progress.setFormat(f"{actual_mapped} / {total}")
+        if self.active_progress_metric == "current_font":
+            self.main_progress_btn.update_progress("Current Font", actual_mapped, total, color_font)
+        elif self.active_progress_metric == "global_fonts":
+            self.main_progress_btn.update_progress("All Unique Fonts", global_mapped, global_total, color_global)
+        elif self.active_progress_metric == "global_pages":
+            self.main_progress_btn.update_progress("All Pages", pages_mapped, pages_total, color_pages)
 
         if self.setting_page_mode:
             self.update_navigation_labels()
@@ -1634,8 +1786,6 @@ class FontWidget(QMainWindow):
 
         # Reset navigation labels
         self.btn_select_font.setText("No font loaded")
-        self.btn_select_page.setText("Page: -")
-        self.lbl_toolbar_info.setText("Font - of -")
         self.nav_page_widget.setVisible(False)
         self.unsaved_changes = False
         self._update_window_title()
@@ -1728,17 +1878,20 @@ class FontWidget(QMainWindow):
             return
 
         self.nav_page_widget.setVisible(self.setting_page_mode)
-        self.btn_select_font.setText(self.current_font_name)
 
         if self.setting_page_mode:
             fonts_on_page = self.menu_structure.get(self.current_page, [])
-            total = len(fonts_on_page)
+            total_fonts = len(fonts_on_page)
             try:
-                current_idx = fonts_on_page.index(self.current_font_name) + 1
+                current_font_idx = fonts_on_page.index(self.current_font_name) + 1
             except ValueError:
-                current_idx = 0
+                current_font_idx = 0
 
-            self.lbl_toolbar_info.setText(f"Font {current_idx} of {total} (Current Page)")
+            # Set clean button text
+            self.btn_select_font.setText(self.current_font_name)
+            # Add detailed tooltip for font
+            self.btn_select_font.setToolTip(
+                f"<b>Font Navigation</b><br>Currently mapping font {current_font_idx} of {total_fonts} on this page.")
 
             page_mapped = 0
             page_total = 0
@@ -1755,20 +1908,31 @@ class FontWidget(QMainWindow):
             all_pages = sorted(self.menu_structure.keys())
             page_idx = all_pages.index(self.current_page) + 1
             total_pages = len(all_pages)
-            self.btn_select_page.setText(f"Page {self.current_page + 1} ({page_idx}/{total_pages})")
+
+            # Set clean button text
+            self.btn_select_page.setText(f"Page {self.current_page + 1}")
+            # Add detailed tooltip for page
+            self.btn_select_page.setToolTip(
+                f"<b>Page Navigation</b><br>Viewing page {page_idx} out of {total_pages} containing repairable fonts.")
 
         else:
             self.btn_select_page.setIcon(QIcon())
+            self.btn_select_page.setText(f"Page {self.current_page + 1}")
+            self.btn_select_page.setToolTip("Page of the currently selected font.")
 
             unique_fonts = self._get_standard_mode_sequence()
-            total = len(unique_fonts)
-            current_idx = 0
+            total_fonts = len(unique_fonts)
+            current_font_idx = 0
             for i, (p, f) in enumerate(unique_fonts):
                 if f == self.current_font_name:
-                    current_idx = i + 1
+                    current_font_idx = i + 1
                     break
 
-            self.lbl_toolbar_info.setText(f"Font {current_idx} of {total} (Global)")
+            # Set clean button text (Global)
+            self.btn_select_font.setText(self.current_font_name)
+            # Add detailed tooltip for global font mapping
+            self.btn_select_font.setToolTip(
+                f"<b>Global Font Navigation</b><br>Currently mapping font {current_font_idx} out of {total_fonts} unique fonts across the document.")
 
     # Moves selection to the next glyph in the list
     def show_next(self):
