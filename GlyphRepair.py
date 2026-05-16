@@ -344,7 +344,7 @@ class MainToolbarProgressWidget(QWidget):
 
     # Dynamically update progress bar values and color
     def update_progress(self, title, current, total, color_code):
-        self.lbl_title.setText(f"{title} ▼")
+        self.lbl_title.setText(f"Mapped glyphs: {title} ▼")
 
         # Set range, current value, and format to progress bar
         if total == 0:
@@ -1322,34 +1322,37 @@ class FontWidget(QMainWindow):
         self.active_progress_metric = "current_font"
 
         # 1. Progress Bar: Current Font
-        self.act_prog_font = QWidgetAction(self)
-        self.widget_prog_font = ProgressMenuWidget("Current Font", "current_font")
-        self.widget_prog_font.clicked.connect(self.change_progress_metric)
-        self.act_prog_font.setDefaultWidget(self.widget_prog_font)
-        self.progress_menu.addAction(self.act_prog_font)
+        self.act_prog_current_font = QWidgetAction(self)
+        self.widget_prog_current_font = ProgressMenuWidget("Currently repaired font", "current_font")
+        self.widget_prog_current_font.clicked.connect(self.change_progress_metric)
+        self.act_prog_current_font.setDefaultWidget(self.widget_prog_current_font)
+        self.progress_menu.addAction(self.act_prog_current_font)
 
-        # 2. Progress Bar: Global Unique Fonts
-        self.act_prog_global_fonts = QWidgetAction(self)
-        self.widget_prog_global_fonts = ProgressMenuWidget("All Unique Fonts", "global_fonts")
-        self.widget_prog_global_fonts.clicked.connect(self.change_progress_metric)
-        self.act_prog_global_fonts.setDefaultWidget(self.widget_prog_global_fonts)
-        self.progress_menu.addAction(self.act_prog_global_fonts)
+        # 2. Progress Bar: Global Pages
+        self.act_prog_current_page = QWidgetAction(self)
+        self.widget_prog_current_page = ProgressMenuWidget("Currently repaired page", "current_page")
+        self.widget_prog_current_page.clicked.connect(self.change_progress_metric)
+        self.act_prog_current_page.setDefaultWidget(self.widget_prog_current_page)
+        self.progress_menu.addAction(self.act_prog_current_page)
 
-        # 3. Progress Bar: Global Pages
-        self.act_prog_pages = QWidgetAction(self)
-        self.widget_prog_pages = ProgressMenuWidget("All Pages", "global_pages")
-        self.widget_prog_pages.clicked.connect(self.change_progress_metric)
-        self.act_prog_pages.setDefaultWidget(self.widget_prog_pages)
-        self.progress_menu.addAction(self.act_prog_pages)
+        # 3. Progress Bar: Global Unique Fonts
+        self.act_prog_entire_document = QWidgetAction(self)
+        self.widget_prog_entire_document = ProgressMenuWidget("Entire document", "entire_document")
+        self.widget_prog_entire_document.clicked.connect(self.change_progress_metric)
+        self.act_prog_entire_document.setDefaultWidget(self.widget_prog_entire_document)
+        self.progress_menu.addAction(self.act_prog_entire_document)
+
+        # 4. Progress Bar: Global Pages
+        self.act_prog_full_pages = QWidgetAction(self)
+        self.widget_prog_full_pages = ProgressMenuWidget("Repaired pages", "full_pages")
+        self.widget_prog_full_pages.clicked.connect(self.change_progress_metric)
+        self.act_prog_full_pages.setDefaultWidget(self.widget_prog_full_pages)
+        self.progress_menu.addAction(self.act_prog_full_pages)
 
         self.apply_progress_metric_visibility()
 
         self.action_progress = toolbar.addWidget(self.main_progress_btn)
         self.action_progress.setVisible(False)
-
-        spacer_small = QWidget()
-        spacer_small.setFixedWidth(15)
-        toolbar.addWidget(spacer_small)
 
         spacer_small = QWidget()
         spacer_small.setFixedWidth(15)
@@ -1370,11 +1373,13 @@ class FontWidget(QMainWindow):
     def apply_progress_metric_visibility(self):
         self.progress_menu.clear()
         if self.active_progress_metric != "current_font":
-            self.progress_menu.addAction(self.act_prog_font)
-        if self.active_progress_metric != "global_fonts":
-            self.progress_menu.addAction(self.act_prog_global_fonts)
-        if self.active_progress_metric != "global_pages":
-            self.progress_menu.addAction(self.act_prog_pages)
+            self.progress_menu.addAction(self.act_prog_current_font)
+        if self.active_progress_metric != "current_page":
+            self.progress_menu.addAction(self.act_prog_current_page)
+        if self.active_progress_metric != "entire_document":
+            self.progress_menu.addAction(self.act_prog_entire_document)
+        if self.active_progress_metric != "full_pages":
+            self.progress_menu.addAction(self.act_prog_full_pages)
 
     def toggle_auto_save_timer(self, checked):
         if checked:
@@ -1747,29 +1752,75 @@ class FontWidget(QMainWindow):
         # A) Current Font
         info = self.font_cache.get((self.current_page, self.current_font_name), {})
         hashes_dict = info.get('glyph_hashes', {})
-        actual_mapped = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
-        total = info.get('glyph_count', 0)
+        current_font_mapped = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
+        current_font_total = info.get('glyph_count', 0)
         agl_count = info.get('agl_count', 0)
-        _, color_font = self._get_status_info(actual_mapped, total, agl_count)
+        _, current_font_color = self._get_status_info(current_font_mapped, current_font_total, agl_count)
 
-        # B) All Unique Fonts
-        global_mapped, global_total = 10, 14
-        color_global = "#FF8C00"
+        # B) Current Page (All mapped glyphs vs total glyphs on the current page)
+        current_page_mapped = 0
+        current_page_total = 0
+        current_page_agl = 0
 
-        # C) All Pages
-        pages_mapped, pages_total = 5, 45
-        color_pages = "#3d7eff"
+        fonts_on_page = self.menu_structure.get(self.current_page, [])
+        for fname in fonts_on_page:
+            f_info = self.font_cache.get((self.current_page, fname), {})
+            f_hashes = f_info.get('glyph_hashes', {})
+            current_page_mapped += self.calculate_font_mapped_count(self.current_page, fname, f_hashes)
+            current_page_total += f_info.get('glyph_count', 0)
+            current_page_agl += f_info.get('agl_count', 0)
 
-        self.widget_prog_font.update_progress(actual_mapped, total, color_font)
-        self.widget_prog_global_fonts.update_progress(global_mapped, global_total, color_global)
-        self.widget_prog_pages.update_progress(pages_mapped, pages_total, color_pages)
+        _, current_page_color = self._get_status_info(current_page_mapped, current_page_total, current_page_agl)
+
+        # C) Entire Document (All mapped glyphs vs total glyphs across all pages)
+        # and D) Fully Repaired Pages (Count of pages where all fonts are 100% mapped)
+        entire_document_mapped = 0
+        entire_document_total = 0
+        entire_document_agl = 0
+
+        full_pages_mapped = 0
+        full_pages_total = len(self.menu_structure.keys())
+
+        for p_num, fonts in self.menu_structure.items():
+            page_is_complete = True
+
+            for fname in fonts:
+                f_info = self.font_cache.get((p_num, fname), {})
+                f_hashes = f_info.get('glyph_hashes', {})
+                f_total = f_info.get('glyph_count', 0)
+                f_mapped = self.calculate_font_mapped_count(p_num, fname, f_hashes)
+                f_agl = f_info.get('agl_count', 0)
+
+                entire_document_mapped += f_mapped
+                entire_document_total += f_total
+                entire_document_agl += f_agl
+
+                # Check if this specific font is fully mapped
+                if f_total == 0 or f_mapped < f_total:
+                    page_is_complete = False
+
+            # If all fonts on this page are 100% mapped, count the page as fully repaired
+            if page_is_complete and len(fonts) > 0:
+                full_pages_mapped += 1
+
+        _, entire_document_color = self._get_status_info(entire_document_mapped, entire_document_total,
+                                                         entire_document_agl)
+        _, full_pages_color = self._get_status_info(full_pages_mapped, full_pages_total,
+                                                    0)  # No AGL needed for page count styling
+
+        self.widget_prog_current_font.update_progress(current_font_mapped, current_font_total, current_font_color)
+        self.widget_prog_current_page.update_progress(current_page_mapped, current_page_total, current_page_color)
+        self.widget_prog_entire_document.update_progress(entire_document_mapped, entire_document_total, entire_document_color)
+        self.widget_prog_full_pages.update_progress(full_pages_mapped, full_pages_total, full_pages_color)
 
         if self.active_progress_metric == "current_font":
-            self.main_progress_btn.update_progress("Current Font", actual_mapped, total, color_font)
-        elif self.active_progress_metric == "global_fonts":
-            self.main_progress_btn.update_progress("All Unique Fonts", global_mapped, global_total, color_global)
-        elif self.active_progress_metric == "global_pages":
-            self.main_progress_btn.update_progress("All Pages", pages_mapped, pages_total, color_pages)
+            self.main_progress_btn.update_progress("in current font", current_font_mapped, current_font_total, current_font_color)
+        elif self.active_progress_metric == "current_page":
+            self.main_progress_btn.update_progress("on current page", current_page_mapped, current_page_total, current_page_color)
+        elif self.active_progress_metric == "entire_document":
+            self.main_progress_btn.update_progress("in entire document", entire_document_mapped, entire_document_total, entire_document_color)
+        elif self.active_progress_metric == "full_pages":
+            self.main_progress_btn.update_progress("full pages", full_pages_mapped, full_pages_total, full_pages_color)
 
         if self.setting_page_mode:
             self.update_navigation_labels()
@@ -2229,7 +2280,6 @@ class FontWidget(QMainWindow):
             self.show_glyph()
 
     def open_github(self):
-        # Nezapomeň si tady přepsat URL na svůj skutečný repozitář!
         webbrowser.open_new_tab("https://github.com/Cookie04CZ/GlyphRepair")
 
     # Opens a web helper for finding symbols
