@@ -344,7 +344,7 @@ class MainToolbarProgressWidget(QWidget):
 
     # Dynamically update progress bar values and color
     def update_progress(self, title, current, total, color_code):
-        self.lbl_title.setText(f"Mapped glyphs: {title} ▼")
+        self.lbl_title.setText(f"Mapped: {title} ▼")
 
         # Set range, current value, and format to progress bar
         if total == 0:
@@ -930,7 +930,7 @@ class FontSelectionDialog(QDialog):
 class IntegratedRepairDialog(QDialog):
     def __init__(self, page_font_map, total_unique, ready_unique, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("PDF Repair")
+        self.setWindowTitle("Repair PDF")
         self.setMinimumSize(550, 400)
         self.setWindowModality(QtCore.Qt.WindowModal)
 
@@ -946,7 +946,7 @@ class IntegratedRepairDialog(QDialog):
         self.tree = QTreeWidget()
         self.tree.setColumnCount(2)
         self.tree.setAlternatingRowColors(True)
-        self.tree.setHeaderLabels(["Pages and Fonts", "Progress"])
+        self.tree.setHeaderLabels(["Pages and Fonts", "Mapped/total glyphs"])
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.Fixed)
@@ -1772,7 +1772,7 @@ class FontWidget(QMainWindow):
 
         _, current_page_color = self._get_status_info(current_page_mapped, current_page_total, current_page_agl)
 
-        # C) Entire Document (All mapped glyphs vs total glyphs across all pages)
+        # C) Entire Document (All mapped glyphs vs total glyphs across all UNIQUE fonts)
         # and D) Fully Repaired Pages (Count of pages where all fonts are 100% mapped)
         entire_document_mapped = 0
         entire_document_total = 0
@@ -1780,6 +1780,8 @@ class FontWidget(QMainWindow):
 
         full_pages_mapped = 0
         full_pages_total = len(self.menu_structure.keys())
+
+        processed_unique_fonts = set()
 
         for p_num, fonts in self.menu_structure.items():
             page_is_complete = True
@@ -1791,15 +1793,18 @@ class FontWidget(QMainWindow):
                 f_mapped = self.calculate_font_mapped_count(p_num, fname, f_hashes)
                 f_agl = f_info.get('agl_count', 0)
 
-                entire_document_mapped += f_mapped
-                entire_document_total += f_total
-                entire_document_agl += f_agl
-
-                # Check if this specific font is fully mapped
+                # Check if this specific font is fully mapped on this physical page
                 if f_total == 0 or f_mapped < f_total:
                     page_is_complete = False
 
-            # If all fonts on this page are 100% mapped, count the page as fully repaired
+                # Entire Document: Count each unique font strictly once
+                if fname not in processed_unique_fonts:
+                    processed_unique_fonts.add(fname)
+                    entire_document_mapped += f_mapped
+                    entire_document_total += f_total
+                    entire_document_agl += f_agl
+
+            # If all fonts on this page are 100% mapped, count the physical page as fully repaired
             if page_is_complete and len(fonts) > 0:
                 full_pages_mapped += 1
 
@@ -1814,11 +1819,11 @@ class FontWidget(QMainWindow):
         self.widget_prog_full_pages.update_progress(full_pages_mapped, full_pages_total, full_pages_color)
 
         if self.active_progress_metric == "current_font":
-            self.main_progress_btn.update_progress("in current font", current_font_mapped, current_font_total, current_font_color)
+            self.main_progress_btn.update_progress("glyphs in current font", current_font_mapped, current_font_total, current_font_color)
         elif self.active_progress_metric == "current_page":
-            self.main_progress_btn.update_progress("on current page", current_page_mapped, current_page_total, current_page_color)
+            self.main_progress_btn.update_progress("glyphs on current page", current_page_mapped, current_page_total, current_page_color)
         elif self.active_progress_metric == "entire_document":
-            self.main_progress_btn.update_progress("in entire document", entire_document_mapped, entire_document_total, entire_document_color)
+            self.main_progress_btn.update_progress("glyphs in entire document", entire_document_mapped, entire_document_total, entire_document_color)
         elif self.active_progress_metric == "full_pages":
             self.main_progress_btn.update_progress("full pages", full_pages_mapped, full_pages_total, full_pages_color)
 
@@ -4215,6 +4220,21 @@ def apply_dark_theme(app):
 
         QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
             background: none;
+        }
+        
+        QHeaderView::section {
+            background-color: #2a2a2a;
+            color: #ffffff;
+            border: none;
+            border-bottom: 1px solid #444;
+            border-right: 1px solid #444;
+            padding: 4px 8px;
+            font-weight: bold;
+        }
+
+        QHeaderView {
+            background-color: #121212;
+            border: none;
         }
     """)
 
