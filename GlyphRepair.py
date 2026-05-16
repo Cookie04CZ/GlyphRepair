@@ -3296,9 +3296,7 @@ class FontWidget(QMainWindow):
                 visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
 
                 ready_fonts_count = len(visual_sequence)
-                dialog.log(
-                    f"[INFO] Found {ready_fonts_count} fonts out of {total_unique_cff_fonts} for reconscruction.\n",
-                    "#aaaaaa")
+                dialog.log(f"[INFO] Found {ready_fonts_count} ready fonts out of {total_unique_cff_fonts} total CFF fonts for repair.\n", "#aaaaaa")
 
                 ghost_xrefs = set(ready_xrefs) - set(visual_sequence.keys())
                 if ghost_xrefs:
@@ -3340,9 +3338,9 @@ class FontWidget(QMainWindow):
                 doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
                 internal_sequence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, mode="dummy")
                 doc_dummy.close()
-                dialog.log(
-                    f"  -> Extraction succeeded for all {len(internal_sequence)} fonts (will process {len(visual_sequence)} ready fonts).",
-                    "#228B22")
+
+                # Only report the count of fonts we actually care about to avoid confusion
+                dialog.log(f"  -> Extraction succeeded (processing {ready_fonts_count} ready fonts).","#228B22")
 
                 dialog.log("\n[3/3] Final ToUnicode mapping", "#3d7eff")
                 dialog.log("-" * 40, "#aaaaaa")
@@ -3395,21 +3393,35 @@ class FontWidget(QMainWindow):
                 doc_final.save(out_path)
                 doc_final.close()
 
+                # Calculate if any fonts were skipped right at the start due to incomplete mapping
+                incomplete_fonts_count = total_unique_cff_fonts - len(ready_xrefs_set)
+                is_completely_perfect = (success_count == ready_fonts_count) and (incomplete_fonts_count == 0)
+
+                # Determine the overall summary color
+                summary_color = "#3d7eff" if is_completely_perfect else "#FF8C00"
+
                 dialog.log("\n" + "=" * 45, "#aaaaaa")
-                dialog.log("             Repair finished                ", "#3d7eff")
+                dialog.log("             Repair finished                ", summary_color)
                 dialog.log("=" * 45, "#aaaaaa")
                 dialog.log(f"Repaired file: {os.path.basename(out_path)}")
-                dialog.log(f"Active fonts reconstructed: {success_count} / {ready_fonts_count}")
+                dialog.log(f"Successfully repaired fonts: {success_count} / {ready_fonts_count}")
 
-                if success_count == ready_fonts_count:
+                # Log the explicitly skipped incomplete fonts to make the user aware
+                if incomplete_fonts_count > 0:
+                    dialog.log(f"Incomplete fonts skipped: {incomplete_fonts_count}", "#FF8C00")
+
+                if is_completely_perfect:
                     if ghost_xrefs:
                         dialog.log(f"[STATUS] Success! (Ignored {len(ghost_xrefs)} ghost fonts without text)",
                                    "#00ff00")
                     else:
-                        dialog.log("[STATUS] All active fonts in pdf were repaired successfully.", "#00ff00")
+                        dialog.log("[STATUS] All fonts in pdf were repaired successfully.", "#00ff00")
                     self.play_sound(success=True)
                 else:
-                    dialog.log("[STATUS] Finished with errors, some active fonts skipped...", "#FF8C00")
+                    if success_count < ready_fonts_count:
+                        dialog.log("[STATUS] Finished with errors, some active fonts failed...", "#FF8C00")
+                    else:
+                        dialog.log("[STATUS] Finished partially, incomplete fonts were skipped.", "#FF8C00")
                     self.play_sound(success=False)
                 dialog.log("=" * 45, "#aaaaaa")
 
