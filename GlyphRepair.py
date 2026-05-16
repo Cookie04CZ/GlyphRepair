@@ -1040,10 +1040,13 @@ class IntegratedRepairDialog(QDialog):
         self.btn_cancel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_cancel.setStyleSheet("font-weight: bold; background-color: #444444; color: white; border-radius: 4px;")
 
+        # Determine button color: Green if fully mapped, Orange if partially mapped
+        btn_color = "#228B22" if ready_unique == total_unique and total_unique > 0 else "#FF8C00"
+
         self.btn_repair = QPushButton(f"Start repair ({ready_unique} fonts)")
         self.btn_repair.setFixedHeight(40)
         self.btn_repair.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.btn_repair.setStyleSheet("font-weight: bold; background-color: #228B22; color: white; border-radius: 4px;")
+        self.btn_repair.setStyleSheet(f"font-weight: bold; background-color: {btn_color}; color: white; border-radius: 4px;")
 
         self.button_layout.addWidget(self.btn_cancel)
         self.button_layout.addWidget(self.btn_repair)
