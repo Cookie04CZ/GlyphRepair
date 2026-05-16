@@ -39,7 +39,7 @@ EXTENDED_AGL.update({
     # Add any other missing glyphs you want to auto-map here
 })
 
-GLYPH_DATABASE = "Opet L a I/glyph_mappings.psv"
+GLYPH_DATABASE = "glyph_mappings.psv"
 
 
 # Function to extract raw font data from a specific page in a PDF
