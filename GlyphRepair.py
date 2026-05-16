@@ -2,10 +2,12 @@ import csv
 import os
 import sys
 import webbrowser
-import difflib
 import argparse
+import re
+import difflib
 from hashlib import md5
 from io import BytesIO
+from colorama import Fore, Style
 
 import fitz  # PyMuPDF
 
@@ -35,11 +37,15 @@ EXTENDED_AGL.update({
     "nonbreakingspace": 0x00A0,
     "Ohm": 0x2126,
     "Omegagreek": 0x2126,
-    "fi" : 0xfb01,
+    "fi": 0xfb01,
     # Add any other missing glyphs you want to auto-map here
 })
 
-GLYPH_DATABASE = "glyph_mappings.psv"
+# Database path
+GLYPH_DATABASE = "glyph_mappings/glyph_mappings.psv"
+
+# Turn off PyMuPDF logging
+fitz.TOOLS.mupdf_display_errors(False)
 
 
 # Function to extract raw font data from a specific page in a PDF
@@ -73,6 +79,7 @@ def has_tounicode(doc, xref):
     key_type, _ = doc.xref_get_key(xref, "ToUnicode")
     return key_type != 'null'
 
+
 # Class representing a pen that generates a string signature of a glyph
 # This is used for identification/hashing.
 class SignaturePen(BasePen):
@@ -97,6 +104,7 @@ class SignaturePen(BasePen):
         return "".join(self.signature)
 
 
+# Class for path creation using Type 1 font data
 class QtPen(BasePen):
     def __init__(self, glyphset):
         super().__init__(glyphset)
@@ -115,6 +123,7 @@ class QtPen(BasePen):
         self.path.closeSubpath()
 
 
+# Class used for creating image widgets
 class GlyphQtWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -125,9 +134,11 @@ class GlyphQtWidget(QWidget):
         self.font_bbox = [0, -200, 0, 1000]
         self.setMinimumSize(400, 400)
 
+    # Method used for glyph rendering
     def draw_glyph(self, glyphset, glyph_name, notdef_max_y, notdef_min_y):
         self.msg = None
 
+        # Set the image to "No glyph" state
         if not glyphset or glyph_name not in glyphset:
             self.path = None
             self.msg = "No glyph"
@@ -140,6 +151,7 @@ class GlyphQtWidget(QWidget):
 
         self.path = pen.path
 
+        # Empty path means no glyph
         if self.path.isEmpty():
             self.msg = "Empty glyph\n(likely space)"
 
@@ -147,50 +159,62 @@ class GlyphQtWidget(QWidget):
         self.topline = notdef_max_y
         self.update()
 
+    # paintEvent method edit
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.fillRect(self.rect(), QtCore.Qt.white)
 
+        # Write gray message to widget if there is no glyph
         if self.msg:
             painter.setPen(QtGui.QColor("dimgray"))
 
+            # Create custom font style for messages
             font = painter.font()
             font.setBold(True)
             font.setItalic(True)
-            font.setPointSize(48 if "No glyph" in self.msg else 30)
+            font.setPointSize(48 if "No glyph" in self.msg else 30) # Set size depending on message
             painter.setFont(font)
 
+            # Render text
             painter.drawText(self.rect(), QtCore.Qt.AlignCenter, self.msg)
             return
 
+        # End if no path
         if self.path is None:
             return
 
+        # Calculate image size based on view size
         rect = self.rect()
         view_unit = min(rect.width(), rect.height())
 
+        # Define size of BoundingBox using baseline and topline of .notdef
         if self.baseline is not None and self.topline is not None:
             ref_min, ref_max = self.baseline, self.topline
         else:
             ref_min, ref_max = self.font_bbox[1], self.font_bbox[3]
 
+        # Calculate scale factor based on font height metrics
         ref_height = max(ref_max - ref_min, 1)
         ref_midpoint = (ref_max + ref_min) / 2
         scale_factor = (view_unit * 0.45) / ref_height
 
+        # Find the horizontal center of the specific glyph bounding box
         br = self.path.boundingRect()
         glyph_center_x = br.left() + br.width() / 2.0
 
-        painter.save()
+        # Transform coordinate system: center, scale, and flip the Y-axis
+        painter.save() # Save default state
         painter.translate(rect.width() / 2.0, rect.height() / 2.0)
         painter.scale(scale_factor, -scale_factor)
         painter.translate(-glyph_center_x, -ref_midpoint)
 
+        # Initialize a cosmetic pen for drawing fixed-width alignment lines
         line_pen = QtGui.QPen()
         line_pen.setCosmetic(True)
         line_pen.setWidth(1)
 
+        # Draw baseline and topline in dotted blue if available, otherwise in solid red on height 0
         if self.baseline is not None:
             line_pen.setColor(QtGui.QColor("blue"))
             line_pen.setStyle(QtCore.Qt.DotLine)
@@ -203,13 +227,16 @@ class GlyphQtWidget(QWidget):
             painter.setPen(line_pen)
             painter.drawLine(QtCore.QLineF(-10000, 0, 10000, 0))
 
+        # Configure painter to fill the glyph path with solid black and no outline
         painter.setBrush(QtGui.QBrush(QtGui.QColor("black")))
         painter.setPen(QtCore.Qt.NoPen)
         painter.drawPath(self.path)
-        painter.restore()
+        painter.restore() # Restore to default state
 
-# Custom widget for a dropdown menu containing a title and a progress bar
+
+# Custom interactive menu item combining a text label and a progress bar
 class ProgressMenuWidget(QWidget):
+    # Custom signal emitted with metric_id when the widget is clicked
     clicked = QtCore.Signal(str)
 
     def __init__(self, title, metric_id, parent=None):
@@ -217,30 +244,38 @@ class ProgressMenuWidget(QWidget):
         self.metric_id = metric_id
         self.setCursor(QtCore.Qt.PointingHandCursor)
 
+        # Style the widget
         self.setStyleSheet("background-color: transparent;")
         self.setFixedWidth(260)
 
+        # Create layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 8, 5, 8)
         layout.setSpacing(4)
 
+        # Define label styling
         self.lbl_title = QLabel(title)
         self.lbl_title.setStyleSheet(
             "color: #aaaaaa; font-weight: bold; font-size: 11px; background-color: transparent;")
 
+        # Define progress bar styling
         self.pbar = QProgressBar()
         self.pbar.setFixedHeight(16)
         self.pbar.setFixedWidth(250)
 
+        # Add label and progress bar to layout
         layout.addWidget(self.lbl_title)
         layout.addWidget(self.pbar)
 
+    # Catch mouse press events to make the entire widget act as a button
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.LeftButton:
             self.clicked.emit(self.metric_id)
         super().mousePressEvent(event)
 
+    # Dynamically update progress bar values and color
     def update_progress(self, current, total, color_code):
+        # Set range, current value, and format to progress bar
         if total == 0:
             self.pbar.setMaximum(1)
             self.pbar.setValue(1)
@@ -250,6 +285,7 @@ class ProgressMenuWidget(QWidget):
             self.pbar.setValue(current)
             self.pbar.setFormat(f"{current} / {total}")
 
+        # Progress bar styling using dynamic colors
         self.pbar.setStyleSheet(f"""
             QProgressBar {{
                 border: 1px solid #555;
@@ -274,34 +310,43 @@ class MainToolbarProgressWidget(QWidget):
         self.menu = None
         self.setCursor(QtCore.Qt.PointingHandCursor)
 
+        # Style the widget
         self.setFixedWidth(260)
 
+        # Create layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 2, 5, 2)
         layout.setSpacing(2)
 
+        # Define label styling
         self.lbl_title = QLabel("Current Font ▼")
         self.lbl_title.setStyleSheet(
             "color: #aaaaaa; font-weight: bold; font-size: 11px; background-color: transparent;")
 
+        # Define progress bar styling
         self.pbar = QProgressBar()
         self.pbar.setFixedHeight(14)
         self.pbar.setFixedWidth(250)
 
+        # Add label and progress bar to layout
         layout.addWidget(self.lbl_title)
         layout.addWidget(self.pbar)
 
+    # Assign the dropdown QMenu that this widget will trigger
     def setMenu(self, menu):
         self.menu = menu
 
+    # Handle click event to display the menu directly beneath the toolbar item
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.LeftButton and self.menu:
             self.menu.exec(self.mapToGlobal(QtCore.QPoint(0, self.height())))
         super().mousePressEvent(event)
 
+    # Dynamically update progress bar values and color
     def update_progress(self, title, current, total, color_code):
         self.lbl_title.setText(f"{title} ▼")
 
+        # Set range, current value, and format to progress bar
         if total == 0:
             self.pbar.setMaximum(1)
             self.pbar.setValue(1)
@@ -311,6 +356,7 @@ class MainToolbarProgressWidget(QWidget):
             self.pbar.setValue(current)
             self.pbar.setFormat(f"{current} / {total}")
 
+        # Progress bar styling using dynamic colors
         self.pbar.setStyleSheet(f"""
             QProgressBar {{
                 border: 1px solid #555;
@@ -327,6 +373,7 @@ class MainToolbarProgressWidget(QWidget):
             }}
         """)
 
+
 # Dialog window for application settings
 # It allows the user to configure navigation, auto-jump, and saving preferences
 class SettingsDialog(QDialog):
@@ -338,8 +385,7 @@ class SettingsDialog(QDialog):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setSpacing(15)
 
-        # Create standard checkboxes for each setting without default text
-        # (Text will be handled by the custom row layout)
+        # Create checkboxes for each setting without default text
         self.chk_page_mode = QCheckBox()
         self.chk_auto_highlight = QCheckBox()
         self.chk_auto_jump_glyph = QCheckBox()
@@ -362,42 +408,42 @@ class SettingsDialog(QDialog):
 
         # Add widgets to layout with detailed descriptions
         self._add_setting_row(
-            "Page Mode Navigation",
-            "Restrict font navigation to the current page only.",
+            "Page Mode",
+            "Allows to change behavior to prefer pages instead of global fonts",
             self.chk_page_mode
         )
         self._add_setting_row(
-            "Auto-highlight Suggestions",
-            "Automatically select the first suggestion. Use Left/Right arrows to choose.",
+            "Highlight Suggestions",
+            "Automatically highlight the first suggestion. Use Left/Right arrows to choose.",
             self.chk_auto_highlight
         )
         self._add_setting_row(
-            "Auto-jump to Next Glyph",
-            "Automatically select the next unmapped glyph after saving.",
+            "Jump to Next Glyph",
+            "Automatically select the next unmapped glyph after mapping.",
             self.chk_auto_jump_glyph
         )
         self._add_setting_row(
-            "Auto-jump Font at 100%",
+            "Move to next font at 100%",
             "Move to the next font automatically when all glyphs are mapped.",
             self.chk_auto_jump_font
         )
         self._add_setting_row(
-            "Auto-save database at 100%",
+            "Save database at 100%",
             "Automatically save your progress to the PSV file when a font is fully mapped.",
             self.chk_auto_save_100
         )
         self._add_setting_row(
-            "Auto-save on Switch",
+            "Save on font switch",
             "Automatically save your progress when switching to a different font or page.",
             self.chk_auto_save_on_switch
         )
         self._add_setting_row(
-            "Auto-save every 5 mins",
+            "Auto-save every 5 minutes",
             "Periodically save your progress in the background to prevent data loss.",
             self.chk_auto_save_timer
         )
         self._add_setting_row(
-            "Show Unicode Hex Input",
+            "Show Unicode hex input field",
             "Display the secondary input field for direct Unicode hex code entry.",
             self.chk_show_hex_input
         )
@@ -437,14 +483,17 @@ class SettingsDialog(QDialog):
         self.main_layout.addLayout(row_layout)
 
 
+# Dialog window for page selection
+# It allows the user to view progress based on pages
 class PageSelectionDialog(QDialog):
     def __init__(self, menu_data, font_cache, current_page, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Page")
         self.setMinimumSize(450, 500)
+        # Main vertical layout
         layout = QVBoxLayout(self)
 
-        # --- HORNÍ PANEL: Vyhledávání a filtry ---
+        # Horizontal filter layout
         filter_layout = QHBoxLayout()
 
         self.search_input = QLineEdit()
@@ -456,24 +505,22 @@ class PageSelectionDialog(QDialog):
         self.chk_hide_100 = QCheckBox("Hide 100% mapped")
         self.chk_hide_100.stateChanged.connect(self.apply_filters)
 
+        # Add widgets to layout
         filter_layout.addWidget(self.search_input)
         filter_layout.addWidget(self.chk_hide_100)
         layout.addLayout(filter_layout)
 
-        # --- SEZNAM ---
         self.list_widget = QListWidget()
 
-        # Explicitní potlačení modrého hoveru a nastylování selekce
         self.list_widget.setStyleSheet("""
             QListWidget {
                 outline: none;
             }
             QListWidget::item:hover {
-                background-color: #2a2a2a; /* Decentní zesvětlení místo modré */
+                background-color: #777777;
                 border-radius: 4px;
             }
             QListWidget::item:selected {
-                background-color: transparent;
                 border: 1px solid #ffffff;
                 border-radius: 4px;
             }
@@ -484,10 +531,12 @@ class PageSelectionDialog(QDialog):
 
         item_to_scroll = None
 
+        # Add pages to the list
         for page_num in sorted(menu_data.keys()):
             font_names = menu_data[page_num]
             if not font_names: continue
 
+            # Get statistics for the current page
             page_mapped = 0
             page_total = 0
             page_agl = 0
@@ -501,27 +550,28 @@ class PageSelectionDialog(QDialog):
                                                                                                                  "#888888")
             is_100_percent = (page_total > 0 and page_mapped >= page_total)
 
-            # Záměrně nevyplňujeme text ani ikonu. Vše obstará náš custom widget.
+            # Create a list item for page and add it to the list
             item = QListWidgetItem()
             item.setData(QtCore.Qt.UserRole, page_num)
             item.setData(QtCore.Qt.UserRole + 1, is_100_percent)
-            item.setSizeHint(QtCore.QSize(0, 32))  # O fous vyšší řádek pro lepší dýchání
-
+            item.setSizeHint(QtCore.QSize(0, 32))
             self.list_widget.addItem(item)
 
-            # Sestavení custom widgetu
+            # Check if the current page is selected
             is_current = (page_num == current_page)
             row_widget = self._create_list_item_widget(
                 page_num, len(font_names), page_mapped, page_total, color_code, is_current, parent
             )
             self.list_widget.setItemWidget(item, row_widget)
 
+            # Highlight the current page
             if is_current:
                 item_to_scroll = item
 
+        # Add the list widget to the layout
         layout.addWidget(self.list_widget)
 
-        # --- SPODNÍ TLAČÍTKA ---
+        # Add buttons at the bottom of the dialog
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -529,6 +579,7 @@ class PageSelectionDialog(QDialog):
 
         self.search_input.returnPressed.connect(self.accept)
 
+        # Scroll to the selected page
         if item_to_scroll:
             self.list_widget.setCurrentItem(item_to_scroll)
             self.list_widget.scrollToItem(item_to_scroll, QListWidget.PositionAtCenter)
@@ -536,41 +587,43 @@ class PageSelectionDialog(QDialog):
         self.search_input.setFocus()
         self.apply_filters()
 
+    # Method to create each list item widget
     def _create_list_item_widget(self, page_num, font_count, mapped, total, color_code, is_current, parent):
         container = QWidget()
         container.setStyleSheet("background: transparent;")
 
+        # Create layout
         layout = QHBoxLayout(container)
         layout.setContentsMargins(5, 0, 5, 0)
         layout.setSpacing(10)
 
-        # 1. Ikona (vygenerována rodičem jako QIcon, převedena na QPixmap)
+        # Create status icon if FontWidget is available
         lbl_icon = QLabel()
         if parent:
             icon = parent._create_status_icon(color_code)
             lbl_icon.setPixmap(icon.pixmap(14, 14))
 
-        # 2. Text "Page X"
+        # Add page number
         lbl_page = QLabel(f"Page {page_num + 1}")
         page_style = "font-weight: bold; color: white;" if is_current else "color: white;"
         lbl_page.setStyleSheet(page_style)
 
-        # Spacer - tento vytlačí zbytek obsahu doprava
         layout.addWidget(lbl_icon)
         layout.addWidget(lbl_page)
         layout.addStretch()
 
-        # 3. Počet fontů
+        # Add font count
         lbl_fonts = QLabel(f"{font_count} fonts")
         lbl_fonts.setFixedWidth(55)
         lbl_fonts.setStyleSheet("color: #aaaaaa;")
         lbl_fonts.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
 
-        # 4. Progress bar
+        # Add progress bar
         pbar = QProgressBar()
         pbar.setFixedHeight(14)
-        pbar.setFixedWidth(140)  # Rozšířeno pro lepší poměr vzhledem k textům
+        pbar.setFixedWidth(140)
 
+        # Update progress bar values
         if total == 0:
             pbar.setMaximum(1)
             pbar.setValue(1)
@@ -603,18 +656,19 @@ class PageSelectionDialog(QDialog):
 
         return container
 
+    # Apply search and 100% mapped filters
     def apply_filters(self):
         search_text = self.search_input.text().lower()
         hide_100 = self.chk_hide_100.isChecked()
 
         first_visible_item = None
 
+        # Iterate through the list items and hide those that don't match the filters
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             page_num = item.data(QtCore.Qt.UserRole)
             is_100 = item.data(QtCore.Qt.UserRole + 1)
 
-            # Vyhledáváme generováním textu on-the-fly, jelikož item.text() je kvůli layoutu prázdný
             search_target = f"page {page_num + 1}".lower()
             matches_search = search_text in search_target
             matches_hide = not (hide_100 and is_100)
@@ -628,11 +682,14 @@ class PageSelectionDialog(QDialog):
         if first_visible_item and (not self.list_widget.currentItem() or self.list_widget.currentItem().isHidden()):
             self.list_widget.setCurrentItem(first_visible_item)
 
+    # Method to get the selected page from the list
     def get_selected_page(self):
         item = self.list_widget.currentItem()
         return item.data(QtCore.Qt.UserRole) if item else None
 
 
+# Dialog window for font selection
+# It allows the user to view font progress and info
 class FontSelectionDialog(QDialog):
     def __init__(self, menu_data, font_cache, current_font_name, current_page, parent=None):
         super().__init__(parent)
@@ -643,7 +700,6 @@ class FontSelectionDialog(QDialog):
         main_layout = QVBoxLayout(self)
         content_layout = QHBoxLayout()
 
-        # --- LEFT PANEL ---
         left_layout = QVBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search font name...")
@@ -657,7 +713,6 @@ class FontSelectionDialog(QDialog):
         self.list_widget.itemSelectionChanged.connect(self.update_details_panel)
         left_layout.addWidget(self.list_widget)
 
-        # --- RIGHT PANEL ---
         right_widget = QWidget()
         right_widget.setFixedWidth(260)
         right_layout = QVBoxLayout(right_widget)
@@ -1104,6 +1159,7 @@ class IntegratedRepairDialog(QDialog):
 
         return icon
 
+
 # Main Application Window Class
 class FontWidget(QMainWindow):
     ICON_SIZE_LARGE = 128
@@ -1130,7 +1186,7 @@ class FontWidget(QMainWindow):
         super().__init__()
         # Initialize QSettings for persistent configuration
         self.settings_db = QSettings("GlyphRepairApp")
-        
+
         def _get_bool(key, default):
             val = self.settings_db.value(key, default)
             if isinstance(val, str):
@@ -1149,7 +1205,7 @@ class FontWidget(QMainWindow):
 
         self.current_suggestion_idx = -1
         self.active_suggestions_count = 0
-        
+
         self.auto_save_timer = QtCore.QTimer(self)
         self.auto_save_timer.timeout.connect(self.auto_save_interval_triggered)
 
@@ -1294,7 +1350,6 @@ class FontWidget(QMainWindow):
         spacer_small = QWidget()
         spacer_small.setFixedWidth(15)
         toolbar.addWidget(spacer_small)
-
 
         spacer_small = QWidget()
         spacer_small.setFixedWidth(15)
@@ -1474,7 +1529,8 @@ class FontWidget(QMainWindow):
         self.char_input.setMaxLength(3)
         self.char_input.returnPressed.connect(self.save_glyph)
         self.char_input.setEnabled(False)
-        self.char_input.setStyleSheet("font-family: 'Consolas', monospace; font-size: 32px; font-weight: bold; padding: 5px;")
+        self.char_input.setStyleSheet(
+            "font-family: 'Consolas', monospace; font-size: 32px; font-weight: bold; padding: 5px;")
         self.char_input.setMinimumHeight(50)
         self.char_input.installEventFilter(self)
         self.char_input.textChanged.connect(self.on_user_input_changed)
@@ -1501,7 +1557,6 @@ class FontWidget(QMainWindow):
 
         user_inputs = QHBoxLayout()
         user_inputs.addLayout(left_panel)
-
 
         right_panel = QVBoxLayout()
         right_panel.setContentsMargins(0, 0, 0, 0)
@@ -1721,7 +1776,7 @@ class FontWidget(QMainWindow):
 
     def _get_status_info(self, mapped, total, agl_count=0):
         if total == 0:
-            return "—", "#888888" # Gray
+            return "—", "#888888"  # Gray
         perc = (mapped / total) * 100
 
         if perc >= 100:
@@ -1734,7 +1789,7 @@ class FontWidget(QMainWindow):
                 return f"{int(perc)}%", "#3d7eff"  # Blue
             else:
                 return f"{int(perc)}%", "#FF8C00"  # Orange
-        return "0%", "#888888" # Gray
+        return "0%", "#888888"  # Gray
 
     # Helper method to create a colored dot icon for the page navigation button
     def _create_status_icon(self, color_str):
@@ -1865,12 +1920,12 @@ class FontWidget(QMainWindow):
                 next_page = available_pages[0]
         fonts_on_page = self.menu_structure[next_page]
         if fonts_on_page:
-            
+
             # Prefer loading the same font on the new page if it exists there
             target_font = fonts_on_page[0]
             if self.current_font_name in fonts_on_page:
                 target_font = self.current_font_name
-                
+
             self.load_font(next_page, target_font)
 
     def update_navigation_labels(self):
@@ -2418,7 +2473,8 @@ class FontWidget(QMainWindow):
             )
 
             # Generate the version with guidelines for the large selected state
-            pix_large_lines = self.generate_icon(name, size=(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE), draw_lines=True)
+            pix_large_lines = self.generate_icon(name, size=(self.ICON_SIZE_LARGE, self.ICON_SIZE_LARGE),
+                                                 draw_lines=True)
 
             item = QListWidgetItem(QIcon(pix_small), "")
             item.setData(QtCore.Qt.UserRole, name)
@@ -2686,11 +2742,12 @@ class FontWidget(QMainWindow):
         hash_counts[space_hash] = {"0020"}
 
         self.db_records = []
-        #Track exact matches for specific fonts to solve global hash collisions
+        # Track exact matches for specific fonts to solve global hash collisions
         self.exact_db_matches = set()
 
         self.global_db_map = {}
-        self.global_db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
+        self.global_db_map[space_hash] = [
+            {"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
 
         path = GLYPH_DATABASE
         if os.path.exists(path):
@@ -2727,29 +2784,75 @@ class FontWidget(QMainWindow):
             font_to_gnames[fname].add(row.get("GlyphName", ""))
         self.db_font_glyph_sets = list(font_to_gnames.values())
 
-    # Generates suggestions based on GlyphName and fuzzy matching of font_name
+    # Helper to strip PDF subset tags (e.g., "ABCDEF+FontName" -> "FontName")
+    def strip_subset_tag(self, name):
+        return re.sub(r'^[A-Z]{6}\+', '', name)
+
+    # Generates suggestions based on shape hash, GlyphName similarity, font name similarity, and occurrences
     def get_suggestions(self, glyph_name, font_name, current_hash=None):
         if not hasattr(self, 'db_records') or not self.db_records or not glyph_name or not font_name:
             return []
 
-        matches = []
+        current_font_clean = self.strip_subset_tag(font_name)
+
+        # Dictionary to track the best score and total occurrences for each unicode_hex
+        # Structure: { "hex_val": {"score": float, "occurrences": int} }
+        hex_candidates = {}
+
         for row in self.db_records:
             db_glyph_name = row.get("GlyphName", "")
+            db_font_name = row.get("font_name", "")
+            hex_val = row.get("unicode_hex")
+            db_hash = row.get("glyph_hash")
+
+            if not hex_val:
+                continue
+
+            db_font_clean = self.strip_subset_tag(db_font_name)
+
+            # Calculate similarities using difflib
             glyph_sim = difflib.SequenceMatcher(None, glyph_name, db_glyph_name).ratio()
+            font_sim = difflib.SequenceMatcher(None, current_font_clean, db_font_clean).ratio()
 
-            if current_hash and row.get("glyph_hash") == current_hash:
-                matches.append((1.0, glyph_sim, row.get("unicode_hex")))
+            is_hash_match = (current_hash and db_hash == current_hash)
 
-            elif db_glyph_name == glyph_name:
-                matches.append((0.5, glyph_sim, row.get("unicode_hex")))
+            # Only consider rows that share the same shape hash OR have a reasonable glyph name similarity
+            if is_hash_match or glyph_sim > 0.6:
+                score = 0.0
 
-        matches.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                # 1. Shape Match (Absolute highest priority)
+                if is_hash_match:
+                    score += 10.0
+
+                # 2. Glyph Name Match
+                if db_glyph_name == glyph_name:
+                    score += 5.0
+                else:
+                    score += glyph_sim * 3.0  # Partial glyph name similarity (max 3.0)
+
+                # 3. Font Name Match
+                score += font_sim * 2.0  # Partial font name similarity (max 2.0)
+
+                if hex_val not in hex_candidates:
+                    hex_candidates[hex_val] = {"score": score, "occurrences": 1}
+                else:
+                    hex_candidates[hex_val]["occurrences"] += 1
+                    # Keep the highest individual match score for this character
+                    if score > hex_candidates[hex_val]["score"]:
+                        hex_candidates[hex_val]["score"] = score
+
+        # Sort candidates by: 1. Best Score (Descending), 2. Number of Occurrences (Descending)
+        sorted_hexes = sorted(
+            hex_candidates.items(),
+            key=lambda item: (item[1]["score"], item[1]["occurrences"]),
+            reverse=True
+        )
 
         suggestions = []
-        for _, _, hex_val in matches:
+        for hex_val, data in sorted_hexes:
             try:
                 char = chr(int(hex_val, 16))
-                # Add unique characters until we have 4 (for our 4 buttons)
+                # Add unique characters until we hit the UI limit of 4
                 if char not in suggestions:
                     suggestions.append(char)
                 if len(suggestions) >= 4:
@@ -2821,6 +2924,7 @@ class FontWidget(QMainWindow):
             self.set_suggestion_highlight(0)
 
         # Catches keyboard events in the char_input field for suggestion navigation
+
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.KeyPress:
 
@@ -2925,7 +3029,8 @@ class FontWidget(QMainWindow):
             if g_hash:
                 records = self.global_db_map.get(g_hash, [])
 
-                already_known = any(r["unicode_hex"] == data["unicode_hex"] and r["GlyphName"] == gname for r in records)
+                already_known = any(
+                    r["unicode_hex"] == data["unicode_hex"] and r["GlyphName"] == gname for r in records)
 
                 if already_known:
                     continue
@@ -2943,7 +3048,8 @@ class FontWidget(QMainWindow):
         try:
             # Write back to file
             with open(path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='|', quotechar='"',
+                                        quoting=csv.QUOTE_MINIMAL)
                 writer.writeheader()
                 for row in existing_data.values():
                     writer.writerow(row)
@@ -3127,16 +3233,16 @@ class FontWidget(QMainWindow):
                 font_cache_local = {}
 
                 dialog.log("[INFO] Visual order scanning...", "#aaaaaa")
-                vizualni_sekvence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, rezim="vizual",
-                                                  progress_callback=dialog.set_progress)
-                vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
+                visual_sequence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, mode="visual",
+                                                progress_callback=dialog.set_progress)
+                visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
 
-                ready_fonts_count = len(vizualni_sekvence)
+                ready_fonts_count = len(visual_sequence)
                 dialog.log(
                     f"[INFO] Found {ready_fonts_count} fonts out of {total_unique_cff_fonts} for reconscruction.\n",
                     "#aaaaaa")
 
-                ghost_xrefs = set(ready_xrefs) - set(vizualni_sekvence.keys())
+                ghost_xrefs = set(ready_xrefs) - set(visual_sequence.keys())
                 if ghost_xrefs:
                     dialog.log(f"[WARNING] {len(ghost_xrefs)} font(s) skipped (no physical text detected):", "#FF8C00")
                     for gxref in ghost_xrefs:
@@ -3157,7 +3263,7 @@ class FontWidget(QMainWindow):
                 dialog.log("-" * 40, "#aaaaaa")
                 dummy_cmap_str = generate_dummy_tounicode()
 
-                for idx, xref in enumerate(vizualni_sekvence.keys(), 1):
+                for idx, xref in enumerate(visual_sequence.keys(), 1):
                     dummy_xref = doc_vizual.get_new_xref()
                     doc_vizual.update_object(dummy_xref, "<<>>")
                     doc_vizual.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
@@ -3174,10 +3280,10 @@ class FontWidget(QMainWindow):
                 dialog.log("\n[2/3] CharacterCode extraction", "#3d7eff")
                 dialog.log("-" * 40, "#aaaaaa")
                 doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
-                interni_sekvence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, rezim="dummy")
+                internal_sequence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, mode="dummy")
                 doc_dummy.close()
                 dialog.log(
-                    f"  -> Extraction succeeded for all {len(interni_sekvence)} fonts (will process {len(vizualni_sekvence)} ready fonts).",
+                    f"  -> Extraction succeeded for all {len(internal_sequence)} fonts (will process {len(visual_sequence)} ready fonts).",
                     "#228B22")
 
                 dialog.log("\n[3/3] Final ToUnicode mapping", "#3d7eff")
@@ -3185,8 +3291,8 @@ class FontWidget(QMainWindow):
                 doc_final = fitz.open(self.pdf_path)
                 success_count = 0
 
-                for idx, (xref, v_seq) in enumerate(vizualni_sekvence.items(), 1):
-                    i_seq = interni_sekvence.get(xref, [])
+                for idx, (xref, v_seq) in enumerate(visual_sequence.items(), 1):
+                    i_seq = internal_sequence.get(xref, [])
                     font_name = font_cache_local.get(xref, {}).get("name", "Not found")
 
                     dialog.log(f"  [{idx}/{ready_fonts_count}] Processing font: '{font_name}'")
@@ -3196,8 +3302,16 @@ class FontWidget(QMainWindow):
                     if len(v_seq) == len(i_seq):
                         mapping = {}
                         for v_hex, i_id in zip(v_seq, i_seq):
+                            if v_hex == "IGNORE_AGL":
+                                continue
                             if i_id not in mapping:
                                 mapping[i_id] = v_hex
+
+                        if not mapping:
+                            dialog.log(f"      -> [INFO] Only standard AGL characters used, skipping ToUnicode.",
+                                       "#aaaaaa")
+                            success_count += 1
+                            continue
 
                         real_cmap = generate_real_tounicode(mapping)
                         new_xref = doc_final.get_new_xref()
@@ -3250,6 +3364,7 @@ class FontWidget(QMainWindow):
                 dialog.finish()
                 dialog.exec()
 
+
 def load_db(psv_path=GLYPH_DATABASE):
     db_map = {}
     space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
@@ -3276,6 +3391,7 @@ def load_db(psv_path=GLYPH_DATABASE):
         print(f"DB ERROR ({e}).")
     return db_map
 
+
 def get_standalone_glyph_hash(glyph_set, g_name):
     if not glyph_set or g_name not in glyph_set: return None
     try:
@@ -3287,6 +3403,7 @@ def get_standalone_glyph_hash(glyph_set, g_name):
         return md5(sig.encode('utf-8')).hexdigest()
     except Exception:
         return None
+
 
 def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
     if g_hash not in db_map: return None
@@ -3327,6 +3444,7 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
         return matched_rows[0]["unicode_hex"]
 
     return None
+
 
 def get_differences(doc, xref):
     try:
@@ -3379,6 +3497,7 @@ def get_differences(doc, xref):
         print(f"Error while loading differences: {e}")
         return {}
 
+
 def generate_dummy_tounicode():
     cmap = [
         "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
@@ -3394,6 +3513,7 @@ def generate_dummy_tounicode():
         cmap.append("endbfchar")
     cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
     return "\n".join(cmap)
+
 
 def generate_real_tounicode(mapping_dict):
     cmap = [
@@ -3412,8 +3532,9 @@ def generate_real_tounicode(mapping_dict):
     cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
     return "\n".join(cmap)
 
-def load_sequence(doc, flags, db_map, font_cache, rezim="vizual", progress_callback=None):
-    sekvence = {}
+
+def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callback=None):
+    sequence = {}
     total_pages = len(doc)
 
     for page_idx, page in enumerate(doc):
@@ -3431,9 +3552,9 @@ def load_sequence(doc, flags, db_map, font_cache, rezim="vizual", progress_callb
                     xref = next((x for x, n in fonts_on_page.items() if (n == f_name or f_name in n)), None)
 
                     if not xref: continue
-                    if xref not in sekvence: sekvence[xref] = []
+                    if xref not in sequence: sequence[xref] = []
 
-                    if rezim == "vizual" and xref not in font_cache:
+                    if mode == "visual" and xref not in font_cache:
                         _, ext, _, buffer = doc.extract_font(xref)
                         if ext == "cff":
                             try:
@@ -3445,7 +3566,8 @@ def load_sequence(doc, flags, db_map, font_cache, rezim="vizual", progress_callb
                                     internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
                                 except:
                                     internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
-                                font_cache[xref] = {"glyph_set": glyph_set, "diffs": pdf_diffs, "enc": internal_enc, "name": f_name}
+                                font_cache[xref] = {"glyph_set": glyph_set, "diffs": pdf_diffs, "enc": internal_enc,
+                                                    "name": f_name}
                             except:
                                 font_cache[xref] = None
                         else:
@@ -3455,11 +3577,16 @@ def load_sequence(doc, flags, db_map, font_cache, rezim="vizual", progress_callb
                         raw_char = char_obj.get("c", "")
                         if not raw_char: continue
 
-                        if rezim == "vizual":
+                        if mode == "visual":
                             b = ord(raw_char) % 256
                             if xref in font_cache and font_cache[xref]:
                                 f_data = font_cache[xref]
                                 g_name = f_data["diffs"].get(b, f_data["enc"].get(b, ".notdef"))
+
+                                if g_name in EXTENDED_AGL:
+                                    sequence[xref].append("IGNORE_AGL")
+                                    continue
+
                                 g_hash = get_standalone_glyph_hash(f_data["glyph_set"], g_name)
 
                                 if "hash_to_names" not in f_data:
@@ -3473,14 +3600,14 @@ def load_sequence(doc, flags, db_map, font_cache, rezim="vizual", progress_callb
                                 same_hash_names = f_data["hash_to_names"].get(g_hash, set())
 
                                 u_hex = find_best_unicode(g_hash, g_name, db_map, same_hash_names)
-                                sekvence[xref].append(u_hex if u_hex else "003F")
+                                sequence[xref].append(u_hex if u_hex else "003F")
                         else:
                             val = ord(raw_char)
                             if 0xE000 <= val <= 0xE0FF:
-                                sekvence[xref].append(val - 0xE000)
+                                sequence[xref].append(val - 0xE000)
                             else:
-                                sekvence[xref].append(val % 256)
-    return sekvence
+                                sequence[xref].append(val % 256)
+    return sequence
 
 
 def calculate_file_hash(filepath):
@@ -3511,163 +3638,270 @@ def load_file_hash_db(db_path):
 
 
 def headless_repair(pdf_path, glyph_db_map, verbose=False):
+    # Defining a helper to print debug messages if verbose is enabled
     def vprint(msg):
         if verbose:
             print(msg)
 
+    # Defining a callback function for the visual sequence loading progress
+    def visual_progress(current, total):
+        print_inline_progress(current, total, prefix='    Scanning visual text:  ', verbose=verbose)
+
+    # Defining a callback function for the dummy sequence loading progress
+    def dummy_progress(current, total):
+        print_inline_progress(current, total, prefix='    Scanning internal text:', verbose=verbose)
+
     try:
         doc = fitz.open(pdf_path)
-        all_unique_xrefs = set()
-        ready_xrefs = set()
+
+        total_found = 0
+        ignored_tounicode = 0
+        not_supported = 0
+        ignored_agl = 0
+        skipped_incomplete = 0
+        ignored_not_used = 0
+        repaired_completely = 0
+
+        processed_xrefs = set()
+        cff_candidates = []
         font_cache_local = {}
 
         vprint("  [DEBUG] Phase 0: Scanning for fonts in PDF...")
-        for page_num in range(len(doc)):
+        # Getting the total number of pages for the progress bar
+        total_pages = len(doc)
+
+        # Iterating through all pages in the PDF document
+        for page_num in range(total_pages):
+            print_inline_progress(page_num + 1, total_pages, prefix='    Scanning PDF pages:    ', verbose=verbose)
+
             page = doc.load_page(page_num)
             for f in page.get_fonts(full=True):
                 xref = f[0]
-                if xref in all_unique_xrefs: continue
+                if xref in processed_xrefs: continue
+                processed_xrefs.add(xref)
+                total_found += 1
 
                 name, ext, _, buffer = doc.extract_font(xref)
-                if ext and ext.lower() == "cff" and not has_tounicode(doc, xref):
-                    all_unique_xrefs.add(xref)
 
-                    cff = CFFFontSet()
-                    cff.decompile(BytesIO(buffer), None)
-                    glyph_set = cff.topDictIndex[0].CharStrings
-                    valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+                if has_tounicode(doc, xref):
+                    ignored_tounicode += 1
+                    continue
 
-                    total_glyphs = len(valid_glyph_names)
-                    mapped_count = 0
+                if not ext or ext.lower() != "cff":
+                    not_supported += 1
+                    continue
 
-                    hash_to_names = {}
-                    for g_name in valid_glyph_names:
-                        if g_name not in EXTENDED_AGL:
-                            gh = get_standalone_glyph_hash(glyph_set, g_name)
-                            if gh:
-                                if gh not in hash_to_names:
-                                    hash_to_names[gh] = set()
-                                hash_to_names[gh].add(g_name)
+                cff = CFFFontSet()
+                cff.decompile(BytesIO(buffer), None)
+                glyph_set = cff.topDictIndex[0].CharStrings
+                valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
 
-                    for g_name in valid_glyph_names:
-                        if g_name in EXTENDED_AGL:
-                            mapped_count += 1
-                        else:
-                            g_hash = get_standalone_glyph_hash(glyph_set, g_name)
-                            same_hash_names = hash_to_names.get(g_hash, set())
-                            u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
-                            if u_hex: mapped_count += 1
+                total_glyphs = len(valid_glyph_names)
+                mapped_count = 0
+                agl_count = 0
 
-                    pdf_diffs = get_differences(doc, xref)
-                    try:
-                        internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
-                    except:
-                        internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
-
-                    font_cache_local[xref] = {
-                        "name": name,
-                        "glyph_set": glyph_set,
-                        "diffs": pdf_diffs,  # Doplněno
-                        "enc": internal_enc,  # Doplněno
-                        "mapped": mapped_count,
-                        "total": total_glyphs
-                    }
-
-                    if total_glyphs > 0 and mapped_count >= total_glyphs:
-                        ready_xrefs.add(xref)
-                        vprint(f"    -> Ready: Font '{name}' - {mapped_count}/{total_glyphs} chars")
+                hash_to_names = {}
+                # Iterating over valid glyph names to group them by hash and count AGL glyphs
+                for g_name in valid_glyph_names:
+                    if g_name in EXTENDED_AGL:
+                        agl_count += 1
                     else:
-                        vprint(f"    -> Nekompletní: Font '{name}' - {mapped_count}/{total_glyphs} chars")
+                        gh = get_standalone_glyph_hash(glyph_set, g_name)
+                        if gh:
+                            if gh not in hash_to_names:
+                                hash_to_names[gh] = set()
+                            hash_to_names[gh].add(g_name)
 
-        if not all_unique_xrefs:
-            print("  [SKIP] Document does not contain repairabel CFF fonts")
+                # Iterating over valid glyph names to find the best unicode matches
+                for g_name in valid_glyph_names:
+                    if g_name in EXTENDED_AGL:
+                        mapped_count += 1
+                    else:
+                        g_hash = get_standalone_glyph_hash(glyph_set, g_name)
+                        same_hash_names = hash_to_names.get(g_hash, set())
+                        u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
+                        if u_hex: mapped_count += 1
+
+                pdf_diffs = get_differences(doc, xref)
+                try:
+                    internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
+                except:
+                    internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+
+                font_cache_local[xref] = {
+                    "name": name,
+                    "glyph_set": glyph_set,
+                    "diffs": pdf_diffs,
+                    "enc": internal_enc,
+                    "mapped": mapped_count,
+                    "total": total_glyphs,
+                    "agl_count": agl_count
+                }
+                cff_candidates.append(xref)
+
+        if not cff_candidates:
+            print(f"    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
+            if ignored_tounicode > 0:
+                print(f"    {Style.DIM}{ignored_tounicode} fonts ignored due to existing ToUnicode{Style.RESET_ALL}")
+            if not_supported > 0:
+                print(f"    {Style.DIM}{not_supported} fonts not supported{Style.RESET_ALL}")
+            print("")
             doc.close()
             return
-
-        if not ready_xrefs:
-            print(f"  [SKIP] Found {len(all_unique_xrefs)} CFF fonts, none are 100% mapped.")
-            doc.close()
-            return
-
-        print(f"  [INFO] Repairing {len(ready_xrefs)} of {len(all_unique_xrefs)} CFF fonts...")
 
         custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
 
         vprint("  [DEBUG] Visual sequence loading...")
-        vizualni_sekvence = load_sequence(doc, custom_flags, glyph_db_map, font_cache_local, rezim="vizual")
-        vizualni_sekvence = {x: seq for x, seq in vizualni_sekvence.items() if x in ready_xrefs}
+        # Passing the visual_progress callback to the load_sequence function
+        visual_sequence = load_sequence(
+            doc, custom_flags, glyph_db_map, font_cache_local,
+            mode="visual", progress_callback=visual_progress
+        )
 
-        vprint("  [DEBUG] Step 1/3: DUMMY ToUnicode injection")
-        dummy_cmap_str = generate_dummy_tounicode()
-        for xref in vizualni_sekvence.keys():
-            dummy_xref = doc.get_new_xref()
-            doc.update_object(dummy_xref, "<<>>")
-            doc.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
-            doc.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
-            vprint(f"    -> Dummy xref {dummy_xref} for font {xref} created")
+        ready_xrefs = set()
+        for xref in cff_candidates:
+            f_data = font_cache_local[xref]
+            seq = visual_sequence.get(xref, [])
 
-        dummy_pdf_bytes = doc.tobytes()
+            if not seq:
+                ignored_not_used += 1
+            elif f_data["total"] > 0 and f_data["agl_count"] == f_data["total"]:
+                ignored_agl += 1
+            elif f_data["mapped"] < f_data["total"]:
+                skipped_incomplete += 1
+            else:
+                ready_xrefs.add(xref)
+
+        success_count = 0
+        if ready_xrefs:
+            visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
+
+            vprint("  [DEBUG] Step 1/3: DUMMY ToUnicode injection")
+            dummy_cmap_str = generate_dummy_tounicode()
+            for xref in visual_sequence.keys():
+                dummy_xref = doc.get_new_xref()
+                doc.update_object(dummy_xref, "<<>>")
+                doc.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
+                doc.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
+
+            dummy_pdf_bytes = doc.tobytes()
+            doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
+
+            vprint("  [DEBUG] Step 2/3: Internal ID extraction")
+            # Passing the dummy_progress callback to the load_sequence function
+            internal_sequence = load_sequence(
+                doc_dummy, custom_flags, glyph_db_map, font_cache_local,
+                mode="dummy", progress_callback=dummy_progress
+            )
+            doc_dummy.close()
+
+            vprint("  [DEBUG] Step 3/3: Final ToUnicode creation")
+            doc_final = fitz.open(pdf_path)
+
+            for xref, v_seq in visual_sequence.items():
+                i_seq = internal_sequence.get(xref, [])
+                if len(v_seq) == len(i_seq):
+                    mapping = {}
+                    for v_hex, i_id in zip(v_seq, i_seq):
+                        if v_hex == "IGNORE_AGL":
+                            continue
+                        if i_id not in mapping:
+                            mapping[i_id] = v_hex
+
+                    if not mapping:
+                        vprint(f"    -> [INFO] Skipping font {xref} (only standard AGL characters used in text)")
+                        success_count += 1
+                        continue
+
+                    real_cmap = generate_real_tounicode(mapping)
+                    new_xref = doc_final.get_new_xref()
+                    doc_final.update_object(new_xref, "<<>>")
+                    doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
+                    doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+                    success_count += 1
+                else:
+                    vprint(
+                        f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
+
+            repaired_completely = success_count
+
+            base, ext = os.path.splitext(pdf_path)
+            if skipped_incomplete > 0:
+                out_path = f"{base}_Partially_Repaired{ext}"
+            else:
+                out_path = f"{base}_Repaired{ext}"
+
+            doc_final.save(out_path)
+            doc_final.close()
+
         doc.close()
 
-        vprint("  [DEBUG] Step 2/3: Internal ID extraction")
-        doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
-        interni_sekvence = load_sequence(doc_dummy, custom_flags, glyph_db_map, font_cache_local, rezim="dummy")
-        doc_dummy.close()
+        print(f"    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
 
-        # Finální oprava
-        vprint("  [DEBUG] Step 3/3: Final ToUnicode creation")
-        doc_final = fitz.open(pdf_path)
-        success_count = 0
-
-        for xref, v_seq in vizualni_sekvence.items():
-            i_seq = interni_sekvence.get(xref, [])
-            if len(v_seq) == len(i_seq):
-                mapping = {i_id: v_hex for v_hex, i_id in zip(v_seq, i_seq)}
-                real_cmap = generate_real_tounicode(mapping)
-                new_xref = doc_final.get_new_xref()
-                doc_final.update_object(new_xref, "<<>>")
-                doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
-                doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
-                success_count += 1
-                vprint(
-                    f"    -> [OK] Font {xref} repaired. Mapped {len(mapping)} unique chars out of {len(v_seq)}")
-            else:
-                vprint(
-                    f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
-
-        base, ext = os.path.splitext(pdf_path)
-        if success_count == len(all_unique_xrefs):
-            out_path = f"{base}_Repaired{ext}"
-        else:
-            out_path = f"{base}_Partially_Repaired{ext}"
-
-        doc_final.save(out_path)
-        doc_final.close()
-        print(f"  [SUCCESS] Saved as {os.path.basename(out_path)} ({success_count}/{len(all_unique_xrefs)} fonts)")
+        if repaired_completely > 0:
+            print(f"    {Fore.GREEN}{repaired_completely} fonts repaired completely{Style.RESET_ALL}")
+        if skipped_incomplete > 0:
+            print(
+                f"    {Fore.YELLOW}{skipped_incomplete} fonts skipped due to incomplete glyph mapping{Style.RESET_ALL}")
+        if ignored_agl > 0:
+            print(f"    {Fore.CYAN}{ignored_agl} fonts ignored due to AGL names{Style.RESET_ALL}")
+        if ignored_tounicode > 0:
+            print(f"    {Style.DIM}{ignored_tounicode} fonts ignored due to existing ToUnicode{Style.RESET_ALL}")
+        if ignored_not_used > 0:
+            print(f"    {Style.DIM}{ignored_not_used} fonts ignored because they're not used{Style.RESET_ALL}")
+        if not_supported > 0:
+            print(f"    {Style.DIM}{not_supported} fonts not supported{Style.RESET_ALL}")
+        print("")
 
     except Exception as e:
-        print(f"  [ERROR] Failed in processing: {e}")
+        print(f"    {Fore.RED}[ERROR] Failed in processing: {e}{Style.RESET_ALL}\n")
+
+
+# Defining a helper function to print an inline progress bar in the CLI
+def print_inline_progress(iteration, total, prefix='', length=30, fill='█', verbose=False):
+    percent = f"{100 * (iteration / float(total)):.1f}"
+    filled_length = int(length * iteration // total)
+    bar = fill * filled_length + '-' * (length - filled_length)
+    if verbose:
+        prefix = "  [DEBUG]"
+    print(f"\r{prefix} |{Fore.GREEN}{bar}{Style.RESET_ALL}| {percent}%", end="\r", flush=True)
+    if iteration == total:
+        print()
 
 
 def run_cli_mode(args):
+    try:
+        import colorama
+        from colorama import Fore, Style
+        colorama.init(autoreset=True)
+    except ImportError:
+        class DummyColor:
+            def __getattr__(self, name): return ""
+
+        Fore = DummyColor()
+        Style = DummyColor()
+
     print(f"=== CLI Glyph Repair ===")
 
     if not args.hash_db:
-        print("[ERROR] Parameter -d (--hash-db) with path to database missing")
-        #print("Run with: python main.py C:\\folder -m -d hashes.psv")
+        print(f"{Fore.RED}[ERROR] Parameter -d (--hash-db) with path to database missing{Style.RESET_ALL}")
+        if sys.platform == "win32": os.system("pause")
         sys.exit(1)
 
     valid_hashes = load_file_hash_db(args.hash_db)
     if not valid_hashes:
-        print(f"[ERROR] PSV database '{args.hash_db}' missing or empty.")
+        print(f"{Fore.RED}[ERROR] PSV database '{args.hash_db}' missing or empty.{Style.RESET_ALL}")
+        if sys.platform == "win32": os.system("pause")
         sys.exit(1)
 
-    print(f"[INFO] Loaded {len(valid_hashes)} validation hashes.")
+    db_name = os.path.basename(args.hash_db)
+    print(f"Database '{db_name}' contains {len(valid_hashes)} hashes of known PDF files.")
 
     target_files = []
     if args.multiple:
         if not os.path.isdir(args.target):
-            print(f"[ERROR] Target '{args.target}' is not a folder (required for -m).")
+            print(f"{Fore.RED}[ERROR] Target '{args.target}' is not a folder (required for -m).{Style.RESET_ALL}")
+            if sys.platform == "win32": os.system("pause")
             sys.exit(1)
 
         for root, dirs, files in os.walk(args.target):
@@ -3678,27 +3912,41 @@ def run_cli_mode(args):
                 break
     else:
         if not os.path.isfile(args.target):
-            print(f"[ERROR] File '{args.target}' not found")
+            print(f"{Fore.RED}[ERROR] File '{args.target}' not found{Style.RESET_ALL}")
+            if sys.platform == "win32": os.system("pause")
             sys.exit(1)
         target_files.append(args.target)
 
     if not target_files:
-        print("[INFO] No PDFs found.")
+        print("No PDFs found.")
+        if sys.platform == "win32": os.system("pause")
         sys.exit(0)
 
+    if len(target_files) == 1:
+        print(f"1 known PDF file found in specified directory.\n")
+    else:
+        print(f"{len(target_files)} known PDF files found in specified directory.\n")
+
     glyph_db_map = load_db(GLYPH_DATABASE)
-    print(f"[INFO] Mapping {len(target_files)} files...\n")
 
     for pdf_path in target_files:
-        print(f"-> {os.path.basename(pdf_path)}")
+        print(f"{Style.BRIGHT}-> {os.path.basename(pdf_path)}{Style.RESET_ALL}")
 
         if valid_hashes:
             file_hash = calculate_file_hash(pdf_path)
             if file_hash not in valid_hashes:
-                print(f"  [BLOCKED] File hash not in database.")
+                print(f"    {Fore.RED}[BLOCKED] File hash not in database.{Style.RESET_ALL}\n")
                 continue
 
         headless_repair(pdf_path, glyph_db_map, verbose=args.verbose)
+
+    print("=" * 50)
+    if sys.platform == "win32":
+        os.system("pause")
+    else:
+        input("Press Enter to continue...")
+    sys.exit(0)
+
 
 class CleanSelectionDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
@@ -3730,7 +3978,7 @@ def apply_dark_theme(app):
     app.setPalette(dark_palette)
 
     app.setStyleSheet("""
-    
+
         QToolTip {
             background-color: #2a2a2a;
             color: #ffffff;
@@ -3738,7 +3986,7 @@ def apply_dark_theme(app):
             border-radius: 4px;
             padding: 4px;
         }
-    
+
         QWidget, QDialog, QMessageBox {
             background-color: #1e1e1e;
             color: #f0f0f0;
@@ -3762,14 +4010,13 @@ def apply_dark_theme(app):
             border: none;
             border-radius: 6px;
             padding: 2px;
-            outline: 0; /* Ensures no focus outline in the list */
+            outline: 0;
             selection-background-color: transparent;
         }
 
         QListWidget::item:selected, QTreeWidget::item:selected {
-            background-color: transparent;
             color: #ffffff;
-            border: 1px solid #ffffff; /* Všude jinde bude bílý rámeček */
+            border: 1px solid #ffffff;
             border-radius: 4px;
             outline: none;
         }
