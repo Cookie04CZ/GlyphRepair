@@ -1,15 +1,5 @@
 **This script was originally created to repair encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#before-you-start).**
 
-
-# GlyphRepair
-Used libraries:
-- NumPy https://numpy.org/
-- PyMuPDF https://pymupdf.readthedocs.io/en/latest/#
-- PySide6 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
-- Matplotlib https://matplotlib.org/
-- fontTools https://fonttools.readthedocs.io/en/latest/
-
-
 # Keywords
 
 PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnicode table, Python, Windows executable
@@ -47,7 +37,7 @@ Opravný skript vzniknul v rámci diplomové práce ["Skripty pro hromadnou úpr
  # What GlyphRepair does
 This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair can works around these limitations:
 
-* Meaning of each character is manually defined (mapped) by user, which allows for 100% text fidelity.
+* Meaning of each character (glyph) is manually defined (mapped) by user, which allows for 100% text fidelity.
 * GlyphRepair preserves original document data, only adds new text encoding tables to it.
 
 However, these advantages come at a price. The program is designed to work only with older PDF documents which use so-called [Type 1 fonts](https://en.wikipedia.org/wiki/PostScript_fonts#Type_1). And manual mapping of the characters can become a time-consuming task, although GlyphRepair auto-suggests them.
@@ -56,7 +46,30 @@ However, these advantages come at a price. The program is designed to work only 
 
 Do you really need to permanently fix your PDF files? Or do you merely need to copy some text? If so, there may be a faster way: **[open-source viewer Evince](https://wiki.gnome.org/Apps/Evince) can return meaningful text even on files that are completely garbled in other PDF viewers** (we tested Adobe Reader, Sumatra PDF, PDF-XChange Viewer, Mozilla Firefox, Google Chrome and others). It's probably because Evince internally uses some sort of heuristics. Nevertheless, even Evince will usually correctly copy only standard ASCII characters (codes 32 to 126); special characters for foreign languages may still be garbled. And unfortunately, Evince is currently available only on Linux.
 
+# How to run GlyphRepair
 
+You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary libraries, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
+
+If you want to run Python code, you have to install following libraries:
+* NumPy https://numpy.org/
+* PyMuPDF https://pymupdf.readthedocs.io/en/latest/#
+* PySide6 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
+* Matplotlib https://matplotlib.org/
+* fontTools https://fonttools.readthedocs.io/en/latest/
+
+All can be installed with pip
+```
+pip3 install xxxxxxxx
+```
+Note that the program was developed and tested only with these library versions and only on Windows. We have no idea if they'd work on other operating systems. 
+
+# Testing whether your PDF file can be repaired
+
+As we mentioned earlier, GlyphRepair currently supports only one font type which is prevalent in older PDF files. That's because old PDF files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and use top bar to list through the fonts. If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." 
+
+Alternatively, some PDF viewers can display font type, the image below shows font list from Adobe Reader (File - Properties Fonts). As is highlighted in the image, fonts have to be of Type 1, although that itself doesn't guarantee that GlyphRepair will be able to repair it.
+
+<img width="856" height="346" alt="Font types in Adobe Reader" src="https://github.com/user-attachments/assets/ed5cd933-c50a-4bd0-af8b-27d01fbee12a" />
 
 
  # Other ways to fix your documents, but with lower fidelity
@@ -71,20 +84,6 @@ Notice the -sUseOCR=AsNeeded parameter. As explained in the [link above](https:/
 
 **Be warned that using Ghostscript has many other caveats.** Ghostscript actually completely rebuilds the input file, resulting in an entirely new PDF that only closely resembles the original one. In other words, even though it preserves vector content, it's still much more destructive than Type1toUnicode. This is apparent even in our simple sample, for example the main body font is slightly thicker. Even worse changes can occur with bitmap images, because by default, Ghostscript [recompresses them to optimize file size](https://ghostscript.com/blog/optimizing-pdfs.html). It's complicated to suppress this behavior, but in most cases it can be done via "Distiller Parameters". In our example, there are 4 "Filter" parameters that disable recompression for lossless grayscale and color images. Recompression is disabled by default for lossy (JPEG/DCT) images, but it can still kick in for large images (see PassThroughJPEGImages parameter). [Full list of these Distiller Parameters is here](https://ghostscript.readthedocs.io/en/latest/VectorDevices.html#distiller-parameters), but in our experience they can lead to counter-intuitive results. Be sure to examine your output files closely if you decide to give Ghostscript a try.
 
-# How to run Type1toUnicode
-
-There are actually two scripts in this repository, Type1toUnicode and opravAR. Both are available as Python sources and Windows executables (compiled with [PyInstaller 6.6.0](https://pyinstaller.org/en/stable/)). Python 3.12.3 was used during testing. You will probably need only Type1toUnicode, although what opravAR does is [explained in later chapter](#script-opravar-for-user-friendly-repair). The executables already contain all the necessary libraries, so they run right out the box. You will probably encounter [blue SmartScreen filter warnings](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run them for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first. If you want to run the .py files, you will need following libraries:
-
-* pypdf				4.2.0			https://pypdf.readthedocs.io/en/stable/
-* jellyfish			1.0.3			https://github.com/jamesturk/jellyfish
-* Levenshtein		0.25.1		https://rapidfuzz.github.io/Levenshtein/
-* colorama			0.4.6			https://pypi.org/project/colorama/
-
-All can be installed with pip
-```
-pip3 install xxxxxxxx
-```
-Note that the scripts were developed and tested only with these library versions and only on Windows 10. We have no idea if they'd work on other operating systems. 
 
 # Analyzing your PDF files
 
