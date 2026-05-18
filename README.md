@@ -48,7 +48,7 @@ Do you really need to permanently fix your PDF files? Or do you merely need to c
 
 # How to run GlyphRepair
 
-You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary libraries, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
+You should download the program and glyph_mappings.psv database; they have to be in the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary libraries, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
 
 If you want to run Python code, you have to install following libraries:
 * NumPy https://numpy.org/
@@ -65,21 +65,29 @@ Note that the program was developed and tested only with these library versions 
 
 # Testing whether your PDF file can be repaired
 
-As we mentioned earlier, GlyphRepair currently supports only one font type which is prevalent in older PDF files. That's because old PDF files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and use top bar to list through the fonts. If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." 
+As we mentioned earlier, GlyphRepair currently supports only one PDF font type which is prevalent in older PDF files. That's because old files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and use top bar to list through the fonts. If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." 
 
-Alternatively, some PDF viewers can display font type, the image below shows their list from Adobe Reader (File - Properties Fonts). As is highlighted in the image, fonts have to be of Type 1, although that by itself doesn't guarantee that GlyphRepair will be able to repair them.
+Alternatively, some PDF viewers can display font type, the image below shows their list from Adobe Reader (File - Properties - Fonts). As is highlighted in the image, fonts have to be of Type 1, although that by itself doesn't guarantee that GlyphRepair will be able to repair them.
 
 <img width="856" height="346" alt="Font types in Adobe Reader" src="https://github.com/user-attachments/assets/ed5cd933-c50a-4bd0-af8b-27d01fbee12a" />
 
 # Repairing your first document
 
-GlyphRepair is most effective if you need to repair multiple documents that come from the same source and/or contain the same fonts. It builds a database of unique graphemes (glyphs) that are visible in the document and you have to assign (map) which characters they represent. You have to do this mapping only once for a given font -- GlyphRepair automatically recognizes glyphs you've previously mapped, even in different documents. Unfortunately, you have to do this mapping for **all** fonts you wish to repair, because even slightly different glyphs are regarded as unique. Fortunately, glyphs in real-world documents have their internal names which are (usually) not random. GlyphRepair analyzes existing entries in the database and automatically suggests the most probable mapping. In ideal case, you will have to map only one font which will be used as base for all other fonts. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may propagate to other fonts!
+GlyphRepair is most effective if you need to repair multiple documents that come from the same source and/or contain the same fonts. It builds a database of unique graphemes (glyphs) that are visible in the document and you have to assign (map) which characters they represent. You have to do this mapping only once for a given font -- GlyphRepair automatically recognizes glyphs you've previously mapped, even in different documents. Unfortunately, you have to do this mapping for **all** fonts you wish to repair, because even slightly different glyphs are regarded as unique. Fortunately, glyphs in real-world documents have their internal names which are (usually) not random. GlyphRepair analyzes existing entries in the database and automatically suggests the most probable mapping. In ideal case, you will have to map only one font which will be used as base for all other fonts. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts! Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This happens due to internal limitations of the PDF format.
+
+The database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which were originally bundled with Adobe products. If your documents use other fonts, it may be preferable to start with blank glyph_mappings.psv. Simply delete the file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
 # Repairing another document(s)
 
-If you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same glyphs, so you need to find and map the missing ones. Simply click on Next Unmapped and GlyphRepair will find them. In practice, GlyphRepair will make large jumps in the glyph list or even skip entire fonts, making manual navigation difficult. If you make a mistake, use Previously Mapped button to easily go back. However, this glyph history is remembered only for currently opened document.
+If you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same glyphs, so you need to find and map the missing ones. Simply click on Next Unmapped and GlyphRepair will find them. In practice, GlyphRepair will make large jumps in the glyph list or even skip entire fonts, making manual navigation difficult. If you make a mistake, use Previously Mapped button to easily go back. However, its history is remembered only for currently opened document.
 
-# Repairing only specific pages or fonts
+# Repairing only selected pages or fonts
+
+Real-world documents may contain dozens of fonts, which means you'd have to map hundreds or even thousands of glyphs. In many cases, that's unneccessary, because only a few fonts hold bulk of the text. Or you may want to repair only fonts on specific pages and ignore all others. GlyphRepair is designed to help you with that, because you can enable Page Mode Navigation in the settings. If you do so, page selector will appear above font selector. The font selector will then cycle only through fonts which are used on the selected page. You may quickly switch between pages if you click in the middle of the page selector and simply choose page in the menu that appears. The menu also displays how many fonts are used on every page and colors indicate their mapping status.
+
+
+Note that Next Unmapped button is **not** limited to selected page -- it always searches all fonts within the document and will automatically jump to other pages, even with Page Mode Navigation enabled. 
+
 
 
 
