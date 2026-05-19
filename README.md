@@ -66,14 +66,16 @@ Note that the program was developed and tested only with these library versions 
 # Testing whether your PDF file can be repaired
 
 As we mentioned earlier, GlyphRepair currently supports only one PDF font type which is prevalent in older PDF files. That's because old files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and click to the middle of font selector to see list of fonts:
+
 <p>
 <img width="1202" height="855" alt="Analysis base" src="https://github.com/user-attachments/assets/679622f7-dccd-4f1f-8105-991d49296870" />
 <p>
-You should switch the page filter to "All pages" to see all fonts in the document. Most of them will probably have grey or orange dots next to them, which means all of some of their characters are unknown (unmapped):
 
+ You should switch the page filter to "All pages" to see all fonts in the document. Most of them will probably have grey or orange dots next to them, which means all of some of their characters are unknown (unmapped):
 
+<p>
 <img width="652" height="532" alt="Analysis font list" src="https://github.com/user-attachments/assets/94d41779-0d58-4ddf-b972-a59ceb79aadc" />
-
+<p>
 
 If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired."
 
@@ -81,14 +83,17 @@ If your file doesn't contain any repairable fonts, you will get message "This do
 
 GlyphRepair is most effective if you need to repair multiple documents that come from the same source and/or contain the same fonts. It builds a database of unique graphemes (glyphs) that are visible in the document and you have to assign (map) which characters they represent. You have to do this mapping only once for a given font -- GlyphRepair automatically recognizes glyphs you've previously mapped, even in different documents. Glyphs are displayed vertically in the work area on the left. Simply enter their meaning into Character field and press Enter. You may enter up to 3 characters for each glyph, which is sometimes needed for so-called [ligatures](https://en.wikipedia.org/wiki/Ligature_(writing)).
 
+<p>
 <img width="1202" height="855" alt="First document base" src="https://github.com/user-attachments/assets/9dc13089-4a5b-48be-be9e-37926183bdb9" />
+<p>
 
 Notice that GlyphRepair automatically recognizes and maps spaces (U+0020). If you encounter an unmapped empty glyph, it usually means it's no-break space (NBSP, U+00A0) or other special character. But that's rarely relevant when you copy+paste text from PDF, so you may map them to ordinary spaces (U+0020).
 
 You have to assign character mapping for **all** fonts you wish to repair, because even slightly different glyphs are regarded as unique. Fortunately, glyphs in real-world documents have their internal names which are (usually) not random. These Glyph Names are displayed in the work area and replaced with actual character once you map them. The program analyzes existing Glyph Names in the database and automatically suggests the most probable mapping. These suggestions are displayed below the work area:
 
+<p>
 <img width="1202" height="855" alt="First document prompter" src="https://github.com/user-attachments/assets/58e57a5d-ed25-4153-b7be-278eb6088f6f" />
-
+<p>
 
 
 In ideal case, you will have to map only one font which will be used as base for all other fonts. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts! Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This is necessary due to internal limitations of the PDF format.
