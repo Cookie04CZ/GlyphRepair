@@ -1,4 +1,4 @@
-**This script was originally created to repair encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#before-you-start).**
+**This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).**
 
 # Keywords
 
@@ -48,7 +48,7 @@ Do you really need to permanently fix your PDF files? Or do you merely need to c
 
 # How to run GlyphRepair
 
-You should download the program and glyph_mappings.psv database; they have to be in the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary libraries, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
+You should download the program and glyph_mappings.psv database and put them to the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary libraries, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
 
 If you want to run Python code, you have to install following libraries:
 * NumPy https://numpy.org/
@@ -61,11 +61,11 @@ All can be installed with pip
 ```
 pip3 install xxxxxxxx
 ```
-Note that the program was developed and tested only with these library versions and only on Windows. We have no idea if they'd work on other operating systems. 
+Note that the program was developed and tested only with these library versions and only on Windows. We have no idea if it works on other operating systems. 
 
 # Testing whether your PDF file can be repaired
 
-As we mentioned earlier, GlyphRepair currently supports only one PDF font type which is prevalent in older PDF files. That's because old files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and use top bar to list through the fonts. If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." 
+As we mentioned earlier, GlyphRepair currently supports only one PDF font type which is prevalent in older PDF files. That's because old files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and click to the middle of font selector to see list of fonts. If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." 
 
 Alternatively, some PDF viewers can display font type, the image below shows their list from Adobe Reader (File - Properties - Fonts). As is highlighted in the image, fonts have to be of Type 1, although that by itself doesn't guarantee that GlyphRepair will be able to repair them.
 
@@ -73,7 +73,7 @@ Alternatively, some PDF viewers can display font type, the image below shows the
 
 # Repairing your first document
 
-GlyphRepair is most effective if you need to repair multiple documents that come from the same source and/or contain the same fonts. It builds a database of unique graphemes (glyphs) that are visible in the document and you have to assign (map) which characters they represent. You have to do this mapping only once for a given font -- GlyphRepair automatically recognizes glyphs you've previously mapped, even in different documents. Unfortunately, you have to do this mapping for **all** fonts you wish to repair, because even slightly different glyphs are regarded as unique. Fortunately, glyphs in real-world documents have their internal names which are (usually) not random. GlyphRepair analyzes existing entries in the database and automatically suggests the most probable mapping. In ideal case, you will have to map only one font which will be used as base for all other fonts. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts! Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This happens due to internal limitations of the PDF format.
+GlyphRepair is most effective if you need to repair multiple documents that come from the same source and/or contain the same fonts. It builds a database of unique graphemes (glyphs) that are visible in the document and you have to assign (map) which characters they represent. You have to do this mapping only once for a given font -- GlyphRepair automatically recognizes glyphs you've previously mapped, even in different documents. Unfortunately, you have to do this mapping for **all** fonts you wish to repair, because even slightly different glyphs are regarded as unique. Fortunately, glyphs in real-world documents have their internal names which are (usually) not random. GlyphRepair analyzes existing entries in the database and automatically suggests the most probable mapping. In ideal case, you will have to map only one font which will be used as base for all other fonts. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts! Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This is necessary due to internal limitations of the PDF format.
 
 The database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which were originally bundled with Adobe products. If your documents use other fonts, it may be preferable to start with blank glyph_mappings.psv. Simply delete the file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
