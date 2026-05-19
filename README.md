@@ -160,10 +160,43 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
  # Saving repaired documents
 
-Predictably, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of pages again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
+Unsuprisingly, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of pages again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
 
  **TBD**
 
+ # How GlyphRepair works internally 
+
+Glyphs in Type 1 fonts are stored as vector image instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript instructions and then calculates MD5 hash from them. The reason for this is threefold:
+1. Even slight difference in glyph PostScript instructions will result in a completely different hash.
+2. The resulting hash always has the same length, which is useful for storing them in database.
+3. Many fonts are copyrighted, so you can't store and distibute their original data, anyway.
+
+While you're creating new mappings for a document, the data flow is:
+Read glyph data -> calculate MD5 hash -> pair the hash with user-assigned character -> store Unicode code for the character into database.
+
+There's a reason why mapped characters are stored in Unicode. In old PDF files with Type 1 fonts, glyphs are just graphical symbols that may or may not contain information about which character they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. These are called "embedded subset" fonts. Another file size reduction comes from character ordering. In Type 1 fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
+
+| Letter | O |U |R |O |B |O |R |O |S |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Character code (CC) | 1 |2 |3 |1 |4 |1 |3 |1 |5 |
+
+Notice that CC for letter "O" gets repeated every time it's needed. These character codes are linked with glyphs, so the renderer knows what to display at each code position. Glyphs have their own Glyph Names (GN) which may be linked to CCs like this:
+
+| Letter | O | U | R | B | S |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| Character code (CC) | 1 | 2 | 3 | 4 | 5 |
+| Glyph name (GN) | G79 | G85 | G82 | G66 | G83 |
+
+As you can see, neither CC nor GN reliably convey which character they actually represent. **That's the real reason why you get only gibberish when you try to copy+paste from some PDF documents.** Moreover, Type 1 fonts are limited to about 220 characters, which quickly became insufficient for modern documents. So in 1996, Adobe introduced toUnicode tables into PDF version 1.2. These are separate tables that link character codes with their [Unicode](https://en.wikipedia.org/wiki/Unicode) equivalent. For OUROBOROS, the toUnicode table would look like this:
+
+| Letter | O | U | R | B | S |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| Character code (CC) | 1 | 2 | 3 | 4 | 5 |
+| toUnicode | 004F | 0055 | 0052 | 0042 | 0053 |
+
+GlyphRepair fixes documents encoding by creating and injecting new toUnicode tables for each font. In simplified form, it works like this:
+Read glyph data -> calculate MD5 hash -> look up the hash in database -> read Unicode code from database -> create glyph Character Code-Unicode pair
+When all pairs are found, they are compiled into a toUnicode table and injected into the PDF.
 
  # Other ways to fix your documents, but with lower fidelity
 
