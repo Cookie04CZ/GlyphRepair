@@ -691,7 +691,7 @@ class PageSelectionDialog(QDialog):
 # Dialog window for font selection
 # It allows the user to view font progress and info
 class FontSelectionDialog(QDialog):
-    def __init__(self, menu_data, font_cache, current_font_name, current_page, parent=None):
+    def __init__(self, menu_data, font_cache, current_font_name, current_page, doc_stats=None, parent=None):
         super().__init__(parent)
         self.current_page = current_page
         self.setWindowTitle("Select Font")
@@ -762,8 +762,32 @@ class FontSelectionDialog(QDialog):
         d_layout.addWidget(self.lbl_det_pages)
         d_layout.addStretch()
 
+        # Create the new Document Summary box
+        summary_group = QGroupBox("Document Summary")
+        s_layout = QVBoxLayout(summary_group)
+
+        if doc_stats is None:
+            doc_stats = {'total': 0, 'repairable': 0, 'tounicode': 0, 'unsupported': 0}
+
+        lbl_sum_total = QLabel(f"<b>Total Fonts:</b> {doc_stats['total']}")
+        lbl_sum_repair = QLabel(
+            f"<b>Repairable (CFF):</b> <span style='color:#3d7eff;'>{doc_stats['repairable']}</span>")
+        lbl_sum_touni = QLabel(f"<b>Ignored (Has ToUnicode):</b> {doc_stats['tounicode']}")
+
+        # Color unsupported red only if there are any
+        unsupp_color = "#ff4444" if doc_stats['unsupported'] > 0 else "#aaaaaa"
+        lbl_sum_unsupp = QLabel(
+            f"<b>Unsupported (Not CFF):</b> <span style='color:{unsupp_color};'>{doc_stats['unsupported']}</span>")
+
+        s_layout.addWidget(lbl_sum_total)
+        s_layout.addWidget(lbl_sum_repair)
+        s_layout.addWidget(lbl_sum_touni)
+        s_layout.addWidget(lbl_sum_unsupp)
+
+        # Assemble the right layout
         right_layout.addWidget(filters_group)
         right_layout.addWidget(details_group)
+        right_layout.addWidget(summary_group)
         right_layout.addStretch()
 
         content_layout.addLayout(left_layout, 1)
@@ -1755,11 +1779,21 @@ class FontWidget(QMainWindow):
         if not hasattr(self, 'menu_structure') or not self.menu_structure:
             return
 
+        # Prepare statistics dictionary for the dialog
+        doc_stats = {
+            'total': getattr(self, 'stats_total_fonts', 0),
+            'repairable': getattr(self, 'stats_cff_repairable', 0),
+            'tounicode': getattr(self, 'stats_has_tounicode', 0),
+            'unsupported': getattr(self, 'stats_not_supported', 0)
+        }
+
         dialog = FontSelectionDialog(
             self.menu_structure,
             self.font_cache,
             self.current_font_name,
-            self.current_page
+            self.current_page,
+            doc_stats,
+            self
         )
 
         if dialog.exec():
@@ -2686,6 +2720,15 @@ class FontWidget(QMainWindow):
             with fitz.open(file_path) as doc:
                 first_page = first_name = None
 
+                # Initialize variables for global document statistics
+                self.stats_total_fonts = 0
+                self.stats_has_tounicode = 0
+                self.stats_not_supported = 0
+                self.stats_cff_repairable = 0
+
+                # Track unique fonts across the entire document
+                all_doc_xrefs = set()
+
                 # Iterate through all pages
                 for page_num in range(len(doc)):
                     page = doc.load_page(page_num)
@@ -2695,57 +2738,72 @@ class FontWidget(QMainWindow):
                     for font in page.get_fonts(full=True):
                         try:
                             xref = font[0]
+                            # Extract font details immediately to evaluate its type
                             name, ext, _, buffer = doc.extract_font(xref)
 
-                            # Only process CFF fonts
-                            if ext and ext.lower() == "cff":
+                            # Gather global document statistics (count each xref only once)
+                            if xref not in all_doc_xrefs:
+                                all_doc_xrefs.add(xref)
+                                self.stats_total_fonts += 1
 
                                 if has_tounicode(doc, xref):
-                                    continue
+                                    self.stats_has_tounicode += 1
+                                elif not ext or ext.lower() != "cff":
+                                    self.stats_not_supported += 1
+                                else:
+                                    self.stats_cff_repairable += 1
 
-                                cff_names_on_page.append(name)
+                            # Only process CFF fonts
+                            if not ext or ext.lower() != "cff":
+                                continue
 
-                                if xref not in processed_xrefs:
-                                    tmp_font = CFFFontSet()
-                                    tmp_font.decompile(BytesIO(buffer), None)
-                                    glyph_set = tmp_font.topDictIndex[0].CharStrings
+                            # Skip if it already has ToUnicode
+                            if has_tounicode(doc, xref):
+                                continue
 
-                                    # Filter out .notdef
-                                    valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
-                                    total_glyphs = len(valid_glyph_names)
+                            cff_names_on_page.append(name)
 
-                                    current_font_hashes = {}
-                                    agl_count = 0
-                                    for gname in valid_glyph_names:
-                                        if gname in EXTENDED_AGL:
-                                            agl_count += 1
+                            if xref not in processed_xrefs:
+                                tmp_font = CFFFontSet()
+                                tmp_font.decompile(BytesIO(buffer), None)
+                                glyph_set = tmp_font.topDictIndex[0].CharStrings
 
-                                        glyph = glyph_set[gname]
-                                        pen = SignaturePen(glyph_set)
-                                        glyph.draw(pen)
+                                # Filter out .notdef
+                                valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+                                total_glyphs = len(valid_glyph_names)
 
-                                        # Detect completely empty glyphs and assign a special hash
-                                        if not pen.signature:
-                                            ghash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
-                                        else:
-                                            sig = pen.get_signature()
-                                            ghash = md5(sig.encode('utf-8')).hexdigest()
-                                        current_font_hashes[gname] = ghash
+                                current_font_hashes = {}
+                                agl_count = 0
+                                for gname in valid_glyph_names:
+                                    if gname in EXTENDED_AGL:
+                                        agl_count += 1
 
-                                    mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
+                                    glyph = glyph_set[gname]
+                                    pen = SignaturePen(glyph_set)
+                                    glyph.draw(pen)
 
-                                    processed_xrefs[xref] = {
-                                        'glyph_count': total_glyphs,
-                                        'mapped_count': mapped_count,
-                                        'agl_count': agl_count,
-                                        'glyph_hashes': current_font_hashes,
-                                        'data': buffer
-                                    }
+                                    # Detect completely empty glyphs and assign a special hash
+                                    if not pen.signature:
+                                        ghash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
+                                    else:
+                                        sig = pen.get_signature()
+                                        ghash = md5(sig.encode('utf-8')).hexdigest()
+                                    current_font_hashes[gname] = ghash
 
-                                self.font_cache[(page_num, name)] = processed_xrefs[xref]
+                                mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
 
-                                if first_page is None:
-                                    first_page, first_name = page_num, name
+                                processed_xrefs[xref] = {
+                                    'glyph_count': total_glyphs,
+                                    'mapped_count': mapped_count,
+                                    'agl_count': agl_count,
+                                    'glyph_hashes': current_font_hashes,
+                                    'data': buffer
+                                }
+
+                            self.font_cache[(page_num, name)] = processed_xrefs[xref]
+
+                            if first_page is None:
+                                first_page, first_name = page_num, name
                         except Exception as e:
                             print(f"Error parsing font {name}: {e}")
 
@@ -3310,9 +3368,9 @@ class FontWidget(QMainWindow):
             dialog.show()
 
             try:
-                dialog.log("=========================================", "#aaaaaa")
-                dialog.log("          PDF Repair started...          ", "#3d7eff")
-                dialog.log("=========================================", "#aaaaaa")
+                dialog.log("=" * 68, "#aaaaaa")
+                dialog.log("PDF Repair started...".center(68), "#3d7eff")
+                dialog.log("=" * 68, "#aaaaaa")
 
                 db_map = load_db(GLYPH_DATABASE)
                 custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
@@ -3323,30 +3381,39 @@ class FontWidget(QMainWindow):
                 dialog.log("[INFO] Visual order scanning...", "#aaaaaa")
                 visual_sequence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, mode="visual",
                                                 progress_callback=dialog.set_progress)
-                visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
 
-                ready_fonts_count = len(visual_sequence)
-                dialog.log(f"[INFO] Found {ready_fonts_count} ready fonts out of {total_unique_cff_fonts} total CFF fonts for repair.\n", "#aaaaaa")
+                # Calculate counts clearly before modifying the sequence
+                ready_xrefs_count = len(ready_xrefs)
+                incomplete_fonts_count = total_unique_cff_fonts - ready_xrefs_count
 
                 ghost_xrefs = set(ready_xrefs) - set(visual_sequence.keys())
+                visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
+                ready_fonts_count = len(visual_sequence)
+
+                # Clearly log the font analysis math for the user
+                dialog.log("\n[INFO] Document analysis summary:", "#aaaaaa")
+                dialog.log(f"  -> Total CFF fonts in PDF: {total_unique_cff_fonts}", "#aaaaaa")
+                dialog.log(f"  -> Fully mapped (ready):   {ready_xrefs_count}",
+                           "#228B22" if ready_xrefs_count > 0 else "#aaaaaa")
+
+                if incomplete_fonts_count > 0:
+                    dialog.log(f"  -> Incomplete (skipped):   {incomplete_fonts_count}", "#FF8C00")
+
                 if ghost_xrefs:
-                    dialog.log(f"[WARNING] {len(ghost_xrefs)} font(s) skipped (no physical text detected):", "#FF8C00")
+                    dialog.log(f"  -> Ghost fonts (no text):  {len(ghost_xrefs)}", "#FF8C00")
                     for gxref in ghost_xrefs:
                         gx_name = "Unknown"
-                        gx_pages = []
                         for p_num, f_list in page_font_map.items():
                             for f_info in f_list:
                                 if f_info['xref'] == gxref:
                                     gx_name = f_info['name']
-                                    if (p_num + 1) not in gx_pages:
-                                        gx_pages.append(p_num + 1)
+                                    break
+                        dialog.log(f"      - '{gx_name}' (skipped)", "#888888")
 
-                        pages_str = ", ".join(map(str, gx_pages))
-                        dialog.log(f"      -> '{gx_name}' (found on page(s): {pages_str})", "#888888")
-                    dialog.log("", "#aaaaaa")
+                dialog.log(f"\n[INFO] Proceeding to repair {ready_fonts_count} active fonts.\n", "#3d7eff")
 
                 dialog.log("[1/3] DUMMY ToUnicode injection", "#3d7eff")
-                dialog.log("-" * 40, "#aaaaaa")
+                dialog.log("-" * 68, "#aaaaaa")
                 dummy_cmap_str = generate_dummy_tounicode()
 
                 for idx, xref in enumerate(visual_sequence.keys(), 1):
@@ -3364,7 +3431,7 @@ class FontWidget(QMainWindow):
                 doc_vizual.close()
 
                 dialog.log("\n[2/3] CharacterCode extraction", "#3d7eff")
-                dialog.log("-" * 40, "#aaaaaa")
+                dialog.log("-" * 68, "#aaaaaa")
                 doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
                 internal_sequence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, mode="dummy")
                 doc_dummy.close()
@@ -3373,7 +3440,7 @@ class FontWidget(QMainWindow):
                 dialog.log(f"  -> Extraction succeeded (processing {ready_fonts_count} ready fonts).","#228B22")
 
                 dialog.log("\n[3/3] Final ToUnicode mapping", "#3d7eff")
-                dialog.log("-" * 40, "#aaaaaa")
+                dialog.log("-" * 68, "#aaaaaa")
                 doc_final = fitz.open(self.pdf_path)
                 success_count = 0
 
@@ -3423,22 +3490,30 @@ class FontWidget(QMainWindow):
                 doc_final.save(out_path)
                 doc_final.close()
 
-                # Calculate if any fonts were skipped right at the start due to incomplete mapping
-                incomplete_fonts_count = total_unique_cff_fonts - len(ready_xrefs_set)
+                # Check overall perfection status
                 is_completely_perfect = (success_count == ready_fonts_count) and (incomplete_fonts_count == 0)
+                summary_color = "#228B22" if is_completely_perfect else "#FF8C00"
 
-                # Determine the overall summary color
-                summary_color = "#3d7eff" if is_completely_perfect else "#FF8C00"
+                dialog.log("\n" + "=" * 68, "#aaaaaa")
+                dialog.log("Repair finished".center(68), summary_color)
+                dialog.log("=" * 68, "#aaaaaa")
 
-                dialog.log("\n" + "=" * 45, "#aaaaaa")
-                dialog.log("             Repair finished                ", summary_color)
-                dialog.log("=" * 45, "#aaaaaa")
                 dialog.log(f"Repaired file: {os.path.basename(out_path)}")
-                dialog.log(f"Successfully repaired fonts: {success_count} / {ready_fonts_count}")
 
-                # Log the explicitly skipped incomplete fonts to make the user aware
+                # Consolidate the final numbers to match the starting summary
+                dialog.log(f"Active fonts successfully repaired: {success_count} / {ready_fonts_count}",
+                           "#228B22" if success_count == ready_fonts_count else "#ff4444")
+
                 if incomplete_fonts_count > 0:
-                    dialog.log(f"Incomplete fonts skipped: {incomplete_fonts_count}", "#FF8C00")
+                    dialog.log(f"Fonts skipped due to incomplete mapping: {incomplete_fonts_count}", "#FF8C00")
+                if ghost_xrefs:
+                    dialog.log(f"Fonts skipped because they contain no text: {len(ghost_xrefs)}", "#FF8C00")
+
+                    # Append global document summary to the bottom of the log
+                dialog.log("\n[INFO] Global PDF font summary:", "#aaaaaa")
+                dialog.log(f"  -> Total fonts evaluated:    {self.stats_total_fonts}", "#aaaaaa")
+                dialog.log(f"  -> Unsupported (Not CFF):    {self.stats_not_supported}", "#ff4444" if self.stats_not_supported > 0 else "#aaaaaa")
+                dialog.log(f"  -> Ignored (Has ToUnicode):  {self.stats_has_tounicode}", "#aaaaaa")
 
                 if is_completely_perfect:
                     if ghost_xrefs:
@@ -3453,7 +3528,6 @@ class FontWidget(QMainWindow):
                     else:
                         dialog.log("[STATUS] Finished partially, incomplete fonts were skipped.", "#FF8C00")
                     self.play_sound(success=False)
-                dialog.log("=" * 45, "#aaaaaa")
 
                 dialog.finish()
                 dialog.exec()
@@ -3936,7 +4010,8 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
 
         doc.close()
 
-        print(f"    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
+        # Printing the unified flat list of font statistics with Colorama colors matching the GUI
+        print(f"\n    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
 
         if repaired_completely > 0:
             print(f"    {Fore.GREEN}{repaired_completely} fonts repaired completely{Style.RESET_ALL}")
