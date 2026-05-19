@@ -1,4 +1,4 @@
-<code style="color : red">**This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).**</code>
+$${\color{red}Red}$$**This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).**
 
 # Keywords
 
