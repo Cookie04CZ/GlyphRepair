@@ -1242,7 +1242,7 @@ class FontWidget(QMainWindow):
     def __init__(self):
         super().__init__()
         # Initialize QSettings for persistent configuration
-        self.settings_db = QSettings("GlyphRepairApp")
+        self.settings_db = QSettings("GlyphRepair", "Settings")
 
         def _get_bool(key, default):
             val = self.settings_db.value(key, default)
