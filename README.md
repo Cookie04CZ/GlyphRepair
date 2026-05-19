@@ -79,7 +79,7 @@ As we mentioned earlier, GlyphRepair currently supports only one PDF font type w
 
 If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired."
 
-# Repairing your first document
+# Mapping your first document
 
 GlyphRepair is most effective if you need to repair multiple documents that come from the same source and/or contain the same fonts. It builds a database of unique graphemes (glyphs) that are visible in the document and you have to assign (map) which characters they represent. You have to do this mapping only once for a given font -- GlyphRepair automatically recognizes glyphs you've previously mapped, even in different documents. Glyphs are displayed vertically in the work area on the left. Simply enter their meaning into Character field and press Enter. You may enter up to 3 characters for each glyph, which is sometimes needed for so-called [ligatures](https://en.wikipedia.org/wiki/Ligature_(writing)). If you make a mistake, simply click on the glyph in the work area and re-enter character for it. You can also move up and down the glyph list with cursor keys.
 
@@ -101,38 +101,59 @@ Notice that GlyphRepair automatically recognizes and maps spaces (U+0020). If yo
 <img width="452" height="626" alt="Settings Unicode hex enable" src="https://github.com/user-attachments/assets/a92ad410-a5d4-4178-9518-1c424827db68" />
 </p>
 
-This will display another input field which accepts only string of 4 or 5 hexadecimal characters (0-9, a-f, A-F).
+This will display another input field which accepts only string of 4 or 5 hexadecimal characters (0-9, a-f, A-F). In other words, you must **not** enter the U+ prefix that's customary with Unicode.
 
 <p>
 <img width="1202" height="855" alt="First document Unicode enabled" src="https://github.com/user-attachments/assets/7b7abc75-50c3-420d-a243-ce87ec42498a" />
 </p>
 
-The database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which were originally bundled with Adobe products. If your documents use other fonts, it may be preferable to start with blank glyph_mappings.psv. Simply delete the file, because GlyphRepair will create an empty database if it doesn't find it upon start.
+# Glyph database and its impact on auto-suggestion
 
-# Repairing another document(s)
+The database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which were originally bundled with Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening to you, it may be best to start with a blank database. Simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
-If you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same set of glyphs, so you need to find and map the missing ones. You have to  click on Next Unmapped button to find them. In practice, GlyphRepair will make large jumps in the work area or even skip entire fonts, making manual navigation difficult. If you think you've made a mistake, use Previously Mapped button to easily go back. But, be aware that this glyph mapping history is remembered only for currently opened document.
+By default, GlyphRepair auto-saves the database whenever you finish mapping a font or entire document. This auto-saving feature can be disabled in the Settings. You can also save the database manually at any time with Save All to DB button.
+
+# Mapping another document(s)
+
+When you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same set of glyphs, so you need to find and map the missing ones. You have to  use the Next Unmapped button to do that. In practice, GlyphRepair will make large jumps in the work area or even skip entire fonts, making manual navigation difficult. If you think you've made a mistake, use Previously Mapped button to easily go back. But, be aware that this glyph mapping history is remembered only for currently opened document.
 
 <p>
 <img width="1202" height="855" alt="Another document base" src="https://github.com/user-attachments/assets/e8e91226-7299-4972-9aa3-d859883a51d6" />
 </p>
 
 
-# Repairing only selected pages or fonts
+# Mapping only selected pages or fonts
 
-Real-world documents may contain dozens of fonts, which means you'd have to map hundreds or even thousands of glyphs. In many cases, that's unneccessary, because only a few fonts hold bulk of the text. Or you may want to repair only fonts on specific pages and ignore all others. GlyphRepair is designed to help you with that, because you can enable Page Mode Navigation in the settings. If you do so, page selector will appear above font selector:
+Real-world documents may contain dozens of fonts, which means you'd have to map hundreds or even thousands of glyphs. In many cases, that's unneccessary, because only a few fonts hold bulk of the text. Or you may want to repair only specific pages and ignore all others. GlyphRepair is designed to help you with that, because you can enable Page Mode Navigation in the settings. If you do so, new page selector will appear above font selector:
 
 <p>
 <img width="1202" height="855" alt="Page mode base" src="https://github.com/user-attachments/assets/8232fb25-5411-4cc9-9c5e-c354d17fc91b" />
 </p>
 
-The font selector will then cycle only through fonts which are used on the selected page. You may quickly switch between pages if you click in the middle of the page selector and simply choose page in the menu that appears. The menu also displays how many fonts are used on every page and colors indicate their mapping status:
+The font selector will now cycle only through fonts which are used on the selected page. You may quickly switch between pages if you click in the middle of the page selector and simply choose page in the menu that appears. The menu also displays how many fonts are used on every page and colors indicate their mapping status:
 
 <p>
 <img width="452" height="532" alt="Page mode select menu" src="https://github.com/user-attachments/assets/c5c68f5a-0a8a-4a9e-a919-1da6815ffdf0" />
 </p>
 
-Note that Next Unmapped button is **not** limited to selected page -- it always searches all fonts within the document and will automatically jump to other pages, even with Page Mode Navigation enabled. 
+Note that Next Unmapped button is **not** limited to selected page -- it always searches all fonts within the document and will automatically jump to other pages, even with Page Mode Navigation enabled.
+
+If you want to repair only a specific font, you don't need the Page Mode Navigation. Instead, you can switch to it with font selector as explained in previous chapters. The real trick is to know which font you actually need to select, because most PDF viewers don't tell you which parts of the text use which font. You will have to use a 3rd party program for that. We've been using two programs, [Infix PDF Editor](https://infix-pdf-editor.en.softonic.com/) and [PDF-XChange Editor](https://www.pdf-xchange.com/product/downloads/enduser/pdf-xchange-editor). Both have free trial versions. They both work similarly -- activate their text editing mode, click somewhere into text and they will display its font:
+
+<p>
+<img width="880" height="570" alt="Select font in Infix" src="https://github.com/user-attachments/assets/eff8d2dc-4191-488c-aef6-3d7287ba870d" />
+</p>
+<p>
+<img width="1026" height="716" alt="Select font in XChange" src="https://github.com/user-attachments/assets/97777af8-ad07-4cba-85f2-bd52db3c3957" />
+</p>
+
+
+ # Saving repaired document
+
+Predictably, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all fonts again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, the program will repair only fonts that are green in the list.
+
+ **TBD**
+
 
  # Other ways to fix your documents, but with lower fidelity
 
@@ -147,81 +168,7 @@ Notice the -sUseOCR=AsNeeded parameter. As explained in the [link above](https:/
 **Be warned that using Ghostscript has many other caveats.** Ghostscript actually completely rebuilds the input file, resulting in an entirely new PDF that only closely resembles the original one. In other words, even though it preserves vector content, it's still much more destructive than Type1toUnicode. This is apparent even in our simple sample, for example the main body font is slightly thicker. Even worse changes can occur with bitmap images, because by default, Ghostscript [recompresses them to optimize file size](https://ghostscript.com/blog/optimizing-pdfs.html). It's complicated to suppress this behavior, but in most cases it can be done via "Distiller Parameters". In our example, there are 4 "Filter" parameters that disable recompression for lossless grayscale and color images. Recompression is disabled by default for lossy (JPEG/DCT) images, but it can still kick in for large images (see PassThroughJPEGImages parameter). [Full list of these Distiller Parameters is here](https://ghostscript.readthedocs.io/en/latest/VectorDevices.html#distiller-parameters), but in our experience they can lead to counter-intuitive results. Be sure to examine your output files closely if you decide to give Ghostscript a try.
 
 
-# Analyzing your PDF files
 
-Since Type1toUnicode has some limitations, first you need to determine whether your PDF file(s) can even be repaired. We specifically designed the script to help you with such an analysis. You don't need to understand the details, but the script can repair only [one PDF font type](https://www.prepressure.com/fonts/basics/type1), that's why we've chosen such a "weird" name. Let's start with its command-line syntax, which is also printed if you run the script without any arguments:
-
-```
-the following arguments are required: -p/--pdf_file, -f/--font_map
-usage: type1tounicode [-h] -p PDF_FILE -f FONT_MAP [-v]
-
-options:
-  -h, --help            show this help message and exit
-  -p PDF_FILE, --pdf_file PDF_FILE
-                        Defines the path to the .pdf file
-  -f FONT_MAP, --font_map FONT_MAP
-                        Defines the path to the .json file
-  -v, --verbose         Enable verbose output (prints more information)
-```
-Apart from your input PDF, you'll also need a JSON file with font mapping. Its purpose and structure will be [explained later](#font-map-json-file-and-how-to-create-it), but for starters you can use [multi_ascii.json](multi_ascii.json). It covers most popular fonts names, but contains only mapping for standard ASCII characters (codes 32 to 126). It should mostly work on documents authored with older Adobe products. Unfortunately, that also means it may not work on PDFs from other programs or it may assign wrong character codes. If that happens, repaired text won't be completely garbled anymore, but letters will be randomly swapped (or replaced with spaces). You will need to construct your own JSON file in such case.  
-
-BTW, if [multi_ascii.json](multi_ascii.json) works well on your files, test them with [to_unicode.json](to_unicode.json) next. It has the same base, but covers many more characters for european languages and some dingbat fonts.
-
-When the script finishes, it will print a short statistic like
-```
-File ABCD.PDF, 76 fonts found, 16 fonts skipped, 40 fonts repaired partially, 20 fonts repaired completely
-```
-If it manages to repair some font(s), it will create an output PDF file with suffix _repaired (so ABCD_repaired.pdf in our case). The script also generates a subdirectory with log files for every PDF file. The optional -v argument greatly expands these logs to allow for better analysis. You need to enable these verbose logs, so the actual command will look like
-```
-Type1toUnicode -p ABCD.PDF -f multi_ascii.json -v
-```
-Note that Type1toUnicode always tries to fix the files, even when you use the -v argument. Therefore, it also generates the output files every time you run it. It's designed to automatically overwrite them, so you don't need to delete them manually. After the initial run, you need to check the (verbose) logs. Real-world documents usually contain fonts of varying types and encodings, sometimes there are dozens of them. Type1toUnicode analyzes every font and logs ones it's unable to repair for whatever reason. Without going into unnecessary technical details, you may encounter several cases:
-
-1. If the script didn't encounter any problems, only the final statistic will appear in the log and it will say "0 fonts skipped, 0 fonts repaired partially, XX font repaired completely". That's very rare, however.
-
-2. Lines "no matching mapping name found in JSON file -> skipping" mean the script could repair such fonts, but it couldn't find proper mapping section in the JSON file. You need to create such a section, or rename existing one.
-
-3. Lines with "no matching font section found in JSON file -> using alternative name" mean that the fonts were repaired using a "recycled" mapping in JSON file. This is actually a really nifty feature which will be [explained later](#font-names-matching-and-alternative-names).
-
-4. Lines with "Glyph XYZ not found in mapping" mean the script repaired the font only partially, because the JSON mapping file is incomplete. Total number of such fonts will also appear in the final statistic. If this happens, you **must** add all missing characters to the JSON file, otherwise they will also miss in the repaired text. Again, this is [explained later](#how-to-find-the-correct-gn-unicode-pairs).
-
-5.  If you encounter these lines, it either means the associated fonts already have proper encoding or the script can't repair them:
-* "Font has other type than Type1 -> skipping"
-* "ToUnicode already exists -> skipping"
-* "FontDescriptor entries missing -> skipping"
-* "table Differences does not exist -> skipping"
-* "no ToUnicode but Differences incomplete  -> skipping"
-
-Obviously, all such fonts increase the "XX fonts skipped" counter in the final statistic.
-
-6. "no Font objects on the page" happens on pages that contain only images, most commonly in scanned documents. You'd need to use an OCR software to extract text from such pages.
-
-**To sum it up:**
-* In case 1, your PDF was already completely repaired.
-* If you encounter cases 2 or 4, the fonts can be repaired, but additional work on the JSON file is needed.
-* If the script finishes with "0 fonts repaired partially, 0 fonts repaired completely" and there are only cases 5 or 6 in the logs, then you're out of luck.
-
-**Remember: you should always double-check the output PDFs, even when there are no warnings in the log!** Probably the easiest way is to select all text (Ctrl+A) and then paste it to an Unicode-capable plaintext editor (such as Notepad++).
-
-## Analyzing multiple files
-
-If you want to analyze or repair multiple files at once, you can put them in the same directory as the script and run
-```
-forfiles /m *.pdf /c "cmd /c Type1toUnicode.exe -p @file -f multi_ascii.json -v" 
-```
-If you want to also recurse into subdirectories, you can use
-```
-forfiles /s /m *.pdf /c "cmd /c [full path]Type1toUnicode.exe -p @file -f [full path]multi_ascii.json -v"
-```
-Or alternatively
-```
-FOR /r %a IN (*.pdf) DO Type1toUnicode -p "%a" -f multi_ascii.json -v
-```
-You can mass-analyze contents of the log files too, i.e. seach them for occurences of certain messages with [Grep](https://en.wikipedia.org/wiki/Grep) or other pattern-matching utilities.
-
-# Font map JSON file and how to create it
-
-So it seems your PDF file(s) could be repaired, but you need to edit or expand the font map file. It's not hard, but be warned it can get quite laborious. To do this effectively, you should take a while to understand what Type1toUnicode and JSON map file actually do.
 
 ## Font names matching and alternative names
 
