@@ -1,9 +1,4 @@
-$${\color{red}This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).}$$
-
-<p>
-Quack quack
-<text style="color: red">ERROR</text>
-</p>
+**This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).**
 
 # Keywords
 
@@ -116,19 +111,28 @@ The database is stored in glyph_mappings.psv file. It currently contains about 3
 
 # Repairing another document(s)
 
-If you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same glyphs, so you need to find and map the missing ones. Simply click on Next Unmapped and GlyphRepair will find them. In practice, GlyphRepair will make large jumps in the glyph list or even skip entire fonts, making manual navigation difficult. If you make a mistake, use Previously Mapped button to easily go back. However, its history is remembered only for currently opened document.
+If you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same set of glyphs, so you need to find and map the missing ones. You have to  click on Next Unmapped button to find them. In practice, GlyphRepair will make large jumps in the work area or even skip entire fonts, making manual navigation difficult. If you think you've made a mistake, use Previously Mapped button to easily go back. But, be aware that this glyph mapping history is remembered only for currently opened document.
 
-If you do it right, you will just keep pressing the Enter key until
+<p>
+<img width="1202" height="855" alt="Another document base" src="https://github.com/user-attachments/assets/e8e91226-7299-4972-9aa3-d859883a51d6" />
+</p>
+
 
 # Repairing only selected pages or fonts
 
-Real-world documents may contain dozens of fonts, which means you'd have to map hundreds or even thousands of glyphs. In many cases, that's unneccessary, because only a few fonts hold bulk of the text. Or you may want to repair only fonts on specific pages and ignore all others. GlyphRepair is designed to help you with that, because you can enable Page Mode Navigation in the settings. If you do so, page selector will appear above font selector. The font selector will then cycle only through fonts which are used on the selected page. You may quickly switch between pages if you click in the middle of the page selector and simply choose page in the menu that appears. The menu also displays how many fonts are used on every page and colors indicate their mapping status.
+Real-world documents may contain dozens of fonts, which means you'd have to map hundreds or even thousands of glyphs. In many cases, that's unneccessary, because only a few fonts hold bulk of the text. Or you may want to repair only fonts on specific pages and ignore all others. GlyphRepair is designed to help you with that, because you can enable Page Mode Navigation in the settings. If you do so, page selector will appear above font selector:
 
+<p>
+<img width="1202" height="855" alt="Page mode base" src="https://github.com/user-attachments/assets/8232fb25-5411-4cc9-9c5e-c354d17fc91b" />
+</p>
+
+The font selector will then cycle only through fonts which are used on the selected page. You may quickly switch between pages if you click in the middle of the page selector and simply choose page in the menu that appears. The menu also displays how many fonts are used on every page and colors indicate their mapping status:
+
+<p>
+<img width="452" height="532" alt="Page mode select menu" src="https://github.com/user-attachments/assets/c5c68f5a-0a8a-4a9e-a919-1da6815ffdf0" />
+</p>
 
 Note that Next Unmapped button is **not** limited to selected page -- it always searches all fonts within the document and will automatically jump to other pages, even with Page Mode Navigation enabled. 
-
-
-
 
  # Other ways to fix your documents, but with lower fidelity
 
