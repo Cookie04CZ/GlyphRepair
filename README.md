@@ -48,20 +48,25 @@ Do you really need to permanently fix your PDF files? Or do you merely need to c
 
 # How to run GlyphRepair
 
-You should download the program and glyph_mappings.psv database and put them to the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary libraries, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
+You should download the program and glyph_mappings.psv database and put them to the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary packages, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
 
-If you want to run Python code, you have to install following libraries:
-* NumPy https://numpy.org/
-* PyMuPDF https://pymupdf.readthedocs.io/en/latest/#
-* PySide6 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
-* Matplotlib https://matplotlib.org/
+If you want to run Python code, you have to install following packages:
+* NumPy 2.0.2 https://numpy.org/
+* PyMuPDF 1.26.5 https://pymupdf.readthedocs.io/en/latest/#
+* PySide6 6.10.3 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
+* Matplotlib 3.9.4 https://matplotlib.org/
+* qtawesome 1.4.2 https://github.com/spyder-ide/qtawesome
 * fontTools https://fonttools.readthedocs.io/en/latest/
 
 All can be installed with pip
 ```
-pip3 install xxxxxxxx
+pip3 install NumPy
+pip3 install PyMuPDF
+pip3 install PySide6
+pip3 install Matplotlib
+pip3 install qtawesome
 ```
-Note that the program was developed and tested only with these library versions and only on Windows. We have no idea if it works on other operating systems. 
+Note that the program was developed and tested only with these package versions and only on Windows. We have no idea if it works on other operating systems. 
 
 # Testing whether your PDF file can be repaired
 
