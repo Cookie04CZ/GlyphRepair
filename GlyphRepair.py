@@ -409,7 +409,7 @@ class SettingsDialog(QDialog):
         # Add widgets to layout with detailed descriptions
         self._add_setting_row(
             "Page Mode",
-            "Allows to change behavior to prefer pages instead of global fonts",
+            "Restrict font navigation to the selected page only.",
             self.chk_page_mode
         )
         self._add_setting_row(
@@ -418,13 +418,13 @@ class SettingsDialog(QDialog):
             self.chk_auto_highlight
         )
         self._add_setting_row(
-            "Jump to Next Glyph",
-            "Automatically select the next unmapped glyph after mapping.",
+            "Auto-advance to next glyph",
+            "Automatically move to the next unmapped glyph.",
             self.chk_auto_jump_glyph
         )
         self._add_setting_row(
-            "Move to next font at 100%",
-            "Move to the next font automatically when all glyphs are mapped.",
+            "Auto-advance to next font",
+            "Automatically move to the next font when all glyphs are mapped.",
             self.chk_auto_jump_font
         )
         self._add_setting_row(
@@ -438,13 +438,13 @@ class SettingsDialog(QDialog):
             self.chk_auto_save_on_switch
         )
         self._add_setting_row(
-            "Auto-save every 5 minutes",
+            "Auto save every 5 minutes",
             "Periodically save your progress in the background to prevent data loss.",
             self.chk_auto_save_timer
         )
         self._add_setting_row(
             "Show Unicode hex input field",
-            "Display the secondary input field for direct Unicode hex code entry.",
+            "Display secondary input field for direct Unicode hex code entry.",
             self.chk_show_hex_input
         )
 
@@ -2731,7 +2731,7 @@ class FontWidget(QMainWindow):
                 QMessageBox.information(
                     self,
                     "Nothing to repair",
-                    "This document does not contain any fonts to be repaired.\n\n"
+                    "This document does not contain any fonts that can be repaired.\n\n"
                 )
                 self.statusBar().showMessage("Nothing to repair", 5000)
 
