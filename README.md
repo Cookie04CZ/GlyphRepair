@@ -115,13 +115,13 @@ This will display another input field which accepts only string of 4 or 5 hexade
 
 # Glyph database and its impact on auto-suggestion
 
-The database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which were originally bundled with Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening to you, it may be best to start with a blank database. Simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
+As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening to you, it may be best to start with a blank database. Simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
 By default, GlyphRepair auto-saves the database whenever you finish mapping a font or entire document. This auto-saving feature can be disabled in the Settings. You can also save the database manually at any time with Save All to DB button.
 
 # Mapping another document(s)
 
-When you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same set of glyphs, so you need to find and map the missing ones. You have to  use the Next Unmapped button to do that. In practice, GlyphRepair will make large jumps in the work area or even skip entire fonts, making manual navigation difficult. If you think you've made a mistake, use Previously Mapped button to easily go back. But, be aware that this glyph mapping history is remembered only for currently opened document.
+When you load another similar document into GlyphRepair, you will notice that many glyphs in the work area are already green. That means you've already mapped and saved them into the database. However, real-world documents rarely use exactly the same set of glyphs, so you need to find and map the missing ones. For that, you have to use the Next Unmapped button. In practice, GlyphRepair will make large jumps in the work area or even skip entire fonts, making manual navigation difficult. If you think you've made a mistake, use Previously Mapped button to easily go back. Be aware that this glyph mapping history is remembered only for currently opened document.
 
 <p>
 <img width="1202" height="855" alt="Another document base" src="https://github.com/user-attachments/assets/e8e91226-7299-4972-9aa3-d859883a51d6" />
@@ -130,7 +130,7 @@ When you load another similar document into GlyphRepair, you will notice that ma
 
 # Mapping only selected pages or fonts
 
-Real-world documents may contain dozens of fonts, which means you'd have to map hundreds or even thousands of glyphs. In many cases, that's unneccessary, because only a few fonts hold bulk of the text. Or you may want to repair only specific pages and ignore all others. GlyphRepair is designed to help you with that, because you can enable Page Mode Navigation in the settings. If you do so, new page selector will appear above font selector:
+Real-world documents may contain dozens of fonts, which means you'd have to map hundreds or even thousands of glyphs. In many cases, that's unneccessary, because only a few fonts hold the bulk of useful text. Or you may want to repair only specific pages and ignore all others. GlyphRepair is designed to help you with that, because you can enable Page Mode Navigation in the settings. If you do so, new page selector will appear above font selector:
 
 <p>
 <img width="1202" height="855" alt="Page mode base" src="https://github.com/user-attachments/assets/8232fb25-5411-4cc9-9c5e-c354d17fc91b" />
@@ -156,7 +156,7 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
  # Saving repaired document
 
-Predictably, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all fonts again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, the program will repair only fonts that are green in the list.
+Predictably, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of pages again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, the program will repair only fonts XXXXXXXXXX
 
  **TBD**
 
