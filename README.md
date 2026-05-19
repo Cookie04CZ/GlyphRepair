@@ -56,7 +56,6 @@ If you want to run Python code, you have to install following packages:
 * PySide6 6.10.3 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
 * Matplotlib 3.9.4 https://matplotlib.org/
 * qtawesome 1.4.2 https://github.com/spyder-ide/qtawesome
-* fontTools https://fonttools.readthedocs.io/en/latest/
 
 All can be installed with pip
 ```
@@ -66,7 +65,7 @@ pip3 install PySide6
 pip3 install Matplotlib
 pip3 install qtawesome
 ```
-Note that the program was developed and tested only with these package versions and only on Windows. We have no idea if it works on other operating systems. 
+Note the program was developed and tested only with these package versions and only on Windows. We have no idea if it works on other operating systems. 
 
 # Testing whether your PDF file can be repaired
 
@@ -120,7 +119,7 @@ This will display another input field which accepts only string of 4 or 5 hexade
 
 # Glyph database and its impact on auto-suggestion
 
-As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening to you, it may be best to start with a blank database. Simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
+As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening, it may be best if you start with a blank database. Simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
 By default, GlyphRepair auto-saves the database whenever you finish mapping a font or entire document. This auto-saving feature can be disabled in the Settings. You can also save the database manually at any time with Save All to DB button.
 
@@ -159,9 +158,9 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 </p>
 
 
- # Saving repaired document
+ # Saving repaired documents
 
-Predictably, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of pages again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, the program will repair only fonts XXXXXXXXXX
+Predictably, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of pages again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
 
  **TBD**
 
