@@ -697,6 +697,7 @@ class FontSelectionDialog(QDialog):
         self.setWindowTitle("Select Font")
         self.setMinimumSize(650, 500)
 
+        # Create layout
         main_layout = QVBoxLayout(self)
         content_layout = QHBoxLayout()
 
@@ -720,9 +721,12 @@ class FontSelectionDialog(QDialog):
 
         filters_group = QGroupBox("Filters")
         f_layout = QVBoxLayout(filters_group)
+
+        # Hide 100% mapped filter
         self.chk_hide_100 = QCheckBox("Hide 100% mapped")
         self.chk_hide_100.stateChanged.connect(self.apply_filters)
 
+        # Page filter
         page_combo_layout = QVBoxLayout()
         page_combo_layout.addWidget(QLabel("Page filter:"))
         self.combo_page = QComboBox()
@@ -741,6 +745,7 @@ class FontSelectionDialog(QDialog):
         f_layout.addWidget(self.chk_hide_100)
         f_layout.addLayout(page_combo_layout)
 
+        # Font details
         details_group = QGroupBox("Font Details")
         d_layout = QVBoxLayout(details_group)
         self.lbl_det_name = QLabel("<b>Name:</b> -")
@@ -764,6 +769,7 @@ class FontSelectionDialog(QDialog):
         content_layout.addLayout(left_layout, 1)
         content_layout.addWidget(right_widget)
 
+        # OK/Cancel buttons
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -771,7 +777,7 @@ class FontSelectionDialog(QDialog):
         main_layout.addLayout(content_layout)
         main_layout.addWidget(self.button_box)
 
-        # --- POPULATE DATA ---
+        # Get unique fonts and their progress
         unique = {}
         for page_num, names in menu_data.items():
             for name in names:
@@ -784,6 +790,7 @@ class FontSelectionDialog(QDialog):
                     unique[name] = {'total': total, 'mapped': mapped, 'agl': agl_c, 'page': page_num, 'pages': set()}
                 unique[name]['pages'].add(page_num)
 
+        # Add unique fonts to the list
         item_to_scroll = None
         for name, data in unique.items():
             item = QListWidgetItem(name)
@@ -793,7 +800,7 @@ class FontSelectionDialog(QDialog):
             item.setIcon(self._create_status_icon(color_code))
 
             # Prioritize the current page if the font is available there,
-            # otherwise just use the first page it occurs on (from the data dict).
+            # otherwise just use the first page it occurs on.
             target_p = self.current_page if self.current_page in data['pages'] else data['page']
 
             item_data = {
@@ -807,6 +814,7 @@ class FontSelectionDialog(QDialog):
             }
             item.setData(QtCore.Qt.UserRole, item_data)
 
+            # Highlight the current font
             if name == current_font_name:
                 font = item.font()
                 font.setBold(True)
@@ -815,16 +823,19 @@ class FontSelectionDialog(QDialog):
 
             self.list_widget.addItem(item)
 
+        # Connect signals
         self.list_widget.itemDoubleClicked.connect(self.accept)
         self.search_input.returnPressed.connect(self.accept)
         self.search_input.setFocus()
+
         self.apply_filters()
 
+        # Scroll to the selected font
         if item_to_scroll and not item_to_scroll.isHidden():
             self.list_widget.setCurrentItem(item_to_scroll)
             self.list_widget.scrollToItem(item_to_scroll, QListWidget.PositionAtCenter)
 
-    # --- HELPER METHODS FOR ICONS AND STATUS ---
+    # Helper method to create a status icon
     def _create_status_icon(self, color_str):
         size = 14
         pix = QPixmap(size, size)
@@ -833,7 +844,8 @@ class FontSelectionDialog(QDialog):
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         p.setPen(QtCore.Qt.NoPen)
 
-        if color_str.upper() == "#00CED1":
+        # Set colors
+        if color_str.upper() == "#00CED1": # Half blue half green for 100% complete containing AGL
             p.setBrush(QtGui.QBrush(QtGui.QColor("#3d7eff")))
             p.drawPie(2, 2, size - 4, size - 4, 90 * 16, 180 * 16)
 
@@ -844,6 +856,8 @@ class FontSelectionDialog(QDialog):
             p.drawEllipse(2, 2, size - 4, size - 4)
 
         p.end()
+
+        # Create icon
         icon = QIcon()
         icon.addPixmap(pix, QIcon.Normal, QIcon.Off)
         icon.addPixmap(pix, QIcon.Selected, QIcon.Off)
@@ -852,6 +866,7 @@ class FontSelectionDialog(QDialog):
 
         return icon
 
+    # Helper method to get status info
     def _get_status_info(self, mapped, total, agl_count=0):
         if total == 0: return "—", "#888888"
         perc = (mapped / total) * 100
@@ -869,6 +884,7 @@ class FontSelectionDialog(QDialog):
 
         return "0%", "#888888"
 
+    # Method to update font details
     def update_details_panel(self):
         item = self.list_widget.currentItem()
         if not item: return
@@ -910,6 +926,7 @@ class FontSelectionDialog(QDialog):
 
         effective_page_filter = None if search_text else selected_page
 
+        # Iterate through the list items and hide those that don't match the filters
         first_visible = None
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
