@@ -166,7 +166,7 @@ Unsuprisingly, this is done via Repair PDF button in the top left corner. Rememb
 
  # How GlyphRepair works internally 
 
-Glyphs in Type 1 fonts are stored as vector image instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript instructions and then calculates MD5 hash from them. The reason for this is threefold:
+Glyphs in Type 1 fonts are stored as vector image instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript chunks and then calculates MD5 hash from them. The reason for this is threefold:
 1. Even slight difference in glyph PostScript instructions will result in a completely different hash.
 2. The resulting hash always has the same length, which is useful for storing them in database.
 3. Many fonts are copyrighted, so you can't store and distibute their original data, anyway.
