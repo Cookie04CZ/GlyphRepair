@@ -65,17 +65,19 @@ Note that the program was developed and tested only with these library versions 
 
 # Testing whether your PDF file can be repaired
 
-As we mentioned earlier, GlyphRepair currently supports only one PDF font type which is prevalent in older PDF files. That's because old files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and click to the middle of font selector to see list of fonts. If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." 
+As we mentioned earlier, GlyphRepair currently supports only one PDF font type which is prevalent in older PDF files. That's because old files are also the most likely to have wrong text encoding. Therefore, GlyphRepair automatically detects and displays only fonts which it can actually repair. The easiest method is to simply load your file into GlyphRepair and click to the middle of font selector to see list of fonts:
+
 
 <img width="1202" height="855" alt="Analysis base" src="https://github.com/user-attachments/assets/679622f7-dccd-4f1f-8105-991d49296870" />
 
+
 You should switch the page filter to "All pages" to see all fonts in the document. Most of them will probably have grey or orange dots next to them, which means all of some of their characters are unknown (unmapped):
+
 
 <img width="652" height="532" alt="Analysis font list" src="https://github.com/user-attachments/assets/94d41779-0d58-4ddf-b972-a59ceb79aadc" />
 
-Alternatively, some PDF viewers can display font type, the image below shows their list from Adobe Reader (File - Properties - Fonts). As is highlighted in the image, fonts have to be of Type 1, although that by itself doesn't guarantee that GlyphRepair will be able to repair them.
 
-<img width="856" height="346" alt="Font types in Adobe Reader" src="https://github.com/user-attachments/assets/ed5cd933-c50a-4bd0-af8b-27d01fbee12a" />
+If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired."
 
 # Repairing your first document
 
