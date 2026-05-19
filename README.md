@@ -93,7 +93,7 @@ You have to assign character mapping for **all** fonts you wish to repair, becau
 <img width="1202" height="855" alt="First document prompter" src="https://github.com/user-attachments/assets/58e57a5d-ed25-4153-b7be-278eb6088f6f" />
 <p>
 
-If the suggested character matches the glyph, simply press Enter to confirm it. GlyphRepair offers up to 4 suggestions; you may choose between them with cursor keys (+Enter) or simply click on them. That immediately maps them. In ideal case, you will have to map each character only once and then it will be auto-suggested for all other fonts. So most of the time, you will just keep pressing the Enter key, only ocassionally stopping to add new or special characters. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts! Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This is necessary due to internal limitations of the PDF format.
+If the suggested character matches the glyph, simply press Enter to confirm it. GlyphRepair offers up to 4 suggestions; you may choose between them with cursor keys (+Enter) or simply click on them. That immediately maps them. In ideal case, you will have to map each character only once and then it will be auto-suggested for all other fonts. So most of the time, you will just keep pressing the Enter key, only ocassionally stopping to fill the gaps. The working area is designed to streamline the process: active glyph is usually right above the suggestions, so most of the time, you'll just keep gazing into the bottom-left corner and press Enter. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts!. Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This is necessary due to internal limitations of the repair method.
 
 Notice that GlyphRepair automatically recognizes and maps spaces (U+0020). If you encounter an unmapped empty glyph, it usually means it's no-break space (NBSP, U+00A0) or other special character. But that's rarely relevant when you copy+paste text from PDF, so you may map them to ordinary spaces (U+0020). Such special characters are sometimes hard to enter into the Character field. However, you may find their [Unicode](https://en.wikipedia.org/wiki/Unicode) encoding on various web pages. GlyphRepair allows to enter Unicode directly if you enable it in settings:
 
@@ -112,6 +112,8 @@ The database is stored in glyph_mappings.psv file. It currently contains about 3
 # Repairing another document(s)
 
 If you load another similar document into GlyphRepair, you will notice that many glyphs in the column are already green. That means you've already mapped and saved them in the database. However, real-world documents rarely use exactly the same glyphs, so you need to find and map the missing ones. Simply click on Next Unmapped and GlyphRepair will find them. In practice, GlyphRepair will make large jumps in the glyph list or even skip entire fonts, making manual navigation difficult. If you make a mistake, use Previously Mapped button to easily go back. However, its history is remembered only for currently opened document.
+
+If you do it right, you will just keep pressing the Enter key until
 
 # Repairing only selected pages or fonts
 
