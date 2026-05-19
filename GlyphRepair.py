@@ -944,6 +944,8 @@ class FontSelectionDialog(QDialog):
         return item.data(QtCore.Qt.UserRole)['target_page'], item.data(QtCore.Qt.UserRole)['name'] if item else None
 
 
+# Dialog window for repairing documents in GUI
+# It allows the user to check and repair fonts in pdf
 class IntegratedRepairDialog(QDialog):
     def __init__(self, page_font_map, total_unique, ready_unique, parent=None):
         super().__init__(parent)
@@ -951,6 +953,7 @@ class IntegratedRepairDialog(QDialog):
         self.setMinimumSize(550, 400)
         self.setWindowModality(QtCore.Qt.WindowModal)
 
+        # Layout creation
         self.main_layout = QVBoxLayout(self)
 
         self.lbl_summary = QLabel(
@@ -970,6 +973,7 @@ class IntegratedRepairDialog(QDialog):
         self.tree.setColumnWidth(1, 200)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
 
+        # Initialize tree widget and fill it with data
         self.ready_count = 0
         for p_num in sorted(page_font_map.keys()):
             page_mapped = 0
@@ -1000,6 +1004,7 @@ class IntegratedRepairDialog(QDialog):
             pbar_page_widget = self._create_progress_bar_widget(page_mapped, page_total)
             self.tree.setItemWidget(page_item, 1, pbar_page_widget)
 
+            # Check repaired font status
             for f_info in page_font_map[p_num]:
                 is_ok = f_info['mapped'] >= f_info['total'] and f_info['total'] > 0
                 font_item = QTreeWidgetItem([f_info['name'], ""])
@@ -1020,10 +1025,11 @@ class IntegratedRepairDialog(QDialog):
 
         self.main_layout.addWidget(self.tree)
 
+        # Repair progress panel
         self.log_group = QGroupBox("Repair progress")
         log_layout = QVBoxLayout(self.log_group)
         self.text_log = QTextEdit()
-        self.text_log.setReadOnly(True)
+        self.text_log.setReadOnly(False)
         self.text_log.setStyleSheet(
             "background-color: #121212; color: #ffffff; font-family: Consolas; font-size: 12px;")
         log_layout.addWidget(self.text_log)
@@ -1040,7 +1046,7 @@ class IntegratedRepairDialog(QDialog):
                         font-size: 12px;
                     }
                     QProgressBar::chunk {
-                        background-color: #3d7eff; /* Modrá barva průběhu */
+                        background-color: #3d7eff;
                         border-radius: 3px;
                     }
                 """)
@@ -1073,6 +1079,7 @@ class IntegratedRepairDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_repair.clicked.connect(self.start_repair_flow)
 
+    # Method to create a progress bar widget for each font and page
     def _create_progress_bar_widget(self, mapped, total):
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -1114,15 +1121,18 @@ class IntegratedRepairDialog(QDialog):
         layout.addWidget(pbar)
         return container
 
+    # Jump to clicked font/page
     def on_item_double_clicked(self, item, column):
         self.jump_target = item.data(0, QtCore.Qt.UserRole)
         if self.jump_target:
             self.done(QDialog.Accepted + 1)
 
+    # Start repairing flow
     def start_repair_flow(self):
         self.switch_to_log_mode()
         self.accept()
 
+    # Switch from repair summary to log mode
     def switch_to_log_mode(self):
         self.lbl_summary.setVisible(False)
         self.tree.setVisible(False)
@@ -1133,6 +1143,7 @@ class IntegratedRepairDialog(QDialog):
         self.btn_cancel.setText("Working...")
         QApplication.processEvents()
 
+    # Sets progress bar text and value
     def set_progress(self, current, total):
         if total > 0:
             self.repair_progress.setMaximum(total)
@@ -1140,13 +1151,14 @@ class IntegratedRepairDialog(QDialog):
             self.repair_progress.setFormat(f"Scanning page {current} / {total} (%p%)")
         QApplication.processEvents()
 
+    # Custom logging function for repairs
     def log(self, message, color="#ffffff"):
         cursor = self.text_log.textCursor()
         cursor.movePosition(QtGui.QTextCursor.End)
 
-        fmt = QtGui.QTextCharFormat()
-        fmt.setForeground(QtGui.QColor(color))
-        cursor.setCharFormat(fmt)
+        formatt = QtGui.QTextCharFormat()
+        formatt.setForeground(QtGui.QColor(color))
+        cursor.setCharFormat(formatt)
 
         if not self.text_log.document().isEmpty():
             cursor.insertText("\n")
@@ -1156,6 +1168,7 @@ class IntegratedRepairDialog(QDialog):
         self.text_log.verticalScrollBar().setValue(self.text_log.verticalScrollBar().maximum())
         QApplication.processEvents()
 
+    # Final button unlock
     def finish(self):
         self.btn_cancel.setEnabled(True)
         self.btn_cancel.setText("Close")
