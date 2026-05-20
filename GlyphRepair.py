@@ -42,7 +42,7 @@ EXTENDED_AGL.update({
 })
 
 # Database path
-GLYPH_DATABASE = "glyph_mappings/glyph_mappings.psv"
+GLYPH_DATABASE = "glyph_mappings.psv"
 
 # Turn off PyMuPDF logging
 fitz.TOOLS.mupdf_display_errors(False)
@@ -2972,10 +2972,9 @@ class FontWidget(QMainWindow):
             return []
 
         current_font_clean = self.strip_subset_tag(font_name)
-
-        # Dictionary to track the best score and total occurrences for each unicode_hex
-        # Structure: { "hex_val": {"score": float, "occurrences": int} }
         hex_candidates = {}
+
+        font_sim_cache = {}
 
         for row in self.db_records:
             db_glyph_name = row.get("GlyphName", "")
@@ -2986,40 +2985,39 @@ class FontWidget(QMainWindow):
             if not hex_val:
                 continue
 
-            db_font_clean = self.strip_subset_tag(db_font_name)
-
-            # Calculate similarities using difflib
-            glyph_sim = difflib.SequenceMatcher(None, glyph_name, db_glyph_name).ratio()
-            font_sim = difflib.SequenceMatcher(None, current_font_clean, db_font_clean).ratio()
-
             is_hash_match = (current_hash and db_hash == current_hash)
+            glyph_sim = 0.0
 
-            # Only consider rows that share the same shape hash OR have a reasonable glyph name similarity
+            if not is_hash_match:
+                if abs(len(glyph_name) - len(db_glyph_name)) > 5:
+                    continue
+                glyph_sim = difflib.SequenceMatcher(None, glyph_name, db_glyph_name).ratio()
+
             if is_hash_match or glyph_sim > 0.6:
                 score = 0.0
 
-                # 1. Shape Match (Absolute highest priority)
                 if is_hash_match:
                     score += 10.0
 
-                # 2. Glyph Name Match
                 if db_glyph_name == glyph_name:
                     score += 5.0
                 else:
-                    score += glyph_sim * 3.0  # Partial glyph name similarity (max 3.0)
+                    score += glyph_sim * 3.0
 
-                # 3. Font Name Match
-                score += font_sim * 2.0  # Partial font name similarity (max 2.0)
+                db_font_clean = self.strip_subset_tag(db_font_name)
+                if db_font_clean not in font_sim_cache:
+                    font_sim_cache[db_font_clean] = difflib.SequenceMatcher(None, current_font_clean,
+                                                                            db_font_clean).ratio()
+
+                score += font_sim_cache[db_font_clean] * 2.0
 
                 if hex_val not in hex_candidates:
                     hex_candidates[hex_val] = {"score": score, "occurrences": 1}
                 else:
                     hex_candidates[hex_val]["occurrences"] += 1
-                    # Keep the highest individual match score for this character
                     if score > hex_candidates[hex_val]["score"]:
                         hex_candidates[hex_val]["score"] = score
 
-        # Sort candidates by: 1. Best Score (Descending), 2. Number of Occurrences (Descending)
         sorted_hexes = sorted(
             hex_candidates.items(),
             key=lambda item: (item[1]["score"], item[1]["occurrences"]),
@@ -3030,7 +3028,6 @@ class FontWidget(QMainWindow):
         for hex_val, data in sorted_hexes:
             try:
                 char = chr(int(hex_val, 16))
-                # Add unique characters until we hit the UI limit of 4
                 if char not in suggestions:
                     suggestions.append(char)
                 if len(suggestions) >= 4:
@@ -4417,7 +4414,23 @@ def run_gui_mode():
     sys.exit(app.exec())
 
 
+# Initializes the database directory and file with headers if they do not exist
+def init_database():
+    db_dir = os.path.dirname(GLYPH_DATABASE)
+
+    # Create directory if it doesn't exist and isn't empty
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
+    # Create the PSV file with default headers if it doesn't exist
+    if not os.path.exists(GLYPH_DATABASE):
+        with open(GLYPH_DATABASE, 'w', encoding='utf-8') as f:
+            f.write('glyph_hash|font_name|GlyphName|unicode_hex|AGN\n')
+
+
 if __name__ == "__main__":
+    init_database()
+
     parser = argparse.ArgumentParser(description="PDF Glyph Repair Tool - GUI & CLI")
 
     parser.add_argument("target", nargs='?', help="Path for file/folder to repair")
