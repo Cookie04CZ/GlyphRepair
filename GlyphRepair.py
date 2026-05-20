@@ -897,7 +897,7 @@ class FontSelectionDialog(QDialog):
 
         if perc >= 100:
             if agl_count > 0:
-                return "100%", "#00CED1"  # Teal/Cyan for 100% complete containing AGL
+                return "100%", "#00CED1"  # Cyan for 100% complete containing AGL
             else:
                 return "100%", "#228B22"  # Solid Green for 100% strictly manual
         elif perc > 0 or agl_count > 0:
@@ -1219,10 +1219,12 @@ class IntegratedRepairDialog(QDialog):
 
 # Main Application Window Class
 class FontWidget(QMainWindow):
+    # Constants for icon sizes in list
     ICON_SIZE_LARGE = 128
     ICON_SIZE_SMALL = 64
 
-    KNOWN_LIGATURES = {
+    # Ligatures dictionary
+    LIGATURES = {
         "IJ": "0132",
         "ij": "0133",
         "OE": "0152",
@@ -1244,6 +1246,7 @@ class FontWidget(QMainWindow):
         # Initialize QSettings for persistent configuration
         self.settings_db = QSettings("GlyphRepair", "Settings")
 
+        # Load settings from QSettings
         def _get_bool(key, default):
             val = self.settings_db.value(key, default)
             if isinstance(val, str):
@@ -1259,9 +1262,6 @@ class FontWidget(QMainWindow):
         self.setting_auto_save_on_switch = _get_bool("auto_save_on_switch", True)
         self.setting_auto_save_timer = _get_bool("auto_save_timer", False)
         self.setting_show_hex_input = _get_bool("show_hex_input", False)
-
-        self.current_suggestion_idx = -1
-        self.active_suggestions_count = 0
 
         self.auto_save_timer = QtCore.QTimer(self)
         self.auto_save_timer.timeout.connect(self.auto_save_interval_triggered)
@@ -1279,11 +1279,15 @@ class FontWidget(QMainWindow):
         self.current_font_glyph_names = []
         self.current_index = 0
 
+        # Suggestions variables
+        self.current_suggestion_idx = -1
+        self.active_suggestions_count = 0
+
         # Dictionaries for data storage
         self.user_glyph_to_char = {}  # Stores current session mappings
         self.font_cache = {}  # Caches extracted font data to avoid re-parsing
         self.known_glyph_hashes = set()  # Stores hashes already in the PSV database
-        self.history_stack = []
+        self.history_stack = [] # Last repaired glyphs
 
         # Setup GUI components
         self._setup_menus()
@@ -1309,11 +1313,13 @@ class FontWidget(QMainWindow):
         self._update_window_title()
         self.statusBar().showMessage("Select PDF to repair")
 
+    # Method for handling closing of the application
     def closeEvent(self, event):
         if not self.unsaved_changes:
             event.accept()
             return
 
+        # Close window text
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
         box.setWindowTitle("Unsaved changes")
@@ -1327,6 +1333,7 @@ class FontWidget(QMainWindow):
 
         clicked = box.clickedButton()
 
+        # Button handling
         if clicked == discard_btn:
             event.accept()
             return
@@ -1338,6 +1345,7 @@ class FontWidget(QMainWindow):
 
         event.ignore()
 
+    # Method to update the window title with file name
     def _update_window_title(self):
         app_name = "GlyphRepair"
 
@@ -1345,19 +1353,21 @@ class FontWidget(QMainWindow):
 
         self.setWindowTitle(app_name + " - " + pdf_name)
 
-    # Creates the top menu bar (File, Pages, Fonts)
+    # Creates the top menu bar
     def _setup_menus(self):
         toolbar = self.addToolBar("MainToolbar")
         toolbar.setMovable(False)
 
         toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
 
+        # Open file action
         open_action = toolbar.addAction("Open PDF")
         open_icon = qta.icon('fa5s.folder-open', color='white')
         open_action.setIcon(open_icon)
         open_action.setToolTip("Select and open a new PDF file from your computer")
         open_action.triggered.connect(self.open_pdf)
 
+        # Repair pdf action
         self.current_pdf_action = toolbar.addAction("Repair PDF")
         current_pdf_icon = qta.icon('fa5s.save', color='white')
         self.current_pdf_action.setIcon(current_pdf_icon)
@@ -1365,10 +1375,12 @@ class FontWidget(QMainWindow):
         self.current_pdf_action.setToolTip("Start the repair process for the currently loaded PDF")
         self.current_pdf_action.triggered.connect(self.repair_pdf)
 
+        # Spacer
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         toolbar.addWidget(spacer)
 
+        # Progress bar action
         self.main_progress_btn = MainToolbarProgressWidget()
         self.main_progress_btn.setToolTip("Click for detailed statistics")
 
@@ -1411,22 +1423,26 @@ class FontWidget(QMainWindow):
         self.action_progress = toolbar.addWidget(self.main_progress_btn)
         self.action_progress.setVisible(False)
 
+        # Spacer
         spacer_small = QWidget()
         spacer_small.setFixedWidth(15)
         toolbar.addWidget(spacer_small)
 
+        # Settings action
         settings_action = toolbar.addAction("Settings")
         settings_icon = qta.icon('fa5s.cog', color='white')
         settings_action.setIcon(settings_icon)
         settings_action.setToolTip("Configure application preferences")
         settings_action.triggered.connect(self.open_settings)
 
+    # Handle change of progress metric for progress bar menu
     def change_progress_metric(self, metric_id):
         self.active_progress_metric = metric_id
         self.apply_progress_metric_visibility()
         self.progress_menu.hide()
         self.update_progress_bar()
 
+    # Add progress bars to menu that are not selected as main
     def apply_progress_metric_visibility(self):
         self.progress_menu.clear()
         if self.active_progress_metric != "current_font":
@@ -1438,6 +1454,7 @@ class FontWidget(QMainWindow):
         if self.active_progress_metric != "full_pages":
             self.progress_menu.addAction(self.act_prog_full_pages)
 
+    # Start auto saving timer
     def toggle_auto_save_timer(self, checked):
         if checked:
             self.auto_save_timer.start(5 * 60 * 1000)
@@ -1446,6 +1463,7 @@ class FontWidget(QMainWindow):
             self.auto_save_timer.stop()
             self.statusBar().showMessage("Auto-save timer disabled", 3000)
 
+    # Save progress based on timer interval
     def auto_save_interval_triggered(self):
         if self.unsaved_changes:
             self.save_to_db()
@@ -1469,6 +1487,7 @@ class FontWidget(QMainWindow):
         self.glyph_list.setFont(font)
         self.glyph_list.currentItemChanged.connect(self.on_list_item_changed)
         self.glyph_list.installEventFilter(self)
+        # Navigation group
         nav_group = QGroupBox("Navigation")
         nav_main_layout = QVBoxLayout(nav_group)
         nav_main_layout.setSpacing(10)
@@ -1483,7 +1502,7 @@ class FontWidget(QMainWindow):
         self.btn_next_page = QToolButton()
         self.btn_select_page = QPushButton("Page: -")
 
-        # Hard lock for page arrows (35x35)
+        # Hard lock for page arrows
         self.btn_prev_page.setFixedSize(35, 35)
         self.btn_next_page.setFixedSize(35, 35)
         self.btn_prev_page.setArrowType(QtCore.Qt.LeftArrow)
@@ -1512,7 +1531,7 @@ class FontWidget(QMainWindow):
         self.btn_next_font = QToolButton()
         self.btn_select_font = QPushButton("No font loaded")
 
-        # Hard lock for font arrows (35x35)
+        # Hard lock for font arrows
         self.btn_prev_font.setFixedSize(35, 35)
         self.btn_next_font.setFixedSize(35, 35)
         self.btn_prev_font.setArrowType(QtCore.Qt.LeftArrow)
@@ -1536,6 +1555,7 @@ class FontWidget(QMainWindow):
 
         self.nav_page_widget.setVisible(False)
 
+        # Glyph preview group
         preview_group = QGroupBox("Glyph Preview")
         preview_layout = QHBoxLayout(preview_group)
 
@@ -1547,12 +1567,13 @@ class FontWidget(QMainWindow):
         preview_layout.addWidget(self.canvas)
         preview_layout.addWidget(self.label)
 
+        # Mapping tools group
         mapping_group = QGroupBox("Mapping Tools")
         mapping_layout = QVBoxLayout(mapping_group)
 
-        left_panel = QHBoxLayout()
-        left_panel.setContentsMargins(0, 0, 0, 0)
-        left_panel.setSpacing(10)
+        user_lineEdits = QHBoxLayout()
+        user_lineEdits.setContentsMargins(0, 0, 0, 0)
+        user_lineEdits.setSpacing(10)
 
         self.suggestions_layout = QHBoxLayout()
         self.suggestions_layout.setAlignment(QtCore.Qt.AlignLeft)
@@ -1566,6 +1587,7 @@ class FontWidget(QMainWindow):
 
         self.suggestions_layout.addWidget(self.lbl_no_suggestions)
 
+        # Suggestions buttons
         self.suggestion_buttons = []
         for _ in range(4):
             btn = QPushButton("")
@@ -1586,6 +1608,7 @@ class FontWidget(QMainWindow):
 
         self.suggestions_layout.addStretch()  # Push suggestions to the left
 
+        # Character input
         self.char_input = QLineEdit()
         self.char_input.setPlaceholderText("Character")
         self.char_input.setMaxLength(3)
@@ -1597,6 +1620,7 @@ class FontWidget(QMainWindow):
         self.char_input.installEventFilter(self)
         self.char_input.textChanged.connect(self.on_user_input_changed)
 
+        # Hex input
         self.unic_input = QLineEdit()
         self.unic_input.setPlaceholderText("Unicode Hex")
         self.unic_input.setMaxLength(5)
@@ -1614,14 +1638,14 @@ class FontWidget(QMainWindow):
 
         self.unic_input.setVisible(self.setting_show_hex_input)
 
-        left_panel.addWidget(self.char_input)
-        left_panel.addWidget(self.unic_input)
+        user_lineEdits.addWidget(self.char_input)
+        user_lineEdits.addWidget(self.unic_input)
 
         user_inputs = QHBoxLayout()
-        user_inputs.addLayout(left_panel)
+        user_inputs.addLayout(user_lineEdits)
 
-        right_panel = QVBoxLayout()
-        right_panel.setContentsMargins(0, 0, 0, 0)
+        user_buttons = QVBoxLayout()
+        user_buttons.setContentsMargins(0, 0, 0, 0)
 
         self.btn_special = QPushButton("Special Characters")
         self.btn_special.setStyleSheet("font-weight: bold; padding: 5px; min-height: 30px;")
@@ -1662,18 +1686,18 @@ class FontWidget(QMainWindow):
         bottom_right_layout.addWidget(self.btn_glyph)
         bottom_right_layout.addWidget(self.btn_font)
 
-        right_panel.addLayout(bottom_right_layout)
+        user_buttons.addLayout(bottom_right_layout)
 
         mapping_layout.addLayout(user_inputs, 1)
-        mapping_layout.addLayout(right_panel, 0)
+        mapping_layout.addLayout(user_buttons, 0)
 
-        # Create the Suggestions group box
+        # Suggestion group
         suggestions_group = QGroupBox("Suggestions")
         suggestions_group_layout = QVBoxLayout(suggestions_group)
         suggestions_group_layout.setContentsMargins(5, 5, 5, 5)
         suggestions_group_layout.addLayout(self.suggestions_layout)
 
-        # Create a dedicated group box for the glyph list to maintain visual consistency
+        # Glyph list group
         list_group = QGroupBox("Glyph List")
         list_layout = QVBoxLayout(list_group)
         list_layout.setContentsMargins(5, 5, 5, 5)
@@ -1699,6 +1723,7 @@ class FontWidget(QMainWindow):
         main_layout.addLayout(top_layout, 1)
         main_layout.addLayout(bottom_layout, 0)
 
+        # Set everything that it can't be focused
         self.btn_prev_page.setFocusPolicy(QtCore.Qt.NoFocus)
         self.btn_next_page.setFocusPolicy(QtCore.Qt.NoFocus)
         self.btn_prev_font.setFocusPolicy(QtCore.Qt.NoFocus)
@@ -1711,6 +1736,7 @@ class FontWidget(QMainWindow):
         self.btn_next_unmapped.setFocusPolicy(QtCore.Qt.NoFocus)
         self.btn_prev_mapped.setFocusPolicy(QtCore.Qt.NoFocus)
 
+        # Shortcuts
         self.shortcut_prev_font = QShortcut(QKeySequence("Ctrl+Left"), self)
         self.shortcut_prev_font.activated.connect(self.go_to_prev_font)
 
@@ -1766,6 +1792,8 @@ class FontWidget(QMainWindow):
             return
 
         dialog = PageSelectionDialog(self.menu_structure, self.font_cache, self.current_page, self)
+
+        # Jump to page on window closing
         if dialog.exec():
             selected_page = dialog.get_selected_page()
             if selected_page is not None:
@@ -1796,6 +1824,7 @@ class FontWidget(QMainWindow):
             self
         )
 
+        # Jump to font on window closing
         if dialog.exec():
             selected_data = dialog.get_selected_font()
             if selected_data:
@@ -1816,7 +1845,7 @@ class FontWidget(QMainWindow):
 
         self.action_progress.setVisible(True)
 
-        # A) Current Font
+        # 1: Current Font
         info = self.font_cache.get((self.current_page, self.current_font_name), {})
         hashes_dict = info.get('glyph_hashes', {})
         current_font_mapped = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
@@ -1824,7 +1853,7 @@ class FontWidget(QMainWindow):
         agl_count = info.get('agl_count', 0)
         _, current_font_color = self._get_status_info(current_font_mapped, current_font_total, agl_count)
 
-        # B) Current Page (All mapped glyphs vs total glyphs on the current page)
+        # 2: Current Page
         current_page_mapped = 0
         current_page_total = 0
         current_page_agl = 0
@@ -1839,8 +1868,8 @@ class FontWidget(QMainWindow):
 
         _, current_page_color = self._get_status_info(current_page_mapped, current_page_total, current_page_agl)
 
-        # C) Entire Document (All mapped glyphs vs total glyphs across all UNIQUE fonts)
-        # and D) Fully Repaired Pages (Count of pages where all fonts are 100% mapped)
+        # 3: Entire Document
+        # 4: Fully Repaired Pages
         entire_document_mapped = 0
         entire_document_total = 0
         entire_document_agl = 0
@@ -1878,13 +1907,15 @@ class FontWidget(QMainWindow):
         _, entire_document_color = self._get_status_info(entire_document_mapped, entire_document_total,
                                                          entire_document_agl)
         _, full_pages_color = self._get_status_info(full_pages_mapped, full_pages_total,
-                                                    0)  # No AGL needed for page count styling
+                                                    0)
 
+        # Update progress bar
         self.widget_prog_current_font.update_progress(current_font_mapped, current_font_total, current_font_color)
         self.widget_prog_current_page.update_progress(current_page_mapped, current_page_total, current_page_color)
         self.widget_prog_entire_document.update_progress(entire_document_mapped, entire_document_total, entire_document_color)
         self.widget_prog_full_pages.update_progress(full_pages_mapped, full_pages_total, full_pages_color)
 
+        # Set current progress metric
         if self.active_progress_metric == "current_font":
             self.main_progress_btn.update_progress("glyphs in current font", current_font_mapped, current_font_total, current_font_color)
         elif self.active_progress_metric == "current_page":
@@ -1897,6 +1928,7 @@ class FontWidget(QMainWindow):
         if self.setting_page_mode:
             self.update_navigation_labels()
 
+    # Method for colors based on mapped glyphs/pages
     def _get_status_info(self, mapped, total, agl_count=0):
         if total == 0:
             return "—", "#888888"  # Gray
@@ -1904,7 +1936,7 @@ class FontWidget(QMainWindow):
 
         if perc >= 100:
             if agl_count > 0:
-                return "100%", "#00CED1"  # Teal/Cyan
+                return "100%", "#00CED1"  # Cyan
             else:
                 return "100%", "#228B22"  # Green
         elif perc > 0 or agl_count > 0:
@@ -2181,8 +2213,8 @@ class FontWidget(QMainWindow):
             agn = UV2AGL.get(ord(text_input), "")
             display = text_input
         else:
-            if text_input in self.KNOWN_LIGATURES:
-                unicode_hex = self.KNOWN_LIGATURES[text_input]
+            if text_input in self.LIGATURES:
+                unicode_hex = self.LIGATURES[text_input]
                 agn = UV2AGL.get(int(unicode_hex, 16), text_input)
                 display = text_input
             else:
