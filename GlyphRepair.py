@@ -4453,10 +4453,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description="PDF Glyph Repair Tool - GUI & CLI",
-        usage="%(prog)s [-h] [-m] [target] [-r] [-d HASH_DB] [-v]"
+        usage="%(prog)s [-h] [-m] [Target directory] [-r] [-d HASH_DB] [-v]"
     )
 
-    parser.add_argument("Target directory", nargs='?', help="Path to target file or directory")
+    parser.add_argument("target", metavar="Target directory", nargs='?', help="Path to target file or directory")
 
     parser.add_argument("-m", "--multiple", action="store_true", help="Enables automated repair of multiple input files")
     parser.add_argument("-r", "--recursive", action="store_true", help="Also repairs files in subdirectories (-m required)")
