@@ -4460,7 +4460,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-m", "--multiple", action="store_true", help="Enables automated repair of multiple input files")
     parser.add_argument("-r", "--recursive", action="store_true", help="Also repairs files in subdirectories (-m required)")
-    parser.add_argument("-d", "--hash-db", dest="hash_db", help="Path to hash database of known input files missing")
+    parser.add_argument("-d", "--hash-db", dest="hash_db", help="Path to hash database of known input files")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enables verbose output")
 
     args = parser.parse_args()
