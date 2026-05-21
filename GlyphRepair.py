@@ -1368,12 +1368,12 @@ class FontWidget(QMainWindow):
         open_action.triggered.connect(self.open_pdf)
 
         # Repair pdf action
-        self.current_pdf_action = toolbar.addAction("Repair PDF")
+        self.repair_pdf_action = toolbar.addAction("Repair PDF")
         current_pdf_icon = qta.icon('fa5s.save', color='white')
-        self.current_pdf_action.setIcon(current_pdf_icon)
-        self.current_pdf_action.setEnabled(False)
-        self.current_pdf_action.setToolTip("Start the repair process for the currently loaded PDF")
-        self.current_pdf_action.triggered.connect(self.repair_pdf)
+        self.repair_pdf_action.setIcon(current_pdf_icon)
+        self.repair_pdf_action.setEnabled(False)
+        self.repair_pdf_action.setToolTip("Start the repair process for the currently loaded PDF")
+        self.repair_pdf_action.triggered.connect(self.repair_pdf)
 
         # Spacer
         spacer = QWidget()
@@ -1777,7 +1777,7 @@ class FontWidget(QMainWindow):
 
             # Apply runtime changes
             if page_mode_changed:
-                self.update_navigation_labels()
+                self.update_navigation_tooltips()
             if timer_changed:
                 self.toggle_auto_save_timer(self.setting_auto_save_timer)
             if hex_visibility_changed:
@@ -1834,7 +1834,7 @@ class FontWidget(QMainWindow):
     # Helper method to change page mode dynamically from the UI
     def set_page_mode(self, mode):
         self.setting_page_mode = mode
-        self.update_navigation_labels()
+        self.update_navigation_tooltips()
 
     # Updates the progress bar in the toolbar with the current font's completion status
     # It calculates the live state independently, leaving font_cache untouched for the menus
@@ -1926,7 +1926,7 @@ class FontWidget(QMainWindow):
             self.main_progress_btn.update_progress("full pages", full_pages_mapped, full_pages_total, full_pages_color)
 
         if self.setting_page_mode:
-            self.update_navigation_labels()
+            self.update_navigation_tooltips()
 
     # Method for colors based on mapped glyphs/pages
     def _get_status_info(self, mapped, total, agl_count=0):
@@ -1986,9 +1986,6 @@ class FontWidget(QMainWindow):
         self.unic_input.setEnabled(False)
         self.btn_glyph.setEnabled(False)
         self.btn_font.setEnabled(False)
-        if hasattr(self, 'suggestion_buttons'):
-            for btn in self.suggestion_buttons:
-                btn.setEnabled(False)
 
         # Hide progress bar
         if hasattr(self, 'font_progress'):
@@ -2000,15 +1997,18 @@ class FontWidget(QMainWindow):
         self.unsaved_changes = False
         self._update_window_title()
 
-        if hasattr(self, 'current_pdf_action'):
-            self.current_pdf_action.setEnabled(False)
+        # Turn off repair button
+        if hasattr(self, 'repair_pdf_action'):
+            self.repair_pdf_action.setEnabled(False)
 
+        # Hide suggestions
         if hasattr(self, 'suggestion_buttons'):
             for btn in self.suggestion_buttons:
                 btn.setText("")
                 btn.setEnabled(False)
                 btn.setVisible(False)
 
+        # Hide no suggestions label
         if hasattr(self, 'lbl_no_suggestions'):
             self.lbl_no_suggestions.setVisible(False)
 
@@ -2024,6 +2024,7 @@ class FontWidget(QMainWindow):
         if not self.pdf_path or not hasattr(self, 'menu_structure'):
             return
 
+        # In page mode, get all font on page and jump to prev/next
         if self.setting_page_mode:
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             if not fonts_on_page: return
@@ -2033,19 +2034,23 @@ class FontWidget(QMainWindow):
             except ValueError:
                 idx = 0
 
+            # Jump to next/prev font
             next_idx = (idx + step) % len(fonts_on_page)
             self.load_font(self.current_page, fonts_on_page[next_idx])
 
+        # Jump to prev/next font globally
         else:
-            seq = self._get_standard_mode_sequence()
+            seq = self._get_unique_mode_sequence()
             if not seq: return
 
+            # Find current font index
             idx = 0
             for i, (p, f) in enumerate(seq):
                 if f == self.current_font_name:
                     idx = i
                     break
 
+            # Jump to next/prev font
             next_idx = (idx + step) % len(seq)
             next_page, next_font = seq[next_idx]
             self.load_font(next_page, next_font)
@@ -2067,6 +2072,7 @@ class FontWidget(QMainWindow):
         if self.current_page is None:
             next_page = available_pages[0]
         else:
+            # Find current page index
             try:
                 current_idx = available_pages.index(self.current_page)
                 next_idx = (current_idx + step) % len(available_pages)
@@ -2083,13 +2089,16 @@ class FontWidget(QMainWindow):
 
             self.load_font(next_page, target_font)
 
-    def update_navigation_labels(self):
+    # Update navigation tooltips depening on page mode
+    def update_navigation_tooltips(self):
         if not self.pdf_path or not self.current_font_name or self.current_page is None:
             return
 
         self.nav_page_widget.setVisible(self.setting_page_mode)
 
+        # Page mode tooltip handling
         if self.setting_page_mode:
+            # Get font and page info
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             total_fonts = len(fonts_on_page)
             try:
@@ -2097,12 +2106,11 @@ class FontWidget(QMainWindow):
             except ValueError:
                 current_font_idx = 0
 
-            # Set clean button text
             self.btn_select_font.setText(self.current_font_name)
             # Add detailed tooltip for font
-            self.btn_select_font.setToolTip(
-                f"<b>Font Navigation</b><br>Currently mapping font {current_font_idx} of {total_fonts} on this page.")
+            self.btn_select_font.setToolTip(f"<b>Font Navigation</b><br>Currently mapping font {current_font_idx} of {total_fonts} on this page.")
 
+            # Get page info for status icon color and tooltip
             page_mapped = 0
             page_total = 0
             page_agl = 0
@@ -2119,18 +2127,17 @@ class FontWidget(QMainWindow):
             page_idx = all_pages.index(self.current_page) + 1
             total_pages = len(all_pages)
 
-            # Set clean button text
             self.btn_select_page.setText(f"Page {self.current_page + 1}")
             # Add detailed tooltip for page
-            self.btn_select_page.setToolTip(
-                f"<b>Page Navigation</b><br>Viewing page {page_idx} out of {total_pages} containing repairable fonts.")
+            self.btn_select_page.setToolTip(f"<b>Page Navigation</b><br>Viewing page {page_idx} out of {total_pages} containing repairable fonts.")
 
+        # Global mode tooltip handling
         else:
             self.btn_select_page.setIcon(QIcon())
             self.btn_select_page.setText(f"Page {self.current_page + 1}")
             self.btn_select_page.setToolTip("Page of the currently selected font.")
 
-            unique_fonts = self._get_standard_mode_sequence()
+            unique_fonts = self._get_unique_mode_sequence()
             total_fonts = len(unique_fonts)
             current_font_idx = 0
             for i, (p, f) in enumerate(unique_fonts):
@@ -2138,11 +2145,9 @@ class FontWidget(QMainWindow):
                     current_font_idx = i + 1
                     break
 
-            # Set clean button text (Global)
             self.btn_select_font.setText(self.current_font_name)
             # Add detailed tooltip for global font mapping
-            self.btn_select_font.setToolTip(
-                f"<b>Global Font Navigation</b><br>Currently mapping font {current_font_idx} out of {total_fonts} unique fonts across the document.")
+            self.btn_select_font.setToolTip(f"<b>Global Font Navigation</b><br>Currently mapping font {current_font_idx} out of {total_fonts} unique fonts across the document.")
 
     # Moves selection to the next glyph in the list
     def show_next(self):
@@ -2152,8 +2157,8 @@ class FontWidget(QMainWindow):
 
     # Dynamically resizes list items to show the selected one larger
     def on_list_item_changed(self, current, previous):
+        # Shrink the previously selected item
         if previous:
-            # Shrink the previously selected item
             pix_large = previous.data(QtCore.Qt.UserRole + 2)
             if pix_large:
                 pix_small = pix_large.scaled(
@@ -2163,8 +2168,8 @@ class FontWidget(QMainWindow):
                 previous.setIcon(QIcon(pix_small))
                 previous.setSizeHint(QtCore.QSize(0, self.ICON_SIZE_SMALL + 4))
 
+        # Enlarge the newly selected item
         if current:
-            # Enlarge the newly selected item
             pix_large = current.data(QtCore.Qt.UserRole + 1)
             if pix_large:
                 current.setIcon(QIcon(pix_large))
@@ -2177,7 +2182,7 @@ class FontWidget(QMainWindow):
                     self.current_index = new_index
                     self.show_glyph()
 
-    # Core Logic: Saves the mapping for a single glyph
+    # Save the mapping for a single glyph
     def save_glyph(self):
         text_input = self.char_input.text().strip()
         unic_input = self.unic_input.text().strip().lower()
@@ -2203,15 +2208,18 @@ class FontWidget(QMainWindow):
                 QMessageBox.warning(self, "Invalid Unicode",
                                     f"The hex value '{unic_input}' is not a valid Unicode character.")
                 return
+        # Insert space on empty user input
         elif not text_input:
             text_input = " "
             unicode_hex = "0020"
             agn = "space"
             display = "[space]"
+        # Single character handling
         elif len(text_input) == 1:
             unicode_hex = format(ord(text_input), '04x')
             agn = UV2AGL.get(ord(text_input), "")
             display = text_input
+        # Ligature handling
         else:
             if text_input in self.LIGATURES:
                 unicode_hex = self.LIGATURES[text_input]
@@ -2250,10 +2258,12 @@ class FontWidget(QMainWindow):
         info = self.font_cache.get((self.current_page, self.current_font_name), {})
         hashes_dict = info.get('glyph_hashes', {})
 
+        # Check font completion
         mapped_count = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
         total_count = len(self.current_font_glyph_names)
         is_100_percent = (mapped_count == total_count)
 
+        # Settings functions dependent on 100% completion
         if is_100_percent:
             if self.setting_auto_save_100:
                 self.save_to_db()
@@ -2277,7 +2287,7 @@ class FontWidget(QMainWindow):
         return sequence
 
     # Returns a list of unique fonts for global mode mapping
-    def _get_standard_mode_sequence(self):
+    def _get_unique_mode_sequence(self):
         sequence = []
         if hasattr(self, 'menu_structure') and self.menu_structure:
             unique = set()
@@ -2311,7 +2321,7 @@ class FontWidget(QMainWindow):
         if self.setting_page_mode:
             seq = self._get_page_mode_sequence()
         else:
-            seq = self._get_standard_mode_sequence()
+            seq = self._get_unique_mode_sequence()
 
         if not seq: return
 
@@ -2474,7 +2484,7 @@ class FontWidget(QMainWindow):
                 self.clear_ui_state()
 
             # Update dynamic navigation labels
-            self.update_navigation_labels()
+            self.update_navigation_tooltips()
             self.update_progress_bar()
 
         except Exception as e:
@@ -2845,7 +2855,7 @@ class FontWidget(QMainWindow):
             if first_page is not None:
                 self.update_statistics()
                 self.load_font(first_page, first_name)
-                self.current_pdf_action.setEnabled(True)
+                self.repair_pdf_action.setEnabled(True)
             else:
                 self.clear_ui_state()
                 QMessageBox.information(
