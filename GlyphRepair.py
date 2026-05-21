@@ -2928,8 +2928,10 @@ class FontWidget(QMainWindow):
                 mapped_count += 1
 
             # Or if there are no internal collisions AND all records share the same hex
-            elif len(global_hash_names.get(g_hash, set())) <= 1 and len(set(r["unicode_hex"] for r in records)) == 1:
-                mapped_count += 1
+            elif len(global_hash_names.get(g_hash, set())) <= 1:
+                unique_hexes = set(r["unicode_hex"] for r in records)
+                if len(unique_hexes) == 1:
+                    mapped_count += 1
 
         return mapped_count
 
@@ -3235,7 +3237,10 @@ class FontWidget(QMainWindow):
             g_hash = data.get("glyph_hash") or self.get_glyph_hash(gname)
 
             if g_hash:
-                stale_keys = [k for k in existing_data.keys() if k[0] == g_hash and k[2] == gname]
+                stale_keys = [
+                    (h, f, g) for (h, f, g) in existing_data.keys()
+                    if h == g_hash and g == gname
+                ]
                 for k in stale_keys:
                     del existing_data[k]
 
@@ -3278,6 +3283,7 @@ class FontWidget(QMainWindow):
 
         cached_hashes = self.font_cache.get((self.current_page, self.current_font_name), {}).get('glyph_hashes', {})
 
+        # Load global hash names from cache
         global_hash_names = {}
         for (p_num, f_name), cache_info in self.font_cache.items():
             if f_name == self.current_font_name:
@@ -3287,6 +3293,7 @@ class FontWidget(QMainWindow):
                     global_hash_names[gh].add(gn)
 
         for name in self.current_font_glyph_names:
+            # Skip AGL glyphs
             if name in EXTENDED_AGL and name != '.notdef':
                 continue
 
@@ -3297,16 +3304,18 @@ class FontWidget(QMainWindow):
             records = db_map[g_hash]
             has_internal_collision = len(global_hash_names.get(g_hash, set())) > 1
 
-            if has_internal_collision:
-                matched_rows = [r for r in records if r["GlyphName"] == name]
-                if matched_rows:
-                    row = matched_rows[-1]
-                    self.user_glyph_to_char[name] = {
-                        "glyph_hash": g_hash,
-                        "unicode_hex": row["unicode_hex"],
-                        "AGN": row["AGN"]
-                    }
-            else:
+            # Select mappings based on names for collisions
+            matched_rows = [r for r in records if r["GlyphName"] == name]
+            if matched_rows:
+                row = matched_rows[-1]
+                self.user_glyph_to_char[name] = {
+                    "glyph_hash": g_hash,
+                    "unicode_hex": row["unicode_hex"],
+                    "AGN": row["AGN"]
+                }
+
+            # Use unique hash for mapping
+            elif not has_internal_collision:
                 unique_hexes = list(set(r["unicode_hex"] for r in records))
                 if len(unique_hexes) == 1:
                     row = next(r for r in reversed(records) if r["unicode_hex"] == unique_hexes[0])
@@ -3315,15 +3324,6 @@ class FontWidget(QMainWindow):
                         "unicode_hex": row["unicode_hex"],
                         "AGN": row["AGN"]
                     }
-                else:
-                    matched_rows = [r for r in records if r["GlyphName"] == name]
-                    if matched_rows:
-                        row = matched_rows[-1]
-                        self.user_glyph_to_char[name] = {
-                            "glyph_hash": g_hash,
-                            "unicode_hex": row["unicode_hex"],
-                            "AGN": row["AGN"]
-                        }
 
         # Special handling for .notdef
         if '.notdef' in self.current_glyph_set:
@@ -3387,6 +3387,7 @@ class FontWidget(QMainWindow):
         all_unique_xrefs = set()
         ready_xrefs_set = set()
 
+        # Open pdf and extract fonts for each page
         with fitz.open(self.pdf_path) as doc_temp:
             for (p_num, f_name), info in self.font_cache.items():
                 if p_num not in page_font_map: page_font_map[p_num] = []
@@ -3397,6 +3398,7 @@ class FontWidget(QMainWindow):
                         found_xref = f[0]
                         break
 
+                # get early stats
                 f_stats = {'name': f_name, 'mapped': info.get('mapped_count', 0), 'total': info.get('glyph_count', 0),
                            'xref': found_xref}
                 page_font_map[p_num].append(f_stats)
@@ -3409,9 +3411,11 @@ class FontWidget(QMainWindow):
         total_unique_cff_fonts = len(all_unique_xrefs)
         ready_xrefs = list(ready_xrefs_set)
 
+        # Open dialog
         dialog = IntegratedRepairDialog(page_font_map, total_unique_cff_fonts, len(ready_xrefs), self)
         result = dialog.exec()
 
+        # Jump to font/page from dialog
         if result == QDialog.Accepted + 1:
             p_num, f_name = dialog.jump_target
             if f_name:
@@ -3423,6 +3427,7 @@ class FontWidget(QMainWindow):
             self.statusBar().showMessage(f"Jump to font/page {f_name}", 3000)
             return
 
+        # Run rapair
         if result == QDialog.Accepted:
             dialog.show()
 
@@ -3432,124 +3437,134 @@ class FontWidget(QMainWindow):
                 dialog.log("=" * 68, "#aaaaaa")
 
                 db_map = load_db(GLYPH_DATABASE)
+                # Custom flags for PyMuPDF to handle glyphs correctly
                 custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
 
-                doc_vizual = fitz.open(self.pdf_path)
-                font_cache_local = {}
+                with fitz.open(self.pdf_path) as doc_visual:
+                    font_cache_local = {}
 
-                dialog.log("[INFO] Glyph display order analysis...", "#aaaaaa")
-                visual_sequence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, mode="visual",
-                                                progress_callback=dialog.set_progress)
+                    dialog.log("[INFO] Glyph display order analysis...", "#aaaaaa")
+                    # Start loading pdf as visual data
+                    visual_sequence = load_sequence(doc_visual, custom_flags, db_map, font_cache_local, mode="visual", progress_callback=dialog.set_progress)
 
-                # Calculate counts clearly before modifying the sequence
-                ready_xrefs_count = len(ready_xrefs)
-                incomplete_fonts_count = total_unique_cff_fonts - ready_xrefs_count
+                    # Calculate counts clearly before modifying the sequence
+                    ready_xrefs_count = len(ready_xrefs)
+                    incomplete_fonts_count = total_unique_cff_fonts - ready_xrefs_count
 
-                ghost_xrefs = set(ready_xrefs) - set(visual_sequence.keys())
-                visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
-                ready_fonts_count = len(visual_sequence)
+                    # Look for ghost fonts
+                    ghost_xrefs = set(ready_xrefs) - set(visual_sequence.keys())
+                    filtered_sequence = {}
+                    for xref, seq in visual_sequence.items():
+                        if xref in ready_xrefs:
+                            filtered_sequence[xref] = seq
 
-                # Clearly log the font analysis math for the user
-                dialog.log("\n[INFO] Document analysis summary:", "#aaaaaa")
-                dialog.log(f"  -> Total CFF fonts in PDF: {total_unique_cff_fonts}", "#aaaaaa")
-                dialog.log(f"  -> Fully mapped (ready):   {ready_xrefs_count}",
-                           "#228B22" if ready_xrefs_count > 0 else "#aaaaaa")
+                    visual_sequence = filtered_sequence
+                    ready_fonts_count = len(visual_sequence)
 
-                if incomplete_fonts_count > 0:
-                    dialog.log(f"  -> Incomplete (skipped):   {incomplete_fonts_count}", "#FF8C00")
+                    # Display summary
+                    dialog.log("\n[INFO] Document analysis summary:", "#aaaaaa")
+                    dialog.log(f"  -> Total CFF fonts in PDF: {total_unique_cff_fonts}", "#aaaaaa")
+                    dialog.log(f"  -> Fully mapped (ready):   {ready_xrefs_count}", "#228B22" if ready_xrefs_count > 0 else "#aaaaaa")
 
-                if ghost_xrefs:
-                    dialog.log(f"  -> Ghost fonts (no text):  {len(ghost_xrefs)}", "#FF8C00")
-                    for gxref in ghost_xrefs:
-                        gx_name = "Unknown"
-                        for p_num, f_list in page_font_map.items():
-                            for f_info in f_list:
-                                if f_info['xref'] == gxref:
-                                    gx_name = f_info['name']
-                                    break
-                        dialog.log(f"      - '{gx_name}' (skipped)", "#888888")
+                    if incomplete_fonts_count > 0:
+                        dialog.log(f"  -> Incomplete (skipped):   {incomplete_fonts_count}", "#FF8C00")
 
-                dialog.log(f"\n[INFO] Proceeding to repair {ready_fonts_count} active fonts.\n", "#3d7eff")
+                    if ghost_xrefs:
+                        dialog.log(f"  -> Ghost fonts (no text):  {len(ghost_xrefs)}", "#FF8C00")
+                        for gxref in ghost_xrefs:
+                            gx_name = "Unknown"
+                            for p_num, f_list in page_font_map.items():
+                                for f_info in f_list:
+                                    if f_info['xref'] == gxref:
+                                        gx_name = f_info['name']
+                                        break
+                            dialog.log(f"      - '{gx_name}' (skipped)", "#888888")
 
-                dialog.log("[1/3] Temporary ToUnicode injection", "#3d7eff")
-                dialog.log("-" * 68, "#aaaaaa")
-                temp_cmap_str = generate_temp_tounicode()
+                    dialog.log(f"\n[INFO] Proceeding to repair {ready_fonts_count} active fonts.\n", "#3d7eff")
 
-                for idx, xref in enumerate(visual_sequence.keys(), 1):
-                    temp_xref = doc_vizual.get_new_xref()
-                    doc_vizual.update_object(temp_xref, "<<>>")
-                    doc_vizual.update_stream(temp_xref, temp_cmap_str.encode("utf-8"))
-                    doc_vizual.xref_set_key(xref, "ToUnicode", f"{temp_xref} 0 R")
+                    dialog.log("[1/3] Temporary ToUnicode injection", "#3d7eff")
+                    dialog.log("-" * 68, "#aaaaaa")
+                    temp_cmap_str = generate_temp_tounicode()
 
-                    font_name = font_cache_local.get(xref, {}).get("name", "Not found")
-                    dialog.log(f"  [{idx}/{ready_fonts_count}] Font '{font_name}'")
-                    dialog.log(f"      -> New temporary xref: {temp_xref}", "#aaaaaa")
+                    # Create and insert temporary xrefs
+                    for idx, xref in enumerate(visual_sequence.keys(), 1):
+                        temp_xref = doc_visual.get_new_xref()
+                        doc_visual.update_object(temp_xref, "<<>>")
+                        doc_visual.update_stream(temp_xref, temp_cmap_str.encode("utf-8"))
+                        doc_visual.xref_set_key(xref, "ToUnicode", f"{temp_xref} 0 R")
 
-                dialog.log("\n[INFO] Saving PDF to cache ...", "#aaaaaa")
-                temp_pdf_bytes = doc_vizual.tobytes()
-                doc_vizual.close()
+                        font_name = font_cache_local.get(xref, {}).get("name", "Not found")
+                        dialog.log(f"  [{idx}/{ready_fonts_count}] Font '{font_name}'")
+                        dialog.log(f"      -> New temporary xref: {temp_xref}", "#aaaaaa")
+
+                    dialog.log("\n[INFO] Saving PDF to cache ...", "#aaaaaa")
+                    temp_pdf_bytes = doc_visual.tobytes()
 
                 dialog.log("\n[2/3] Internal character ID extraction", "#3d7eff")
                 dialog.log("-" * 68, "#aaaaaa")
-                doc_temp = fitz.open("pdf", temp_pdf_bytes)
-                internal_sequence = load_sequence(doc_temp, custom_flags, db_map, font_cache_local, mode="temp")
-                doc_temp.close()
 
-                # Only report the count of fonts we actually care about to avoid confusion
+                # Extract Character Codes using temporary ToUnicode
+                with fitz.open("pdf", temp_pdf_bytes) as doc_temp:
+                    internal_sequence = load_sequence(doc_temp, custom_flags, db_map, font_cache_local, mode="temp")
+
                 dialog.log(f"  -> Extraction succeeded (processing {ready_fonts_count} ready fonts).", "#228B22")
 
                 dialog.log("\n[3/3] Final ToUnicode generation", "#3d7eff")
                 dialog.log("-" * 68, "#aaaaaa")
-                doc_final = fitz.open(self.pdf_path)
-                success_count = 0
+                with fitz.open(self.pdf_path) as doc_final:
+                    success_count = 0
 
-                for idx, (xref, v_seq) in enumerate(visual_sequence.items(), 1):
-                    i_seq = internal_sequence.get(xref, [])
-                    font_name = font_cache_local.get(xref, {}).get("name", "Not found")
+                    # Loop through fonts and match sequences
+                    for idx, (xref, v_seq) in enumerate(visual_sequence.items(), 1):
+                        i_seq = internal_sequence.get(xref, [])
+                        font_name = font_cache_local.get(xref, {}).get("name", "Not found")
 
-                    dialog.log(f"  [{idx}/{ready_fonts_count}] Processing font: '{font_name}'")
-                    dialog.log(f"      -> Characters detected - Visual: {len(v_seq)} | Internal: {len(i_seq)}",
-                               "#aaaaaa")
+                        dialog.log(f"  [{idx}/{ready_fonts_count}] Processing font: '{font_name}'")
+                        dialog.log(f"      -> Characters detected - Visual: {len(v_seq)} | Internal: {len(i_seq)}", "#aaaaaa")
 
-                    if len(v_seq) == len(i_seq):
-                        mapping = {}
-                        for v_hex, i_id in zip(v_seq, i_seq):
-                            if v_hex == "IGNORE_AGL":
+                        # For matching sequences generate mapping and ToUnicode
+                        if len(v_seq) == len(i_seq):
+                            mapping = {}
+                            # Match sequences
+                            for v_hex, i_id in zip(v_seq, i_seq):
+                                if v_hex == "IGNORE_AGL":
+                                    continue
+                                if i_id not in mapping:
+                                    mapping[i_id] = v_hex
+
+                            # Skip full AGL fonts
+                            if not mapping:
+                                dialog.log(f"      -> [INFO] Only standard AGL characters used, skipping ToUnicode.", "#aaaaaa")
+                                success_count += 1
                                 continue
-                            if i_id not in mapping:
-                                mapping[i_id] = v_hex
 
-                        if not mapping:
-                            dialog.log(f"      -> [INFO] Only standard AGL characters used, skipping ToUnicode.",
-                                       "#aaaaaa")
+                            # Generate ToUnicode from mapping
+                            real_cmap = generate_real_tounicode(mapping)
+                            new_xref = doc_final.get_new_xref()
+                            doc_final.update_object(new_xref, "<<>>")
+                            doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
+                            doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+
+                            # Log success
                             success_count += 1
-                            continue
+                            dialog.log(f"      -> ToUnicode generated (Size: {len(real_cmap)} bytes)", "#aaaaaa")
+                            dialog.log(f"      -> Injected under xref: {new_xref}", "#aaaaaa")
+                            dialog.log(f"      -> [SUCCESS] {len(mapping)} unique glyphs mapped", "#00ff00")
+                        else:
+                            dialog.log(f"      -> [ERROR] Sequence lengths do not match, skipping font...", "#ff4444")
 
-                        real_cmap = generate_real_tounicode(mapping)
-                        new_xref = doc_final.get_new_xref()
-                        doc_final.update_object(new_xref, "<<>>")
-                        doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
-                        doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+                    dialog.log("\n[INFO] Cleanup and file saving to disk...", "#aaaaaa")
+                    base, ext = os.path.splitext(self.pdf_path)
 
-                        success_count += 1
-                        dialog.log(f"      -> ToUnicode generated (Size: {len(real_cmap)} bytes)", "#aaaaaa")
-                        dialog.log(f"      -> Injected under xref: {new_xref}", "#aaaaaa")
-                        dialog.log(f"      -> [SUCCESS] {len(mapping)} unique glyphs mapped", "#00ff00")
+                    # Save PDF in same path as original PDF and add suffix based on success
+                    if success_count == ready_fonts_count:
+                        out_path = f"{base}_Repaired{ext}"
                     else:
-                        dialog.log(f"      -> [ERROR] Sequence lengths do not match, skipping font...", "#ff4444")
+                        out_path = f"{base}_Partially_Repaired{ext}"
 
-                dialog.log("\n[INFO] Cleanup and file saving to disk...", "#aaaaaa")
-                base, ext = os.path.splitext(self.pdf_path)
+                    doc_final.save(out_path)
 
-                if success_count == ready_fonts_count:
-                    out_path = f"{base}_Repaired{ext}"
-                else:
-                    out_path = f"{base}_Partially_Repaired{ext}"
-
-                doc_final.save(out_path)
-                doc_final.close()
-
-                # Check overall perfection status
+                # Check overall status
                 is_completely_perfect = (success_count == ready_fonts_count) and (incomplete_fonts_count == 0)
                 summary_color = "#228B22" if is_completely_perfect else "#FF8C00"
 
@@ -3559,21 +3574,21 @@ class FontWidget(QMainWindow):
 
                 dialog.log(f"Repaired file: {os.path.basename(out_path)}")
 
-                # Consolidate the final numbers to match the starting summary
-                dialog.log(f"Active fonts successfully repaired: {success_count} / {ready_fonts_count}",
-                           "#228B22" if success_count == ready_fonts_count else "#ff4444")
+                # Log success
+                dialog.log(f"Active fonts successfully repaired: {success_count} / {ready_fonts_count}", "#228B22" if success_count == ready_fonts_count else "#ff4444")
 
                 if incomplete_fonts_count > 0:
                     dialog.log(f"Fonts skipped due to incomplete mapping: {incomplete_fonts_count}", "#FF8C00")
                 if ghost_xrefs:
                     dialog.log(f"Fonts skipped because they contain no text: {len(ghost_xrefs)}", "#FF8C00")
 
-                    # Append global document summary to the bottom of the log
+                # Log global document summary
                 dialog.log("\n[INFO] Global PDF font summary:", "#aaaaaa")
                 dialog.log(f"  -> Total fonts evaluated:    {self.stats_total_fonts}", "#aaaaaa")
                 dialog.log(f"  -> Unsupported (not CFF):    {self.stats_not_supported}", "#ff4444" if self.stats_not_supported > 0 else "#aaaaaa")
                 dialog.log(f"  -> Ignored (already have ToUnicode):  {self.stats_has_tounicode}", "#aaaaaa")
 
+                # Log final status
                 if is_completely_perfect:
                     if ghost_xrefs:
                         dialog.log(f"[STATUS] Success! (Ignored {len(ghost_xrefs)} ghost fonts without text)",
@@ -3598,6 +3613,7 @@ class FontWidget(QMainWindow):
                 dialog.exec()
 
 
+# Open PDF and extract fonts for each page
 def load_db(psv_path=GLYPH_DATABASE):
     db_map = {}
     space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
@@ -3625,6 +3641,7 @@ def load_db(psv_path=GLYPH_DATABASE):
     return db_map
 
 
+# Get glyph hash
 def get_standalone_glyph_hash(glyph_set, g_name):
     if not glyph_set or g_name not in glyph_set: return None
     try:
@@ -3638,6 +3655,7 @@ def get_standalone_glyph_hash(glyph_set, g_name):
         return None
 
 
+# Return Unicode based on hash
 def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
     if g_hash not in db_map: return None
     records = db_map[g_hash]
@@ -3649,17 +3667,16 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
 
     # Handle internal hash collisions (e.g., lowercase 'l' and uppercase 'I' looking identical)
     if same_hash_names and len(same_hash_names) > 1:
-        # First, simply try to resolve by GlyphName since we know we have a collision
         if matched_rows:
             return matched_rows[-1]["unicode_hex"]
 
-        # Fallback: strict subset matching if exact name fails
+        # Strict subset matching if exact name fails
         db_fonts = {}
-        for r in records:
-            f_name = r["font_name"]
+        for record in records:
+            f_name = record["font_name"]
             if f_name not in db_fonts:
                 db_fonts[f_name] = {}
-            db_fonts[f_name][r["GlyphName"]] = r
+            db_fonts[f_name][record["GlyphName"]] = record
 
         for f_name, db_glyph_dict in db_fonts.items():
             if same_hash_names.issubset(db_glyph_dict.keys()):
@@ -3667,8 +3684,8 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
 
         return None
 
-    # No internal collision -> try unique hexes first
-    unique_hexes = set(r["unicode_hex"] for r in records)
+    # No internal collision, try unique hexes first
+    unique_hexes = set(record["unicode_hex"] for record in records)
     if len(unique_hexes) == 1:
         return list(unique_hexes)[0]
 
@@ -3679,43 +3696,24 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
     return None
 
 
+# Convert PDF Differences to usable dictionary
 def get_differences(doc, xref):
     try:
-        enc_type, enc_val = doc.xref_get_key(xref, "Encoding")
+        # Extract differences
+        diff_type, diff_val = doc.xref_get_key(xref, "Encoding/Differences")
 
-        if enc_type == "null" or enc_type == "name":
+
+        if diff_type != "array":
             return {}
 
-        array_str = ""
-
-        if enc_val.endswith("0 R"):
-            enc_xref = int(enc_val.split()[0])
-            diff_type, diff_val = doc.xref_get_key(enc_xref, "Differences")
-
-            if diff_type != "array":
-                return {}
-            array_str = diff_val
-
-        else:
-            raw_enc = doc.xref_object(xref)
-            start_idx = raw_enc.find("/Differences")
-            if start_idx == -1:
-                return {}
-
-            arr_start = raw_enc.find("[", start_idx)
-            arr_end = raw_enc.find("]", arr_start)
-
-            if arr_start == -1 or arr_end == -1:
-                return {}
-
-            array_str = raw_enc[arr_start:arr_end + 1]
-
-        clean_str = array_str.replace('[', ' ').replace(']', ' ').replace('/', ' /')
+        # Parse differences
+        clean_str = diff_val.replace('[', ' ').replace(']', ' ').replace('/', ' /')
         tokens = clean_str.split()
 
         res = {}
         curr = -1
 
+        # Convert differences to dictionary
         for t in tokens:
             if t.isdigit():
                 curr = int(t)
@@ -3730,7 +3728,7 @@ def get_differences(doc, xref):
         print(f"Error while loading differences: {e}")
         return {}
 
-
+# Generate temporary ToUnicode cmap
 def generate_temp_tounicode():
     cmap = [
         "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
@@ -3738,6 +3736,7 @@ def generate_temp_tounicode():
         "/CMapName /Adobe-Identity-UCS def", "/CMapType 2 def",
         "1 begincodespacerange", "<00> <FF>", "endcodespacerange"
     ]
+    # Create 256 value pairs and insert them into the cmap in 100-character long chunks
     for start in range(0, 256, 100):
         chunk_size = min(100, 256 - start)
         cmap.append(f"{chunk_size} beginbfchar")
@@ -3748,6 +3747,7 @@ def generate_temp_tounicode():
     return "\n".join(cmap)
 
 
+# Use mappings to generate real ToUnicode cmap
 def generate_real_tounicode(mapping_dict):
     cmap = [
         "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
@@ -3755,6 +3755,7 @@ def generate_real_tounicode(mapping_dict):
         "/CMapName /Adobe-Identity-UCS def", "/CMapType 2 def",
         "1 begincodespacerange", "<00> <FF>", "endcodespacerange"
     ]
+    # Go through mapping and create cmap using max 100-character long chunks
     items = list(mapping_dict.items())
     chunks = [items[i:i + 100] for i in range(0, len(items), 100)]
     for chunk in chunks:
@@ -3766,6 +3767,8 @@ def generate_real_tounicode(mapping_dict):
     return "\n".join(cmap)
 
 
+# Extracts the exact sequence of characters in a PDF, either as intended visual Unicodes or internal glyph IDs.
+# This dual extraction allows us to map internal IDs directly to their correct Unicode equivalents.
 def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callback=None):
     sequence = {}
     total_pages = len(doc)
@@ -3774,19 +3777,34 @@ def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callba
         if progress_callback:
             progress_callback(page_idx + 1, total_pages)
 
-        fonts_on_page = {f[0]: f[3] for f in page.get_fonts()}
+        # Map font object IDs (xrefs) to their base names for this specific page
+        fonts_on_page = {}
+        for f in page.get_fonts():
+            xref = f[0]
+            font_name = f[3]
+            fonts_on_page[xref] = font_name
+
+        # Extract raw text dictionary preserving the physical document structure
         raw_text = page.get_text("rawdict", flags=flags)
 
         for block in raw_text.get("blocks", []):
-            if block.get("type") != 0: continue
+            if block.get("type") != 0: continue  # Skip non-text blocks (e.g., images)
+
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
+
+                    # Match the span's font to its exact PDF object ID (xref)
                     f_name = span.get("font")
-                    xref = next((x for x, n in fonts_on_page.items() if (n == f_name or f_name in n)), None)
+                    xref = None
+                    for x, name in fonts_on_page.items():
+                        if f_name in name:
+                            xref = x
+                            break
 
                     if not xref: continue
                     if xref not in sequence: sequence[xref] = []
 
+                    # Load CFF font data (Glyphs, Encoding, Differences) into cache on first encounter
                     if mode == "visual" and xref not in font_cache:
                         _, ext, _, buffer = doc.extract_font(xref)
                         if ext == "cff":
@@ -3806,10 +3824,12 @@ def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callba
                         else:
                             font_cache[xref] = None
 
+                    # Map each raw character to either its target Unicode or its internal ID
                     for char_obj in span.get("chars", []):
                         raw_char = char_obj.get("c", "")
                         if not raw_char: continue
 
+                        # Identify the glyph by shape/name and get its target Unicode from DB
                         if mode == "visual":
                             b = ord(raw_char) % 256
                             if xref in font_cache and font_cache[xref]:
@@ -3822,18 +3842,22 @@ def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callba
 
                                 g_hash = get_standalone_glyph_hash(f_data["glyph_set"], g_name)
 
+                                # Build hash-to-names dictionary for collision detection
                                 if "hash_to_names" not in f_data:
                                     htn = {}
                                     for gn in f_data["glyph_set"].keys():
                                         gh = get_standalone_glyph_hash(f_data["glyph_set"], gn)
                                         if gh:
-                                            if gh not in htn: htn[gh] = set()
-                                            htn[gh].add(gn)
+                                            htn.setdefault(gh, set()).add(gn)
                                     f_data["hash_to_names"] = htn
-                                same_hash_names = f_data["hash_to_names"].get(g_hash, set())
 
+                                same_hash_names = f_data["hash_to_names"].get(g_hash, set())
                                 u_hex = find_best_unicode(g_hash, g_name, db_map, same_hash_names)
+
+                                # Fallback to "?" if mapping is unknown
                                 sequence[xref].append(u_hex if u_hex else "003F")
+
+                        # Extract raw character ID by stripping the E000 offset from dummy ToUnicode
                         else:
                             val = ord(raw_char)
                             if 0xE000 <= val <= 0xE0FF:
@@ -3843,6 +3867,7 @@ def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callba
     return sequence
 
 
+# Calculate hash of file for correct AMARO file detection using CLI
 def calculate_file_hash(filepath):
     try:
         file_hash = md5()
@@ -3855,220 +3880,224 @@ def calculate_file_hash(filepath):
         return None
 
 
+# Load a list of approved PDF file hashes from a PSV database
 def load_file_hash_db(db_path):
     valid_hashes = set()
     if not os.path.exists(db_path):
         return valid_hashes
 
-    with open(db_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            parts = line.strip().split('|')
-            if parts:
-                clean_hash = parts[0].strip().lower()
-                if len(clean_hash) == 32:
-                    valid_hashes.add(clean_hash)
+    try:
+        with open(db_path, 'r', encoding='utf-8', newline='') as f:
+            reader = csv.reader(f, delimiter='|')
+            for row in reader:
+                if row:
+                    clean_hash = row[0].strip().lower()
+                    if len(clean_hash) == 32:
+                        valid_hashes.add(clean_hash)
+    except Exception as e:
+        print(f"Error while loading hash database: {e}")
+
     return valid_hashes
 
 
+# Repair font mappings in headless (CLI) mode without GUI
 def headless_repair(pdf_path, glyph_db_map, verbose=False):
-    # Defining a helper to print debug messages if verbose is enabled
+    # Helper to print verbose debug information
     def vprint(msg):
         if verbose:
             print(msg)
 
-    # Defining a callback function for the visual sequence loading progress
+    # Callbacks for CLI progress bar updates
     def visual_progress(current, total):
         print_inline_progress(current, total, prefix='    Scanning display order:', verbose=verbose)
 
-    # Defining a callback function for the temporary sequence loading progress
     def temp_progress(current, total):
         print_inline_progress(current, total, prefix='    Scanning internal IDs: ', verbose=verbose)
 
     try:
-        doc = fitz.open(pdf_path)
+        with fitz.open(pdf_path) as doc:
 
-        total_found = 0
-        ignored_tounicode = 0
-        not_supported = 0
-        ignored_agl = 0
-        skipped_incomplete = 0
-        ignored_not_used = 0
-        repaired_completely = 0
+            total_found = 0
+            ignored_tounicode = 0
+            not_supported = 0
+            ignored_agl = 0
+            skipped_incomplete = 0
+            ignored_not_used = 0
+            repaired_completely = 0
 
-        processed_xrefs = set()
-        cff_candidates = []
-        font_cache_local = {}
+            processed_xrefs = set()
+            cff_candidates = []
+            font_cache_local = {}
 
-        vprint("  [DEBUG] Step 1/5: Scanning for fonts in PDF...")
-        # Getting the total number of pages for the progress bar
-        total_pages = len(doc)
+            vprint("  [DEBUG] Step 1/5: Scanning for fonts in PDF...")
+            total_pages = len(doc)
 
-        # Iterating through all pages in the PDF document
-        for page_num in range(total_pages):
-            print_inline_progress(page_num + 1, total_pages, prefix='    Scanning PDF pages:    ', verbose=verbose)
+            # Analyze the entire document to build a font repair plan
+            for page_num in range(total_pages):
+                print_inline_progress(page_num + 1, total_pages, prefix='    Scanning PDF pages:    ', verbose=verbose)
 
-            page = doc.load_page(page_num)
-            for f in page.get_fonts(full=True):
-                xref = f[0]
-                if xref in processed_xrefs: continue
-                processed_xrefs.add(xref)
-                total_found += 1
+                page = doc.load_page(page_num)
+                for f in page.get_fonts(full=True):
+                    xref = f[0]
+                    if xref in processed_xrefs: continue
+                    processed_xrefs.add(xref)
+                    total_found += 1
 
-                name, ext, _, buffer = doc.extract_font(xref)
+                    name, ext, _, buffer = doc.extract_font(xref)
 
-                if has_tounicode(doc, xref):
-                    ignored_tounicode += 1
-                    continue
-
-                if not ext or ext.lower() != "cff":
-                    not_supported += 1
-                    continue
-
-                cff = CFFFontSet()
-                cff.decompile(BytesIO(buffer), None)
-                glyph_set = cff.topDictIndex[0].CharStrings
-                valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
-
-                total_glyphs = len(valid_glyph_names)
-                mapped_count = 0
-                agl_count = 0
-
-                hash_to_names = {}
-                # Iterating over valid glyph names to group them by hash and count AGL glyphs
-                for g_name in valid_glyph_names:
-                    if g_name in EXTENDED_AGL:
-                        agl_count += 1
-                    else:
-                        gh = get_standalone_glyph_hash(glyph_set, g_name)
-                        if gh:
-                            if gh not in hash_to_names:
-                                hash_to_names[gh] = set()
-                            hash_to_names[gh].add(g_name)
-
-                # Iterating over valid glyph names to find the best unicode matches
-                for g_name in valid_glyph_names:
-                    if g_name in EXTENDED_AGL:
-                        mapped_count += 1
-                    else:
-                        g_hash = get_standalone_glyph_hash(glyph_set, g_name)
-                        same_hash_names = hash_to_names.get(g_hash, set())
-                        u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
-                        if u_hex: mapped_count += 1
-
-                pdf_diffs = get_differences(doc, xref)
-                try:
-                    internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
-                except:
-                    internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
-
-                font_cache_local[xref] = {
-                    "name": name,
-                    "glyph_set": glyph_set,
-                    "diffs": pdf_diffs,
-                    "enc": internal_enc,
-                    "mapped": mapped_count,
-                    "total": total_glyphs,
-                    "agl_count": agl_count
-                }
-                cff_candidates.append(xref)
-
-        if not cff_candidates:
-            print(f"    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
-            if ignored_tounicode > 0:
-                print(f"    {Style.DIM}{ignored_tounicode} fonts ignored due to existing ToUnicode{Style.RESET_ALL}")
-            if not_supported > 0:
-                print(f"    {Style.DIM}{not_supported} fonts not supported{Style.RESET_ALL}")
-            print("")
-            doc.close()
-            return
-
-        custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
-
-        vprint("  [DEBUG] Step 2/5: Glyph display order analysis...")
-        # Passing the visual_progress callback to the load_sequence function
-        visual_sequence = load_sequence(
-            doc, custom_flags, glyph_db_map, font_cache_local,
-            mode="visual", progress_callback=visual_progress
-        )
-
-        ready_xrefs = set()
-        for xref in cff_candidates:
-            f_data = font_cache_local[xref]
-            seq = visual_sequence.get(xref, [])
-
-            if not seq:
-                ignored_not_used += 1
-            elif f_data["total"] > 0 and f_data["agl_count"] == f_data["total"]:
-                ignored_agl += 1
-            elif f_data["mapped"] < f_data["total"]:
-                skipped_incomplete += 1
-            else:
-                ready_xrefs.add(xref)
-
-        success_count = 0
-        if ready_xrefs:
-            visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
-
-            vprint("  [DEBUG] Step 3/5: Temporary ToUnicode injection")
-            temp_cmap_str = generate_temp_tounicode()
-            for xref in visual_sequence.keys():
-                temp_xref = doc.get_new_xref()
-                doc.update_object(temp_xref, "<<>>")
-                doc.update_stream(temp_xref, temp_cmap_str.encode("utf-8"))
-                doc.xref_set_key(xref, "ToUnicode", f"{temp_xref} 0 R")
-
-            temp_pdf_bytes = doc.tobytes()
-            doc_temp = fitz.open("pdf", temp_pdf_bytes)
-
-            vprint("  [DEBUG] Step 4/5: Internal character ID extraction")
-            # Passing the temp_progress callback to the load_sequence function
-            internal_sequence = load_sequence(
-                doc_temp, custom_flags, glyph_db_map, font_cache_local,
-                mode="temp", progress_callback=temp_progress
-            )
-            doc_temp.close()
-
-            vprint("  [DEBUG] Step 5/5: Final ToUnicode generation")
-            doc_final = fitz.open(pdf_path)
-
-            for xref, v_seq in visual_sequence.items():
-                i_seq = internal_sequence.get(xref, [])
-                if len(v_seq) == len(i_seq):
-                    mapping = {}
-                    for v_hex, i_id in zip(v_seq, i_seq):
-                        if v_hex == "IGNORE_AGL":
-                            continue
-                        if i_id not in mapping:
-                            mapping[i_id] = v_hex
-
-                    if not mapping:
-                        vprint(f"    -> [INFO] Skipping font {xref} (only standard AGL characters used in text)")
-                        success_count += 1
+                    # Filter out unsupported fonts or those already having ToUnicode mapping
+                    if has_tounicode(doc, xref):
+                        ignored_tounicode += 1
                         continue
 
-                    real_cmap = generate_real_tounicode(mapping)
-                    new_xref = doc_final.get_new_xref()
-                    doc_final.update_object(new_xref, "<<>>")
-                    doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
-                    doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
-                    success_count += 1
+                    if not ext or ext.lower() != "cff":
+                        not_supported += 1
+                        continue
+
+                    # Pre-calculate mapping stats for candidate CFF fonts
+                    cff = CFFFontSet()
+                    cff.decompile(BytesIO(buffer), None)
+                    glyph_set = cff.topDictIndex[0].CharStrings
+                    valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+
+                    total_glyphs = len(valid_glyph_names)
+                    mapped_count = 0
+                    agl_count = 0
+
+                    hash_to_names = {}
+                    # Iterating over valid glyph names to group them by hash and count AGL glyphs
+                    for g_name in valid_glyph_names:
+                        if g_name in EXTENDED_AGL:
+                            agl_count += 1
+                        else:
+                            gh = get_standalone_glyph_hash(glyph_set, g_name)
+                            if gh:
+                                if gh not in hash_to_names:
+                                    hash_to_names[gh] = set()
+                                hash_to_names[gh].add(g_name)
+
+                    # Iterating over valid glyph names to find the best Unicode matches
+                    for g_name in valid_glyph_names:
+                        if g_name in EXTENDED_AGL:
+                            mapped_count += 1
+                        else:
+                            g_hash = get_standalone_glyph_hash(glyph_set, g_name)
+                            same_hash_names = hash_to_names.get(g_hash, set())
+                            u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
+                            if u_hex: mapped_count += 1
+
+                    pdf_diffs = get_differences(doc, xref)
+                    try:
+                        internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
+                    except:
+                        internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+
+                    font_cache_local[xref] = {
+                        "name": name,
+                        "glyph_set": glyph_set,
+                        "diffs": pdf_diffs,
+                        "enc": internal_enc,
+                        "mapped": mapped_count,
+                        "total": total_glyphs,
+                        "agl_count": agl_count
+                    }
+                    cff_candidates.append(xref)
+
+            if not cff_candidates:
+                print(f"    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
+                if ignored_tounicode > 0:
+                    print(f"    {Style.DIM}{ignored_tounicode} fonts ignored due to existing ToUnicode{Style.RESET_ALL}")
+                if not_supported > 0:
+                    print(f"    {Style.DIM}{not_supported} fonts not supported{Style.RESET_ALL}")
+                print("")
+                doc.close()
+                return
+
+            custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
+
+            vprint("  [DEBUG] Step 2/5: Glyph display order analysis...")
+            # Retrieve characters in their visual sequence as seen by the user
+            visual_sequence = load_sequence(doc, custom_flags, glyph_db_map, font_cache_local, mode="visual", progress_callback=visual_progress)
+
+            # Filter out fonts that don't need repair or are unmappable
+            ready_xrefs = set()
+            for xref in cff_candidates:
+                f_data = font_cache_local[xref]
+                seq = visual_sequence.get(xref, [])
+
+                if not seq:
+                    ignored_not_used += 1
+                elif f_data["total"] > 0 and f_data["agl_count"] == f_data["total"]:
+                    ignored_agl += 1
+                elif f_data["mapped"] < f_data["total"]:
+                    skipped_incomplete += 1
                 else:
-                    vprint(f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
+                    ready_xrefs.add(xref)
 
-            repaired_completely = success_count
+            success_count = 0
+            if ready_xrefs:
+                filtered_sequence = {}
+                for xref, seq in visual_sequence.items():
+                    if xref in ready_xrefs:
+                        filtered_sequence[xref] = seq
 
-            base, ext = os.path.splitext(pdf_path)
-            if skipped_incomplete > 0:
-                out_path = f"{base}_Partially_Repaired{ext}"
-            else:
-                out_path = f"{base}_Repaired{ext}"
+                visual_sequence = filtered_sequence
 
-            doc_final.save(out_path)
-            doc_final.close()
+                vprint("  [DEBUG] Step 3/5: Temporary ToUnicode injection")
+                temp_cmap_str = generate_temp_tounicode()
+                for xref in visual_sequence.keys():
+                    temp_xref = doc.get_new_xref()
+                    doc.update_object(temp_xref, "<<>>")
+                    doc.update_stream(temp_xref, temp_cmap_str.encode("utf-8"))
+                    doc.xref_set_key(xref, "ToUnicode", f"{temp_xref} 0 R")
 
-        doc.close()
+                # Extract character IDs while temporary mapping is active
+                temp_pdf_bytes = doc.tobytes()
+                with fitz.open("pdf", temp_pdf_bytes) as doc_temp:
 
-        # Printing the unified flat list of font statistics with Colorama colors matching the GUI
+                    vprint("  [DEBUG] Step 4/5: Internal character ID extraction")
+                    internal_sequence = load_sequence(doc_temp, custom_flags, glyph_db_map, font_cache_local, mode="temp", progress_callback=temp_progress)
+
+                vprint("  [DEBUG] Step 5/5: Final ToUnicode generation")
+                with fitz.open(pdf_path) as doc_final:
+
+                    for xref, v_seq in visual_sequence.items():
+                        i_seq = internal_sequence.get(xref, [])
+                        if len(v_seq) == len(i_seq):
+                            mapping = {}
+                            for v_hex, i_id in zip(v_seq, i_seq):
+                                if v_hex == "IGNORE_AGL":
+                                    continue
+                                if i_id not in mapping:
+                                    mapping[i_id] = v_hex
+
+                            if not mapping:
+                                vprint(f"    -> [INFO] Skipping font {xref} (only standard AGL characters used in text)")
+                                success_count += 1
+                                continue
+
+                            # Inject the correct mapping into the final PDF
+                            real_cmap = generate_real_tounicode(mapping)
+                            new_xref = doc_final.get_new_xref()
+                            doc_final.update_object(new_xref, "<<>>")
+                            doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
+                            doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+                            success_count += 1
+                        else:
+                            vprint(f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
+
+                    repaired_completely = success_count
+
+                    # Save the resulting PDF file
+                    base, ext = os.path.splitext(pdf_path)
+                    if skipped_incomplete > 0:
+                        out_path = f"{base}_Partially_Repaired{ext}"
+                    else:
+                        out_path = f"{base}_Repaired{ext}"
+
+                    doc_final.save(out_path)
+
+        # Print final execution report
         print(f"\n    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
 
         if repaired_completely > 0:
@@ -4102,16 +4131,44 @@ def print_inline_progress(iteration, total, prefix='', length=30, fill='█', ve
         print()
 
 
+# Initializes the GUI application and applies styling
+def run_gui_mode():
+    app = QApplication(sys.argv)
+    apply_dark_theme(app)
+
+    window = FontWidget()
+
+    # Force Windows DWM (Desktop Window Manager) to render the title bar in Dark Mode
+    # This requires calling the Windows API directly via ctypes for Windows 10 and 11
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            # 20 represents DWMWA_USE_IMMERSIVE_DARK_MODE in newer Windows builds
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
+            hwnd = window.winId()
+            value = ctypes.c_int(2)
+            set_window_attribute(int(hwnd), DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value))
+        except Exception:
+            pass
+
+    window.show()
+    sys.exit(app.exec())
+
+
+# Use arguments to run in CLI mode
 def run_cli_mode(args):
     colorama.init(autoreset=True)
 
     print(f"=== CLI Glyph Repair ===")
 
+    # Make sure a hash database is provided
     if not args.hash_db:
         print(f"{Fore.RED}[ERROR] Parameter -d (--hash-db) for hash database of known input files missing{Style.RESET_ALL}")
         if sys.platform == "win32": os.system("pause")
         sys.exit(1)
 
+    # Load the hash database
     valid_hashes = load_file_hash_db(args.hash_db)
     if not valid_hashes:
         print(f"{Fore.RED}[ERROR] PSV database '{args.hash_db}' missing or empty.{Style.RESET_ALL}")
@@ -4121,6 +4178,7 @@ def run_cli_mode(args):
     db_name = os.path.basename(args.hash_db)
     print(f"Database '{db_name}' contains {len(valid_hashes)} hashes of known PDF files.")
 
+    # Load files to repair
     target_files = []
     if args.multiple:
         if not os.path.isdir(args.target):
@@ -4146,6 +4204,7 @@ def run_cli_mode(args):
         if sys.platform == "win32": os.system("pause")
         sys.exit(0)
 
+    # Log number of loaded files
     if len(target_files) == 1:
         print(f"1 known PDF file found in specified directory.\n")
     else:
@@ -4153,6 +4212,7 @@ def run_cli_mode(args):
 
     glyph_db_map = load_db(GLYPH_DATABASE)
 
+    # Start repair process for each target file
     for pdf_path in target_files:
         print(f"{Style.BRIGHT}-> {os.path.basename(pdf_path)}{Style.RESET_ALL}")
 
@@ -4164,6 +4224,7 @@ def run_cli_mode(args):
 
         headless_repair(pdf_path, glyph_db_map, verbose=args.verbose)
 
+    # Mark completition
     print("=" * 50)
     if sys.platform == "win32":
         os.system("pause")
@@ -4172,6 +4233,7 @@ def run_cli_mode(args):
     sys.exit(0)
 
 
+# Removes blue "underglow" for selected items in lists
 class CleanSelectionDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         option.state &= ~QStyle.State_Selected
@@ -4408,32 +4470,6 @@ def apply_dark_theme(app):
     """)
 
 
-# Initializes the GUI application and applies Windows-specific styling
-# It calls the dark theme and injects a dark title bar via ctypes before launching
-def run_gui_mode():
-    app = QApplication(sys.argv)
-    apply_dark_theme(app)
-
-    window = FontWidget()
-
-    # Force Windows DWM (Desktop Window Manager) to render the title bar in Dark Mode
-    # This requires calling the Windows API directly via ctypes for Windows 10 and 11
-    if sys.platform == "win32":
-        import ctypes
-        try:
-            # 20 represents DWMWA_USE_IMMERSIVE_DARK_MODE in newer Windows builds
-            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-            set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
-            hwnd = window.winId()
-            value = ctypes.c_int(2)
-            set_window_attribute(int(hwnd), DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value))
-        except Exception:
-            pass
-
-    window.show()
-    sys.exit(app.exec())
-
-
 # Initializes the database directory and file with headers if they do not exist
 def init_database():
     db_dir = os.path.dirname(GLYPH_DATABASE)
@@ -4451,6 +4487,7 @@ def init_database():
 if __name__ == "__main__":
     init_database()
 
+    # Set parser for command-line arguments and add arguments after
     parser = argparse.ArgumentParser(
         description="PDF Glyph Repair Tool - GUI & CLI",
         usage="%(prog)s [-h] [-m] [Target directory] [-r] [-d HASH_DB] [-v]"
