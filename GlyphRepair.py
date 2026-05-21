@@ -2298,19 +2298,20 @@ class FontWidget(QMainWindow):
                         sequence.append((p, f))
         return sequence
 
+    # Next unmapped glyph logic
     def jump_to_next_unmapped(self):
         if not self.pdf_path or not hasattr(self, 'menu_structure'):
             return
 
         if self.current_font_glyph_names:
+            # Add current glyph to history
             current_pos = (self.current_page, self.current_font_name, self.current_index)
             if not hasattr(self, 'history_stack'):
                 self.history_stack = []
             if not self.history_stack or self.history_stack[-1] != current_pos:
                 self.history_stack.append(current_pos)
 
-            # Check remaining glyphs in the current font
-        if self.current_font_glyph_names:
+            # Check remaining glyphs in the current font for skipping
             for i in range(self.current_index + 1, len(self.current_font_glyph_names)):
                 gname = self.current_font_glyph_names[i]
                 if gname not in self.user_glyph_to_char and gname not in EXTENDED_AGL:
@@ -2318,6 +2319,7 @@ class FontWidget(QMainWindow):
                     self.show_glyph()
                     return
 
+        # Prioritize next unmapped on current page rather than globally
         if self.setting_page_mode:
             seq = self._get_page_mode_sequence()
         else:
@@ -2328,6 +2330,7 @@ class FontWidget(QMainWindow):
         cur_idx = -1
         current_pair = (self.current_page, self.current_font_name)
 
+        # Order fonts with current font on top
         if not self.setting_page_mode:
             for i, (p, f) in enumerate(seq):
                 if f == self.current_font_name:
@@ -2344,11 +2347,13 @@ class FontWidget(QMainWindow):
         else:
             ordered_seq = seq
 
-        # Check next fonts
+        # Check other fonts for unmapped non-AGL glyphs
         for p, fname in ordered_seq:
+            # Skip current glyph
             if p == self.current_page and fname == self.current_font_name:
                 continue
 
+            # Get font info
             info = self.font_cache.get((p, fname), {})
             mapped = info.get('mapped_count', 0)
             agl_c = info.get('agl_count', 0)
