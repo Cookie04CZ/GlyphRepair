@@ -5,6 +5,7 @@ import webbrowser
 import argparse
 import re
 import difflib
+import winsound
 from hashlib import md5
 from io import BytesIO
 from colorama import Fore, Style
@@ -1618,7 +1619,7 @@ class FontWidget(QMainWindow):
             "font-family: 'Consolas', monospace; font-size: 32px; font-weight: bold; padding: 5px;")
         self.char_input.setMinimumHeight(50)
         self.char_input.installEventFilter(self)
-        self.char_input.textChanged.connect(self.on_user_input_changed)
+        self.char_input.textChanged.connect(self.on_manual_input)
 
         # Hex input
         self.unic_input = QLineEdit()
@@ -1634,7 +1635,7 @@ class FontWidget(QMainWindow):
             "font-family: 'Consolas', monospace; font-size: 32px; font-weight: bold; padding: 5px;")
         self.unic_input.setMinimumHeight(50)
         self.unic_input.installEventFilter(self)
-        self.unic_input.textChanged.connect(self.on_unic_input_changed)
+        self.unic_input.textChanged.connect(self.on_manual_input)
 
         self.unic_input.setVisible(self.setting_show_hex_input)
 
@@ -2382,22 +2383,27 @@ class FontWidget(QMainWindow):
 
         QMessageBox.information(self, "Finished", "Great! No more unmapped non-AGL glyphs found.")
 
+    # Goes back in history stack
     def go_back_in_history(self):
+        # Check history availability
         if not hasattr(self, 'history_stack') or not self.history_stack:
-            QMessageBox.information(self, "Info", "Historie je prázdná, není kam se vrátit.")
+            QMessageBox.information(self, "Info", "History is empty")
             return
 
         prev_page, prev_font, prev_index = self.history_stack.pop()
 
+        # Load next font from history
         if self.current_page != prev_page or self.current_font_name != prev_font:
             if getattr(self, 'unsaved_changes', False):
                 self.save_to_db()
             self.load_font(prev_page, prev_font)
 
+        # Load glyph from history
         if self.current_font_glyph_names and 0 <= prev_index < len(self.current_font_glyph_names):
             self.current_index = prev_index
             self.show_glyph()
 
+    # Open project github as help
     def open_github(self):
         webbrowser.open_new_tab("https://github.com/Cookie04CZ/GlyphRepair")
 
@@ -2407,6 +2413,7 @@ class FontWidget(QMainWindow):
 
     # Calculates or retrieves MD5 hash of the glyph shape
     def get_glyph_hash(self, glyph_name):
+        # Check cache first
         if hasattr(self, 'current_page') and hasattr(self, 'current_font_name'):
             cache = self.font_cache.get((self.current_page, self.current_font_name), {})
             cached_hashes = cache.get('glyph_hashes', {})
@@ -2416,16 +2423,16 @@ class FontWidget(QMainWindow):
         if not hasattr(self, 'current_glyph_set') or glyph_name not in self.current_glyph_set:
             return None
 
+        # Calculate MD5 hash of glyph shape
         try:
             glyph = self.current_glyph_set[glyph_name]
             pen = SignaturePen(self.current_glyph_set)
-            glyph.draw(pen)  # Trace the shape into the pen
+            glyph.draw(pen)
 
             shape_signature = pen.get_signature()
             if not shape_signature:
                 shape_signature = "EMPTY_SPACE"
 
-            # Return MD5 hash string
             return md5(shape_signature.encode('utf-8')).hexdigest()
 
         except Exception as e:
@@ -2441,7 +2448,6 @@ class FontWidget(QMainWindow):
 
     # Loads a specific font from the PDF into memory and UI
     def load_font(self, page, font_name):
-        # Save any unsaved progress before switching to a new font/page if setting is enabled
         if self.setting_auto_save_on_switch and getattr(self, 'unsaved_changes', False):
             self.save_to_db()
 
@@ -2449,7 +2455,7 @@ class FontWidget(QMainWindow):
         self.current_font_name = font_name
         self._update_window_title()
 
-        # Check cache first to avoid slow PDF extraction
+        # Check cache first for font
         cache = self.font_cache.get((page, font_name))
         if not cache:
             self.statusBar().showMessage(f"Cache empty", 5000)
@@ -2519,6 +2525,7 @@ class FontWidget(QMainWindow):
                     notdef_baseline = rect.top()
                     notdef_topline = rect.bottom()
 
+        # Calculate fallback bbox
         if notdef_baseline is None or notdef_topline is None:
             min_y, max_y = 0, 1000
             valid_bounds = False
@@ -2556,7 +2563,7 @@ class FontWidget(QMainWindow):
         self.notdef_topline = notdef_topline
         self.current_index = 0
 
-    # Generates a thumbnail image of a glyph natively via Qt (Hyper-optimized)
+    # Generates a thumbnail image of a glyph
     def generate_icon(self, glyph_name, size=(128, 128), draw_lines=False):
         pix = QPixmap(size[0], size[1])
         pix.fill(QtCore.Qt.white)
@@ -2564,7 +2571,7 @@ class FontWidget(QMainWindow):
         if not hasattr(self, 'current_glyph_set') or glyph_name not in self.current_glyph_set:
             return pix
 
-        # Draw the glyph path using our fast QtPen
+        # Draw the glyph path
         glyph = self.current_glyph_set[glyph_name]
         pen = QtPen(self.current_glyph_set)
         glyph.draw(pen)
@@ -2572,6 +2579,7 @@ class FontWidget(QMainWindow):
         if pen.path.isEmpty():
             return pix
 
+        # Get baseline and topline
         if self.notdef_baseline is not None and self.notdef_topline is not None:
             ref_min = self.notdef_baseline
             ref_max = self.notdef_topline
@@ -2609,7 +2617,7 @@ class FontWidget(QMainWindow):
         if draw_lines:
             line_pen = QtGui.QPen()
             line_pen.setStyle(QtCore.Qt.DotLine)
-            line_pen.setWidthF(0)  # 0 means a 1-pixel cosmetic line independent of zoom scale
+            line_pen.setWidthF(0)
 
             painter.setBrush(QtCore.Qt.NoBrush)
             if self.notdef_baseline is not None:
@@ -2648,13 +2656,10 @@ class FontWidget(QMainWindow):
             item = QListWidgetItem(QIcon(pix_small), "")
             item.setData(QtCore.Qt.UserRole, name)
 
-            # Cache the large pixmap with lines in the item itself using UserRole + 1
+            # Cache the pixmaps for later use
             item.setData(QtCore.Qt.UserRole + 1, pix_large_lines)
-
-            # Cache the clean small pixmap so we can restore it later using UserRole + 2
             item.setData(QtCore.Qt.UserRole + 2, pix_small)
 
-            # Set default small height
             item.setSizeHint(QtCore.QSize(0, self.ICON_SIZE_SMALL + 4))
 
             # If already mapped in database, show result
@@ -2663,11 +2668,13 @@ class FontWidget(QMainWindow):
                 disp = "[space]" if ch.isspace() else ch
                 item.setText(f" → {disp}")
                 item.setForeground(QtGui.QColor("#228B22"))
+            # Color blue if AGL
             elif name in EXTENDED_AGL:
                 ch = chr(EXTENDED_AGL[name])
                 disp = "[space]" if ch.isspace() else ch
                 item.setText(f" → {disp}")
-                item.setForeground(QtGui.QColor("#3d7eff"))  # Blue text to signify AGL mapped
+                item.setForeground(QtGui.QColor("#3d7eff"))
+            # Color gray if not mapped
             else:
                 item.setText(f" {name}")
                 item.setForeground(QtGui.QColor("#888888"))
@@ -2695,7 +2702,7 @@ class FontWidget(QMainWindow):
         ch = chr(int(uhex, 16)) if uhex != "None" else "None"
         if ch == " ": ch = "[space]"
 
-        # Update Information Label using HTML formatting
+        # Update Information Label
         html = f"""
                         <div style="text-align: center; margin-top: 5px;">
                             <span style="color: #aaaaaa; font-size: 22px;">Glyph Name</span><br>
@@ -2747,11 +2754,13 @@ class FontWidget(QMainWindow):
             self.update_suggestions_ui(name, self.current_font_name)
             self.char_input.setFocus()
 
+    # Load a PDF file
     def open_pdf(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select PDF file to repair", "", "PDF Files (*.pdf)")
         if not file_path:
             return
 
+        # Update state
         self.pdf_path = file_path
         self._update_window_title()
         self.statusBar().showMessage("Analyzing PDF and calculating statistics...", 0)
@@ -2764,6 +2773,7 @@ class FontWidget(QMainWindow):
 
             processed_xrefs = {}
 
+            # Open the PDF file
             with fitz.open(file_path) as doc:
                 first_page = first_name = None
 
@@ -2788,7 +2798,7 @@ class FontWidget(QMainWindow):
                             # Extract font details immediately to evaluate its type
                             name, ext, _, buffer = doc.extract_font(xref)
 
-                            # Gather global document statistics (count each xref only once)
+                            # Gather global document statistics
                             if xref not in all_doc_xrefs:
                                 all_doc_xrefs.add(xref)
                                 self.stats_total_fonts += 1
@@ -2810,6 +2820,7 @@ class FontWidget(QMainWindow):
 
                             cff_names_on_page.append(name)
 
+                            # For each font uniquely
                             if xref not in processed_xrefs:
                                 tmp_font = CFFFontSet()
                                 tmp_font.decompile(BytesIO(buffer), None)
@@ -2839,6 +2850,7 @@ class FontWidget(QMainWindow):
 
                                 mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
 
+                                # Add font info to cache
                                 processed_xrefs[xref] = {
                                     'glyph_count': total_glyphs,
                                     'mapped_count': mapped_count,
@@ -2849,6 +2861,7 @@ class FontWidget(QMainWindow):
 
                             self.font_cache[(page_num, name)] = processed_xrefs[xref]
 
+                            # Assign first page found
                             if first_page is None:
                                 first_page, first_name = page_num, name
                         except Exception as e:
@@ -2857,6 +2870,7 @@ class FontWidget(QMainWindow):
                     if cff_names_on_page:
                         self.menu_structure[page_num] = cff_names_on_page
 
+            # Update state
             if first_page is not None:
                 self.update_statistics()
                 self.load_font(first_page, first_name)
@@ -2874,7 +2888,7 @@ class FontWidget(QMainWindow):
             QMessageBox.critical(self, "Error", f"Error while loading PDF:\n{e}")
             self.clear_ui_state()
 
-    # Helper method to robustly calculate mapped glyphs for any given font
+    # Helper method to calculate mapped glyphs for any given font
     def calculate_font_mapped_count(self, page, font_name, glyph_hashes):
         mapped_count = 0
         is_current = (page == self.current_page and font_name == self.current_font_name)
@@ -2883,6 +2897,7 @@ class FontWidget(QMainWindow):
             return 0
         db_map = self.global_db_map
 
+        # Load global hash names from cache
         global_hash_names = {}
         if hasattr(self, 'font_cache'):
             for (p_num, f_name), cache_info in self.font_cache.items():
@@ -2893,6 +2908,7 @@ class FontWidget(QMainWindow):
                         global_hash_names[gh].add(gn)
 
         for gname, g_hash in glyph_hashes.items():
+            # Count AGL as mapped
             if gname in EXTENDED_AGL:
                 mapped_count += 1
                 continue
@@ -2905,18 +2921,15 @@ class FontWidget(QMainWindow):
                 continue
 
             records = db_map[g_hash]
-            has_internal_collision = len(global_hash_names.get(g_hash, set())) > 1
 
-            if has_internal_collision:
-                if any(r["GlyphName"] == gname for r in records):
-                    mapped_count += 1
-            else:
-                unique_hexes = set(r["unicode_hex"] for r in records)
-                if len(unique_hexes) == 1:
-                    mapped_count += 1
-                else:
-                    if any(r["GlyphName"] == gname for r in records):
-                        mapped_count += 1
+            # Mapped if there is an exact name match
+            if any(r["GlyphName"] == gname for r in records):
+                mapped_count += 1
+
+            # Or if there are no internal collisions AND all records share the same hex
+            elif len(global_hash_names.get(g_hash, set())) <= 1 and len(set(r["unicode_hex"] for r in records)) == 1:
+                mapped_count += 1
+
         return mapped_count
 
     # Refreshes menu statistics after a DB update
@@ -2926,22 +2939,21 @@ class FontWidget(QMainWindow):
             hashes_dict = info.get('glyph_hashes', {})
             if not hashes_dict: continue
 
-            # Use the robust calculation method
             info['mapped_count'] = self.calculate_font_mapped_count(p, fname, hashes_dict)
 
+    # Load database to cache
     def load_db_cache(self):
         hash_counts = {}
         space_hash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
         hash_counts[space_hash] = {"0020"}
 
         self.db_records = []
-        # Track exact matches for specific fonts to solve global hash collisions
         self.exact_db_matches = set()
 
         self.global_db_map = {}
-        self.global_db_map[space_hash] = [
-            {"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
+        self.global_db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
 
+        # Extract data from db file
         path = GLYPH_DATABASE
         if os.path.exists(path):
             try:
@@ -2954,6 +2966,7 @@ class FontWidget(QMainWindow):
                             fname = row.get("font_name", "")
                             gname = row.get("GlyphName", "")
 
+                            # Add only unique to hash cache
                             if h not in hash_counts:
                                 hash_counts[h] = set()
                             hash_counts[h].add(u)
@@ -2961,14 +2974,17 @@ class FontWidget(QMainWindow):
                             self.db_records.append(row)
                             self.exact_db_matches.add((h, fname, gname))
 
+                            # Add to global cache
                             if h not in self.global_db_map:
                                 self.global_db_map[h] = []
                             self.global_db_map[h].append(row)
             except Exception as e:
                 print(f"DB Cache Error: {e}")
 
+        # Add unique known hashes to cache
         self.known_glyph_hashes = {h for h, unics in hash_counts.items() if len(unics) == 1}
-        self.db_font_glyph_sets = []
+
+        # Create sets of glyph names for each font
         font_to_gnames = {}
         for row in self.db_records:
             fname = row.get("font_name", "")
@@ -2987,10 +3003,11 @@ class FontWidget(QMainWindow):
             return []
 
         current_font_clean = self.strip_subset_tag(font_name)
-        hex_candidates = {}
+        candidates = {}
 
         font_sim_cache = {}
 
+        # Cycle through db and calculate scores
         for row in self.db_records:
             db_glyph_name = row.get("GlyphName", "")
             db_font_name = row.get("font_name", "")
@@ -3003,42 +3020,51 @@ class FontWidget(QMainWindow):
             is_hash_match = (current_hash and db_hash == current_hash)
             glyph_sim = 0.0
 
+            # Calculate glyph name similarities
             if not is_hash_match:
                 if abs(len(glyph_name) - len(db_glyph_name)) > 5:
                     continue
                 glyph_sim = difflib.SequenceMatcher(None, glyph_name, db_glyph_name).ratio()
 
+            # If glyph name similarity is greater than 60%
             if is_hash_match or glyph_sim > 0.6:
                 score = 0.0
 
+                # Add 10 score for matching hashes
                 if is_hash_match:
                     score += 10.0
 
+                # Add 5 score for matching glyph names
                 if db_glyph_name == glyph_name:
                     score += 5.0
+                # Add up to 3 score based on glyph name similarity
                 else:
                     score += glyph_sim * 3.0
 
+                # Calculate font name similarity
                 db_font_clean = self.strip_subset_tag(db_font_name)
                 if db_font_clean not in font_sim_cache:
-                    font_sim_cache[db_font_clean] = difflib.SequenceMatcher(None, current_font_clean,
-                                                                            db_font_clean).ratio()
+                    font_sim_cache[db_font_clean] = difflib.SequenceMatcher(None, current_font_clean, db_font_clean).ratio()
 
+                # Add up to 2 score based on font name similarity
                 score += font_sim_cache[db_font_clean] * 2.0
 
-                if hex_val not in hex_candidates:
-                    hex_candidates[hex_val] = {"score": score, "occurrences": 1}
+                # Add hex values to candidates
+                if hex_val not in candidates:
+                    candidates[hex_val] = {"score": score, "occurrences": 1}
                 else:
-                    hex_candidates[hex_val]["occurrences"] += 1
-                    if score > hex_candidates[hex_val]["score"]:
-                        hex_candidates[hex_val]["score"] = score
+                    candidates[hex_val]["occurrences"] += 1
+                    if score > candidates[hex_val]["score"]:
+                        candidates[hex_val]["score"] = score
 
+        # Sort candidates preferred based on scores and then occurrences
         sorted_hexes = sorted(
-            hex_candidates.items(),
+            candidates.items(),
             key=lambda item: (item[1]["score"], item[1]["occurrences"]),
             reverse=True
         )
 
+        # Fill first 4 suggestions
         suggestions = []
         for hex_val, data in sorted_hexes:
             try:
@@ -3052,7 +3078,7 @@ class FontWidget(QMainWindow):
 
         return suggestions
 
-    # Refreshes the suggestion buttons above the text input
+    # Refreshes the suggestion buttons
     def update_suggestions_ui(self, glyph_name, font_name):
         current_hash = self.get_glyph_hash(glyph_name)
         suggestions = self.get_suggestions(glyph_name, font_name, current_hash)
@@ -3063,22 +3089,23 @@ class FontWidget(QMainWindow):
         else:
             self.lbl_no_suggestions.setVisible(False)
 
+        # Create suggestion buttons
         for i, btn in enumerate(self.suggestion_buttons):
-            if i < len(suggestions):
+            if i < self.active_suggestions_count:
                 char = suggestions[i]
 
-                # Qt uses '&' for keyboard shortcuts. To display a literal '&', it must be escaped as '&&'.
+                # Fix ampersand display
                 display_char = char.replace('&', '&&')
 
                 btn.setText(display_char)
-                btn.suggestion_char = char  # Update the stored character
+                btn.suggestion_char = char
                 btn.setEnabled(True)
-                btn.setVisible(True)  # Show button if we have a suggestion
+                btn.setVisible(True)
             else:
                 btn.setText("")
                 btn.suggestion_char = ""
                 btn.setEnabled(False)
-                btn.setVisible(False)  # Hide unused button
+                btn.setVisible(False)
 
         # Auto-highlight logic
         if self.setting_auto_highlight and self.active_suggestions_count > 0:
@@ -3091,33 +3118,23 @@ class FontWidget(QMainWindow):
         self.current_suggestion_idx = index
         for i, btn in enumerate(self.suggestion_buttons):
             if i == index and btn.isVisible():
-                # Highlighted style - transparent background, prominent blue border
-                btn.setStyleSheet(
-                    "font-family: 'Consolas', monospace; border: 3px solid #3d7eff; background-color: white; border-radius: 4px; color: black;")
+                btn.setStyleSheet("font-family: 'Consolas', monospace; border: 3px solid #3d7eff; background-color: white; border-radius: 4px; color: black;")
             else:
-                # Default style - dark gray border
-                btn.setStyleSheet(
-                    "font-family: 'Consolas', monospace; border: 1px solid #555; background-color: white; border-radius: 4px; color: black;")
+                btn.setStyleSheet("font-family: 'Consolas', monospace; border: 1px solid #555; background-color: white; border-radius: 4px; color: black;")
 
     # Removes highlight if the user starts typing manually
-    def on_user_input_changed(self, text):
-        if text and self.current_suggestion_idx != -1:
-            self.set_suggestion_highlight(-1)
-        elif not text and self.setting_auto_highlight and self.active_suggestions_count > 0:
-            # Re-highlight the first button if the user deletes their text
-            self.set_suggestion_highlight(0)
-
-    def on_unic_input_changed(self, text):
+    def on_manual_input(self, text):
         if text and self.current_suggestion_idx != -1:
             self.set_suggestion_highlight(-1)
         elif not text and self.setting_auto_highlight and self.active_suggestions_count > 0:
             self.set_suggestion_highlight(0)
 
-        # Catches keyboard events in the char_input field for suggestion navigation
-
+    # Catches keyboard events in the char_input field for suggestion navigation
     def eventFilter(self, obj, event):
+        # On keypress
         if event.type() == QtCore.QEvent.KeyPress:
 
+            # Skip fonts on CTRL+R/L arrow
             if event.modifiers() & QtCore.Qt.ControlModifier:
                 if event.key() == QtCore.Qt.Key_Left:
                     self.go_to_prev_font()
@@ -3126,6 +3143,7 @@ class FontWidget(QMainWindow):
                     self.go_to_next_font()
                     return True
 
+            # Scroll through glyph list
             if obj in (self.char_input, self.unic_input, self.glyph_list):
                 if event.key() == QtCore.Qt.Key_Up:
                     if self.current_font_glyph_names and self.current_index > 0:
@@ -3139,6 +3157,7 @@ class FontWidget(QMainWindow):
                         self.show_glyph()
                     return True
 
+            # Scroll through suggestions
             if obj in (self.char_input, self.unic_input):
                 if not self.setting_auto_highlight:
                     return super().eventFilter(obj, event)
@@ -3172,14 +3191,12 @@ class FontWidget(QMainWindow):
                             btn = self.suggestion_buttons[self.current_suggestion_idx]
                             if btn.isVisible():
                                 self.apply_suggestion(btn.suggestion_char)
-                                return True  # Block the event, we handled it
+                                return True
                         except IndexError:
-                            pass  # Failsafe in case active_suggestions_count is out of sync
-
-                    # If text box is NOT empty, let the normal returnPressed signal handle it
+                            pass
                     return False
 
-        # Všechny ostatní nestřežené eventy propustíme zpět domů
+        # Allow other events to pass through
         return super().eventFilter(obj, event)
 
     # Automatically fills input and triggers the save mechanism
@@ -3217,13 +3234,9 @@ class FontWidget(QMainWindow):
             g_hash = data.get("glyph_hash") or self.get_glyph_hash(gname)
 
             if g_hash:
-                records = self.global_db_map.get(g_hash, [])
-
-                already_known = any(
-                    r["unicode_hex"] == data["unicode_hex"] and r["GlyphName"] == gname for r in records)
-
-                if already_known:
-                    continue
+                stale_keys = [k for k in existing_data.keys() if k[0] == g_hash and k[2] == gname]
+                for k in stale_keys:
+                    del existing_data[k]
 
                 key = (g_hash, current_font_name, gname)
                 existing_data[key] = {
@@ -3286,7 +3299,7 @@ class FontWidget(QMainWindow):
             if has_internal_collision:
                 matched_rows = [r for r in records if r["GlyphName"] == name]
                 if matched_rows:
-                    row = matched_rows[0]
+                    row = matched_rows[-1]
                     self.user_glyph_to_char[name] = {
                         "glyph_hash": g_hash,
                         "unicode_hex": row["unicode_hex"],
@@ -3295,7 +3308,7 @@ class FontWidget(QMainWindow):
             else:
                 unique_hexes = list(set(r["unicode_hex"] for r in records))
                 if len(unique_hexes) == 1:
-                    row = next(r for r in records if r["unicode_hex"] == unique_hexes[0])
+                    row = next(r for r in reversed(records) if r["unicode_hex"] == unique_hexes[0])
                     self.user_glyph_to_char[name] = {
                         "glyph_hash": g_hash,
                         "unicode_hex": row["unicode_hex"],
@@ -3304,7 +3317,7 @@ class FontWidget(QMainWindow):
                 else:
                     matched_rows = [r for r in records if r["GlyphName"] == name]
                     if matched_rows:
-                        row = matched_rows[0]
+                        row = matched_rows[-1]
                         self.user_glyph_to_char[name] = {
                             "glyph_hash": g_hash,
                             "unicode_hex": row["unicode_hex"],
@@ -3315,7 +3328,7 @@ class FontWidget(QMainWindow):
         if '.notdef' in self.current_glyph_set:
             nhash = cached_hashes.get('.notdef') or self.get_glyph_hash('.notdef')
             if nhash in db_map:
-                row = db_map[nhash][0]
+                row = db_map[nhash][-1]
                 self.user_glyph_to_char['.notdef'] = {
                     "glyph_hash": nhash,
                     "unicode_hex": row["unicode_hex"],
@@ -3336,6 +3349,7 @@ class FontWidget(QMainWindow):
         self.resize_snap_timer.start(500)
 
     # Calculates the nearest valid height based on list item increments and applies it
+    # This is needed for correct list scrolling
     def apply_snap_resize(self):
         current_height = self.height()
         current_width = self.width()
@@ -3354,9 +3368,9 @@ class FontWidget(QMainWindow):
         if current_height != target_height:
             self.resize(current_width, target_height)
 
+    # Play sound effect
     def play_sound(self, success=True):
         if sys.platform == "win32":
-            import winsound
             if success:
                 winsound.MessageBeep(winsound.MB_OK)
             else:
@@ -3636,7 +3650,7 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
     if same_hash_names and len(same_hash_names) > 1:
         # First, simply try to resolve by GlyphName since we know we have a collision
         if matched_rows:
-            return matched_rows[0]["unicode_hex"]
+            return matched_rows[-1]["unicode_hex"]
 
         # Fallback: strict subset matching if exact name fails
         db_fonts = {}
@@ -3659,7 +3673,7 @@ def find_best_unicode(g_hash, g_name, db_map, same_hash_names=None):
 
     # Global collision fallback to GlyphName
     if matched_rows:
-        return matched_rows[0]["unicode_hex"]
+        return matched_rows[-1]["unicode_hex"]
 
     return None
 
