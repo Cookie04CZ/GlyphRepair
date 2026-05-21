@@ -4451,7 +4451,10 @@ def init_database():
 if __name__ == "__main__":
     init_database()
 
-    parser = argparse.ArgumentParser(description="PDF Glyph Repair Tool - GUI & CLI")
+    parser = argparse.ArgumentParser(
+        description="PDF Glyph Repair Tool - GUI & CLI",
+        usage="%(prog)s [-h] [-m] [target] [-r] [-d HASH_DB] [-v]"
+    )
 
     parser.add_argument("Target directory", nargs='?', help="Path to target file or directory")
 
