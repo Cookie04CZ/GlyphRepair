@@ -8,6 +8,7 @@ import difflib
 import winsound
 from hashlib import md5
 from io import BytesIO
+import colorama
 from colorama import Fore, Style
 
 import fitz  # PyMuPDF
@@ -3436,7 +3437,7 @@ class FontWidget(QMainWindow):
                 doc_vizual = fitz.open(self.pdf_path)
                 font_cache_local = {}
 
-                dialog.log("[INFO] Visual order scanning...", "#aaaaaa")
+                dialog.log("[INFO] Glyph display order analysis...", "#aaaaaa")
                 visual_sequence = load_sequence(doc_vizual, custom_flags, db_map, font_cache_local, mode="visual",
                                                 progress_callback=dialog.set_progress)
 
@@ -3470,34 +3471,34 @@ class FontWidget(QMainWindow):
 
                 dialog.log(f"\n[INFO] Proceeding to repair {ready_fonts_count} active fonts.\n", "#3d7eff")
 
-                dialog.log("[1/3] DUMMY ToUnicode injection", "#3d7eff")
+                dialog.log("[1/3] Temporary ToUnicode injection", "#3d7eff")
                 dialog.log("-" * 68, "#aaaaaa")
-                dummy_cmap_str = generate_dummy_tounicode()
+                temp_cmap_str = generate_temp_tounicode()
 
                 for idx, xref in enumerate(visual_sequence.keys(), 1):
-                    dummy_xref = doc_vizual.get_new_xref()
-                    doc_vizual.update_object(dummy_xref, "<<>>")
-                    doc_vizual.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
-                    doc_vizual.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
+                    temp_xref = doc_vizual.get_new_xref()
+                    doc_vizual.update_object(temp_xref, "<<>>")
+                    doc_vizual.update_stream(temp_xref, temp_cmap_str.encode("utf-8"))
+                    doc_vizual.xref_set_key(xref, "ToUnicode", f"{temp_xref} 0 R")
 
                     font_name = font_cache_local.get(xref, {}).get("name", "Not found")
                     dialog.log(f"  [{idx}/{ready_fonts_count}] Font '{font_name}'")
-                    dialog.log(f"      -> New DUMMY xref: {dummy_xref}", "#aaaaaa")
+                    dialog.log(f"      -> New temporary xref: {temp_xref}", "#aaaaaa")
 
                 dialog.log("\n[INFO] Saving PDF to cache ...", "#aaaaaa")
-                dummy_pdf_bytes = doc_vizual.tobytes()
+                temp_pdf_bytes = doc_vizual.tobytes()
                 doc_vizual.close()
 
-                dialog.log("\n[2/3] CharacterCode extraction", "#3d7eff")
+                dialog.log("\n[2/3] Internal character ID extraction", "#3d7eff")
                 dialog.log("-" * 68, "#aaaaaa")
-                doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
-                internal_sequence = load_sequence(doc_dummy, custom_flags, db_map, font_cache_local, mode="dummy")
-                doc_dummy.close()
+                doc_temp = fitz.open("pdf", temp_pdf_bytes)
+                internal_sequence = load_sequence(doc_temp, custom_flags, db_map, font_cache_local, mode="temp")
+                doc_temp.close()
 
                 # Only report the count of fonts we actually care about to avoid confusion
-                dialog.log(f"  -> Extraction succeeded (processing {ready_fonts_count} ready fonts).","#228B22")
+                dialog.log(f"  -> Extraction succeeded (processing {ready_fonts_count} ready fonts).", "#228B22")
 
-                dialog.log("\n[3/3] Final ToUnicode mapping", "#3d7eff")
+                dialog.log("\n[3/3] Final ToUnicode generation", "#3d7eff")
                 dialog.log("-" * 68, "#aaaaaa")
                 doc_final = fitz.open(self.pdf_path)
                 success_count = 0
@@ -3570,8 +3571,8 @@ class FontWidget(QMainWindow):
                     # Append global document summary to the bottom of the log
                 dialog.log("\n[INFO] Global PDF font summary:", "#aaaaaa")
                 dialog.log(f"  -> Total fonts evaluated:    {self.stats_total_fonts}", "#aaaaaa")
-                dialog.log(f"  -> Unsupported (Not CFF):    {self.stats_not_supported}", "#ff4444" if self.stats_not_supported > 0 else "#aaaaaa")
-                dialog.log(f"  -> Ignored (Has ToUnicode):  {self.stats_has_tounicode}", "#aaaaaa")
+                dialog.log(f"  -> Unsupported (not CFF):    {self.stats_not_supported}", "#ff4444" if self.stats_not_supported > 0 else "#aaaaaa")
+                dialog.log(f"  -> Ignored (already have ToUnicode):  {self.stats_has_tounicode}", "#aaaaaa")
 
                 if is_completely_perfect:
                     if ghost_xrefs:
@@ -3730,7 +3731,7 @@ def get_differences(doc, xref):
         return {}
 
 
-def generate_dummy_tounicode():
+def generate_temp_tounicode():
     cmap = [
         "/CIDInit /ProcSet findresource begin", "12 dict begin", "begincmap",
         "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
@@ -3877,11 +3878,11 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
 
     # Defining a callback function for the visual sequence loading progress
     def visual_progress(current, total):
-        print_inline_progress(current, total, prefix='    Scanning visual text:  ', verbose=verbose)
+        print_inline_progress(current, total, prefix='    Scanning display order:', verbose=verbose)
 
-    # Defining a callback function for the dummy sequence loading progress
-    def dummy_progress(current, total):
-        print_inline_progress(current, total, prefix='    Scanning internal text:', verbose=verbose)
+    # Defining a callback function for the temporary sequence loading progress
+    def temp_progress(current, total):
+        print_inline_progress(current, total, prefix='    Scanning internal IDs: ', verbose=verbose)
 
     try:
         doc = fitz.open(pdf_path)
@@ -3898,7 +3899,7 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
         cff_candidates = []
         font_cache_local = {}
 
-        vprint("  [DEBUG] Phase 0: Scanning for fonts in PDF...")
+        vprint("  [DEBUG] Step 1/5: Scanning for fonts in PDF...")
         # Getting the total number of pages for the progress bar
         total_pages = len(doc)
 
@@ -3983,7 +3984,7 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
 
         custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
 
-        vprint("  [DEBUG] Visual sequence loading...")
+        vprint("  [DEBUG] Step 2/5: Glyph display order analysis...")
         # Passing the visual_progress callback to the load_sequence function
         visual_sequence = load_sequence(
             doc, custom_flags, glyph_db_map, font_cache_local,
@@ -4008,26 +4009,26 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
         if ready_xrefs:
             visual_sequence = {x: seq for x, seq in visual_sequence.items() if x in ready_xrefs}
 
-            vprint("  [DEBUG] Step 1/3: DUMMY ToUnicode injection")
-            dummy_cmap_str = generate_dummy_tounicode()
+            vprint("  [DEBUG] Step 3/5: Temporary ToUnicode injection")
+            temp_cmap_str = generate_temp_tounicode()
             for xref in visual_sequence.keys():
-                dummy_xref = doc.get_new_xref()
-                doc.update_object(dummy_xref, "<<>>")
-                doc.update_stream(dummy_xref, dummy_cmap_str.encode("utf-8"))
-                doc.xref_set_key(xref, "ToUnicode", f"{dummy_xref} 0 R")
+                temp_xref = doc.get_new_xref()
+                doc.update_object(temp_xref, "<<>>")
+                doc.update_stream(temp_xref, temp_cmap_str.encode("utf-8"))
+                doc.xref_set_key(xref, "ToUnicode", f"{temp_xref} 0 R")
 
-            dummy_pdf_bytes = doc.tobytes()
-            doc_dummy = fitz.open("pdf", dummy_pdf_bytes)
+            temp_pdf_bytes = doc.tobytes()
+            doc_temp = fitz.open("pdf", temp_pdf_bytes)
 
-            vprint("  [DEBUG] Step 2/3: Internal ID extraction")
-            # Passing the dummy_progress callback to the load_sequence function
+            vprint("  [DEBUG] Step 4/5: Internal character ID extraction")
+            # Passing the temp_progress callback to the load_sequence function
             internal_sequence = load_sequence(
-                doc_dummy, custom_flags, glyph_db_map, font_cache_local,
-                mode="dummy", progress_callback=dummy_progress
+                doc_temp, custom_flags, glyph_db_map, font_cache_local,
+                mode="temp", progress_callback=temp_progress
             )
-            doc_dummy.close()
+            doc_temp.close()
 
-            vprint("  [DEBUG] Step 3/3: Final ToUnicode creation")
+            vprint("  [DEBUG] Step 5/5: Final ToUnicode generation")
             doc_final = fitz.open(pdf_path)
 
             for xref, v_seq in visual_sequence.items():
@@ -4052,8 +4053,7 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                     doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
                     success_count += 1
                 else:
-                    vprint(
-                        f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
+                    vprint(f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
 
             repaired_completely = success_count
 
@@ -4103,21 +4103,12 @@ def print_inline_progress(iteration, total, prefix='', length=30, fill='█', ve
 
 
 def run_cli_mode(args):
-    try:
-        import colorama
-        from colorama import Fore, Style
-        colorama.init(autoreset=True)
-    except ImportError:
-        class DummyColor:
-            def __getattr__(self, name): return ""
-
-        Fore = DummyColor()
-        Style = DummyColor()
+    colorama.init(autoreset=True)
 
     print(f"=== CLI Glyph Repair ===")
 
     if not args.hash_db:
-        print(f"{Fore.RED}[ERROR] Parameter -d (--hash-db) with path to database missing{Style.RESET_ALL}")
+        print(f"{Fore.RED}[ERROR] Parameter -d (--hash-db) for hash database of known input files missing{Style.RESET_ALL}")
         if sys.platform == "win32": os.system("pause")
         sys.exit(1)
 
@@ -4462,11 +4453,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="PDF Glyph Repair Tool - GUI & CLI")
 
-    parser.add_argument("target", nargs='?', help="Path for file/folder to repair")
+    parser.add_argument("Target directory", nargs='?', help="Path to target file or directory")
 
-    parser.add_argument("-m", "--multiple", action="store_true", help="Folder path, repairs multiple files")
-    parser.add_argument("-r", "--recursive", action="store_true", help="Repair recursively (-m required)")
-    parser.add_argument("-d", "--hash-db", dest="hash_db", help="Path to PSV file containing md5 hashes")
+    parser.add_argument("-m", "--multiple", action="store_true", help="Enables automated repair of multiple input files")
+    parser.add_argument("-r", "--recursive", action="store_true", help="Also repairs files in subdirectories (-m required)")
+    parser.add_argument("-d", "--hash-db", dest="hash_db", help="Path to hash database of known input files missing")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enables verbose output")
 
     args = parser.parse_args()
