@@ -164,6 +164,10 @@ Unsuprisingly, this is done via Repair PDF button in the top left corner. Rememb
 
  **TBD**
 
+ # What is AGL?
+
+You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Scaron" should always represent letter "Š" and so on, you can see [the full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current version **does not** support it leaves all such fonts untouched.
+
  # How GlyphRepair works internally 
 
 Glyphs in Type 1 fonts are stored as vector image instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript chunks and then calculates MD5 hash from them. The reason for this is threefold:
@@ -172,7 +176,8 @@ Glyphs in Type 1 fonts are stored as vector image instructions in PostScript lan
 3. Many fonts are copyrighted, so you can't store and distibute their original data, anyway.
 
 While you're creating new mappings for a document, the data flow is:
-Read glyph data -> calculate MD5 hash -> pair the hash with user-assigned character -> store Unicode code for the character into database.
+
+**Read glyph data -> calculate MD5 hash -> pair the hash with user-assigned character -> store Unicode code for the character into database.**
 
 There's a reason why mapped characters are stored in Unicode. In old PDF files with Type 1 fonts, glyphs are just graphical symbols that may or may not contain information about which character they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. These are called "embedded subset" fonts. Another file size reduction comes from character ordering. In Type 1 fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
 
@@ -187,16 +192,30 @@ Notice that CC for letter "O" gets repeated every time it's needed. These charac
 | Character code (CC) | 1 | 2 | 3 | 4 | 5 |
 | Glyph name (GN) | G79 | G85 | G82 | G66 | G83 |
 
-As you can see, neither CC nor GN reliably convey which character they actually represent. **That's the real reason why you get only gibberish when you try to copy+paste from some PDF documents.** Moreover, Type 1 fonts are limited to about 220 characters, which quickly became insufficient for modern documents. So in 1996, Adobe introduced toUnicode tables into PDF version 1.2. These are separate tables that link character codes with their [Unicode](https://en.wikipedia.org/wiki/Unicode) equivalent. For OUROBOROS, the toUnicode table would look like this:
+Unlike Adobe Glyph List, such Glyph Names don't reliably convey which character they actually represent. **That's the real reason why you get only gibberish when you try to copy+paste from some PDF documents.** Moreover, Type 1 fonts are limited to about 220 characters, which quickly became insufficient for modern documents. So in 1996, Adobe introduced ToUnicode tables into PDF version 1.2. These are separate tables that link character codes with their [Unicode](https://en.wikipedia.org/wiki/Unicode) equivalent. For OUROBOROS, the ToUnicode table would look like this:
 
 | Letter | O | U | R | B | S |
 |:---:|:---:|:---:|:---:|:---:|:---:|
 | Character code (CC) | 1 | 2 | 3 | 4 | 5 |
-| toUnicode | 004F | 0055 | 0052 | 0042 | 0053 |
+| ToUnicode | 004F | 0055 | 0052 | 0042 | 0053 |
 
-GlyphRepair fixes documents encoding by creating and injecting new toUnicode tables for each font. In simplified form, it works like this:
-Read glyph data -> calculate MD5 hash -> look up the hash in database -> read Unicode code from database -> create glyph Character Code-Unicode pair
-When all pairs are found, they are compiled into a toUnicode table and injected into the PDF.
+GlyphRepair fixes documents encoding by creating and injecting new ToUnicode tables for each font. In simplified form, it works like this:
+
+**Read glyph data -> calculate MD5 hash -> look up the hash in database -> read associated Unicode from database -> create CC-Unicode pair**
+
+When all pairs are found, they are compiled into a ToUnicode table and injected into the PDF.
+
+# glyph_mappings.psv database format
+
+The glyph database is designed to be human-readable and editable. It's a [Pipe-Separated Values](https://docs.amperity.com/reference/format_psv.html) file where each row represents one glyph. It has 5 columns:
+
+* MD5 hash computed from glyph's PostScript data.
+* Name of glyph's source font when mapping was done.
+* Glyph Name copied from the source font.
+* Unicode of character, assigned (mapped) by user.
+* Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
+
+
 
  # Other ways to fix your documents, but with lower fidelity
 
@@ -243,7 +262,7 @@ The name-matching algorithm may fail to find a match if the full font name is to
 
 Theoretically, the name-matching algorithm may also find wrong matches, i.e. choose wrong map section. We haven't encountered such occurence yet, but there is a possible workaround: sections that are at the top of the JSON file are searched first. So you could fix this by reordering and/or renaming sections within the file.
 
-## Character codes, glyph names and toUnicode tables
+## Character codes, glyph names and ToUnicode tables
 
 The fact that you can copy+paste text from PDFs is more complex than you probably think. What you see on the screen are just glyphs, graphical symbols that may or may not contain information about which alphabet letter they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. This is called "embedded subset" fonts. Another file size reduction comes from character ordering. In Type1 fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
 
