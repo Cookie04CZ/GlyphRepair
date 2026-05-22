@@ -3953,55 +3953,59 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                     if not ext or ext.lower() != "cff":
                         not_supported += 1
                         continue
-
-                    # Pre-calculate mapping stats for candidate CFF fonts
-                    cff = CFFFontSet()
-                    cff.decompile(BytesIO(buffer), None)
-                    glyph_set = cff.topDictIndex[0].CharStrings
-                    valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
-
-                    total_glyphs = len(valid_glyph_names)
-                    mapped_count = 0
-                    agl_count = 0
-
-                    hash_to_names = {}
-                    # Iterating over valid glyph names to group them by hash and count AGL glyphs
-                    for g_name in valid_glyph_names:
-                        if g_name in EXTENDED_AGL:
-                            agl_count += 1
-                        else:
-                            gh = get_standalone_glyph_hash(glyph_set, g_name)
-                            if gh:
-                                if gh not in hash_to_names:
-                                    hash_to_names[gh] = set()
-                                hash_to_names[gh].add(g_name)
-
-                    # Iterating over valid glyph names to find the best Unicode matches
-                    for g_name in valid_glyph_names:
-                        if g_name in EXTENDED_AGL:
-                            mapped_count += 1
-                        else:
-                            g_hash = get_standalone_glyph_hash(glyph_set, g_name)
-                            same_hash_names = hash_to_names.get(g_hash, set())
-                            u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
-                            if u_hex: mapped_count += 1
-
-                    pdf_diffs = get_differences(doc, xref)
                     try:
-                        internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
-                    except:
-                        internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+                        # Pre-calculate mapping stats for candidate CFF fonts
+                        cff = CFFFontSet()
+                        cff.decompile(BytesIO(buffer), None)
+                        glyph_set = cff.topDictIndex[0].CharStrings
+                        valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
 
-                    font_cache_local[xref] = {
-                        "name": name,
-                        "glyph_set": glyph_set,
-                        "diffs": pdf_diffs,
-                        "enc": internal_enc,
-                        "mapped": mapped_count,
-                        "total": total_glyphs,
-                        "agl_count": agl_count
-                    }
-                    cff_candidates.append(xref)
+                        total_glyphs = len(valid_glyph_names)
+                        mapped_count = 0
+                        agl_count = 0
+
+                        hash_to_names = {}
+                        # Iterating over valid glyph names to group them by hash and count AGL glyphs
+                        for g_name in valid_glyph_names:
+                            if g_name in EXTENDED_AGL:
+                                agl_count += 1
+                            else:
+                                gh = get_standalone_glyph_hash(glyph_set, g_name)
+                                if gh:
+                                    if gh not in hash_to_names:
+                                        hash_to_names[gh] = set()
+                                    hash_to_names[gh].add(g_name)
+
+                        # Iterating over valid glyph names to find the best Unicode matches
+                        for g_name in valid_glyph_names:
+                            if g_name in EXTENDED_AGL:
+                                mapped_count += 1
+                            else:
+                                g_hash = get_standalone_glyph_hash(glyph_set, g_name)
+                                same_hash_names = hash_to_names.get(g_hash, set())
+                                u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
+                                if u_hex: mapped_count += 1
+
+                        pdf_diffs = get_differences(doc, xref)
+                        try:
+                            internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
+                        except:
+                            internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+
+                        font_cache_local[xref] = {
+                            "name": name,
+                            "glyph_set": glyph_set,
+                            "diffs": pdf_diffs,
+                            "enc": internal_enc,
+                            "mapped": mapped_count,
+                            "total": total_glyphs,
+                            "agl_count": agl_count
+                        }
+                        cff_candidates.append(xref)
+                    except Exception as e:
+                        vprint(f"  [DEBUG] Error parsing font {name}: {e}")
+                        not_supported += 1
+                        continue
 
             if not cff_candidates:
                 print(f"    {Style.BRIGHT}{total_found} fonts found{Style.RESET_ALL}")
@@ -4010,7 +4014,6 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                 if not_supported > 0:
                     print(f"    {Style.DIM}{not_supported} fonts not supported{Style.RESET_ALL}")
                 print("")
-                doc.close()
                 return
 
             custom_flags = fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_INHIBIT_SPACES | fitz.TEXT_USE_CID_FOR_UNKNOWN_UNICODE | fitz.TEXT_PRESERVE_WHITESPACE
@@ -4116,6 +4119,7 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
         print("")
 
     except Exception as e:
+        print()
         print(f"    {Fore.RED}[ERROR] Failed in processing: {e}{Style.RESET_ALL}\n")
 
 
