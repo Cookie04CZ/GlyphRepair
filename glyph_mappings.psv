@@ -1,4 +1,4 @@
-glyph_hash|font_name|GlyphName|unicode_hex|AGN
+glyph_hash|font_name|GlyphName|unicode_hex|AGL_name
 000235509aeebb3a52ed6385880a4d85|AHEKPO+Arial.tu.n.035|G114|0072|r
 0002f7a8ee6ca2e14b0882c76b190bd5|AMLBMF+Arial083.313|G47|002f|slash
 0003eac1af5e2a49f5ab1f3621cc76a8|FPANFN+Arial.Narrow037.5|G109|006d|m
@@ -25140,3 +25140,8 @@ faf8c271911be05485646ecb555d6241|CADDGF+Arial.kurz.va0296.313|G248|0159|rcaron
 314e70d836382d701836b76bcb883113|CADDGF+Arial.kurz.va0296.313|G249|016f|uring
 ea4837ef86369caed996db27a1883eb5|CADDGF+Arial.kurz.va0296.313|G250|00fa|uacute
 945fd3012e6452d43dc765c386e92245|CADDGF+Arial.kurz.va0296.313|G253|00fd|yacute
+6967a91971379bae9ce1019ed166bb16|BNIFBA+Symbol075|.notdef|FFFD|notdef
+f8af4954598b09429ff3d1535a679173|BNIFBA+Symbol075|G87|03a9|
+e33de4ffc621ce0d4a4e7374539a71ab|AJCEMM+FrutigerLTCom-Roman|g2|0020|space
+1278d751c3715b4d4102e7675fdd6cbb|AJCEMM+FrutigerLTCom-Roman|.notdef|FFFD|notdef
+dcb291b58da4b7f8b34aff8f3b8781a8|AJCEMM+FrutigerLTCom-Roman|g94|007c|bar

@@ -2191,7 +2191,7 @@ class FontWidget(QMainWindow):
         glyph_name = self.current_font_glyph_names[self.current_index]
 
         unicode_hex = ""
-        agn = ""
+        AGL_name = ""
         display = ""
 
         # Priority is given to Hex input if it is valid
@@ -2205,7 +2205,7 @@ class FontWidget(QMainWindow):
             try:
                 ch = chr(int(unicode_hex, 16))
                 display = "[space]" if ch == " " else ch
-                agn = UV2AGL.get(int(unicode_hex, 16), "")
+                AGL_name = UV2AGL.get(int(unicode_hex, 16), "")
             except ValueError:
                 QMessageBox.warning(self, "Invalid Unicode",
                                     f"The hex value '{unic_input}' is not a valid Unicode character.")
@@ -2214,18 +2214,18 @@ class FontWidget(QMainWindow):
         elif not text_input:
             text_input = " "
             unicode_hex = "0020"
-            agn = "space"
+            AGL_name = "space"
             display = "[space]"
         # Single character handling
         elif len(text_input) == 1:
             unicode_hex = format(ord(text_input), '04x')
-            agn = UV2AGL.get(ord(text_input), "")
+            AGL_name = UV2AGL.get(ord(text_input), "")
             display = text_input
         # Ligature handling
         else:
             if text_input in self.LIGATURES:
                 unicode_hex = self.LIGATURES[text_input]
-                agn = UV2AGL.get(int(unicode_hex, 16), text_input)
+                AGL_name = UV2AGL.get(int(unicode_hex, 16), text_input)
                 display = text_input
             else:
                 QMessageBox.warning(
@@ -2241,7 +2241,7 @@ class FontWidget(QMainWindow):
         self.user_glyph_to_char[glyph_name] = {
             "glyph_hash": g_hash,
             "unicode_hex": unicode_hex,
-            "AGN": agn
+            "AGL_name": AGL_name
         }
 
         self.unsaved_changes = True
@@ -2692,13 +2692,13 @@ class FontWidget(QMainWindow):
         # Retrieve mapping info if available
         mapping = self.user_glyph_to_char.get(name, {})
         uhex = mapping.get("unicode_hex", "None")
-        agn = mapping.get("AGN", "None")
+        AGL_name = mapping.get("AGL_name", "None")
 
         # If it's an AGL glyph, prioritize showing its inherent AGL value
         is_agl = name in EXTENDED_AGL
         if is_agl:
             uhex = format(EXTENDED_AGL[name], '04x').upper()
-            agn = name
+            AGL_name = name
 
         ch = chr(int(uhex, 16)) if uhex != "None" else "None"
         if ch == " ": ch = "[space]"
@@ -2719,7 +2719,7 @@ class FontWidget(QMainWindow):
                             <hr width="95%" color="#aaaaaa" style="margin-top: 2px; margin-bottom: 2px;">
 
                             <span style="color: #aaaaaa; font-size: 22px;">Adobe Glyph List</span><br>
-                            <span style="font-family: Consolas, monospace; font-size: 26px; font-weight: bold; color: white;">{agn}</span>
+                            <span style="font-family: Consolas, monospace; font-size: 26px; font-weight: bold; color: white;">{AGL_name}</span>
                         </div>
                         """
         self.label.setText(html)
@@ -2954,7 +2954,7 @@ class FontWidget(QMainWindow):
         self.exact_db_matches = set()
 
         self.global_db_map = {}
-        self.global_db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGN": "space"}]
+        self.global_db_map[space_hash] = [{"unicode_hex": "0020", "font_name": "", "GlyphName": "space", "AGL_name": "space"}]
 
         # Extract data from db file
         path = GLYPH_DATABASE
@@ -3210,7 +3210,7 @@ class FontWidget(QMainWindow):
     # Saves current session work to the PSV file
     def save_to_db(self):
         path = GLYPH_DATABASE
-        fieldnames = ["glyph_hash", "font_name", "GlyphName", "unicode_hex", "AGN"]
+        fieldnames = ["glyph_hash", "font_name", "GlyphName", "unicode_hex", "AGL_name"]
 
         existing_data = {}
         # Read existing data first to preserve it
@@ -3250,7 +3250,7 @@ class FontWidget(QMainWindow):
                     "font_name": current_font_name,
                     "GlyphName": gname,
                     "unicode_hex": data["unicode_hex"],
-                    "AGN": data["AGN"]
+                    "AGL_name": data["AGL_name"]
                 }
                 count_new += 1
 
@@ -3311,7 +3311,7 @@ class FontWidget(QMainWindow):
                 self.user_glyph_to_char[name] = {
                     "glyph_hash": g_hash,
                     "unicode_hex": row["unicode_hex"],
-                    "AGN": row["AGN"]
+                    "AGL_name": row["AGL_name"]
                 }
 
             # Use unique hash for mapping
@@ -3322,7 +3322,7 @@ class FontWidget(QMainWindow):
                     self.user_glyph_to_char[name] = {
                         "glyph_hash": g_hash,
                         "unicode_hex": row["unicode_hex"],
-                        "AGN": row["AGN"]
+                        "AGL_name": row["AGL_name"]
                     }
 
         # Special handling for .notdef
@@ -3333,13 +3333,13 @@ class FontWidget(QMainWindow):
                 self.user_glyph_to_char['.notdef'] = {
                     "glyph_hash": nhash,
                     "unicode_hex": row["unicode_hex"],
-                    "AGN": row["AGN"]
+                    "AGL_name": row["AGL_name"]
                 }
             elif '.notdef' not in self.user_glyph_to_char:
                 self.user_glyph_to_char['.notdef'] = {
                     "glyph_hash": nhash,
                     "unicode_hex": "FFFD",
-                    "AGN": "notdef"
+                    "AGL_name": "notdef"
                 }
 
     # Overrides the default resize event to trigger the snapping timer
@@ -4172,6 +4172,7 @@ def run_cli_mode(args):
         if sys.platform == "win32": os.system("pause")
         sys.exit(1)
 
+
     # Load the hash database
     valid_hashes = load_file_hash_db(args.hash_db)
     if not valid_hashes:
@@ -4485,7 +4486,7 @@ def init_database():
     # Create the PSV file with default headers if it doesn't exist
     if not os.path.exists(GLYPH_DATABASE):
         with open(GLYPH_DATABASE, 'w', encoding='utf-8') as f:
-            f.write('glyph_hash|font_name|GlyphName|unicode_hex|AGN\n')
+            f.write('glyph_hash|font_name|GlyphName|unicode_hex|AGL_name\n')
 
 
 if __name__ == "__main__":
