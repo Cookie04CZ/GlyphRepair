@@ -203,11 +203,11 @@ GlyphRepair fixes documents encoding by creating and injecting new ToUnicode tab
 
 **Read glyph data -> calculate MD5 hash -> look up the hash in database -> read associated Unicode from database -> create CC-Unicode pair**
 
-When all pairs are found, they are compiled into a ToUnicode table and injected into the PDF.
+When all pairs are found, they are compiled into a ToUnicode table and injected into the PDF. This ensures that the document's original contents are not modified in any way.
 
 # glyph_mappings.psv database format
 
-The glyph database is designed to be human-readable and editable. It's a [Pipe-Separated Values](https://docs.amperity.com/reference/format_psv.html) file where each row represents one glyph. It has 5 columns:
+The glyph database is designed to be human-readable and editable. It's a [Pipe-Separated Values](https://docs.amperity.com/reference/format_psv.html) file where each row represents one glyph. There are 5 columns:
 
 * MD5 hash computed from glyph's PostScript data.
 * Name of glyph's source font when mapping was done.
@@ -215,7 +215,11 @@ The glyph database is designed to be human-readable and editable. It's a [Pipe-S
 * Unicode of character, assigned (mapped) by user.
 * Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
 
+GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows. You can easily import the database to MS Excel or other similar program to search, sort or otherwise modify it.
 
+## Why so many font names start with strings like ABCDEF+ ?
+
+As we mentioned in previous chapter, Type 1 fonts typically store only glyphs that are needed to render the given document. These are called "embedded subset" fonts.
 
  # Other ways to fix your documents, but with lower fidelity
 
