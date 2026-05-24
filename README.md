@@ -119,11 +119,15 @@ This will display another input field which accepts only string of 4 or 5 hexade
 <img width="1202" height="855" alt="First document Unicode enabled" src="https://github.com/user-attachments/assets/7b7abc75-50c3-420d-a243-ce87ec42498a" />
 </p>
 
-When you map all glyphs in a document, you'll get this message window:
+When you map all glyphs in entire document, you'll get this message window:
 
 <p>
 <img width="344" height="129" alt="All glyphs mapped" src="https://github.com/user-attachments/assets/d74477a3-f031-43cc-9d1c-d0bd98aaecf3" />
 </p>
+
+## Where to find and copy special characters
+
+GlyphRepair has button XXXXXXXXXXXXXX which links to a web page of common special characters, so you can copy and paste them. There are many sites like that
 
 # Glyph database and its impact on auto-suggestion
 
@@ -232,7 +236,29 @@ As we mentioned in previous chapter, Type 1 fonts typically store only glyphs th
 
  # Repairing multiple documents at once
 
-GlyphRepair has command line interface that allows you to repair many files at once. But you know how it is: most people have quite a mess on their drives. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_files.psv database**. This PSV file has only two columns, file MD5 hash and name of the source PDF file. But only the MD5 hash decides whether a file is repaired or not; in fact and you may entirely omit the file name column. On Windows, you can use its built-in certification utility to calculate the hash:
+GlyphRepair has a command line interface that allows you to repair many files at once. You can display help if you run it with -h or --help option:
+```
+usage: GlyphRepair_v19.py [-h] [-m] [Target directory] [-r] [-d HASH_DB] [-v]
+
+PDF Glyph Repair Tool - GUI & CLI
+
+positional arguments:
+  Target directory      Path to target file or directory
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -m, --multiple        Enables automated repair of multiple input files
+  -r, --recursive       Also repairs files in subdirectories (-m required)
+  -d HASH_DB, --hash-db HASH_DB
+                        Path to hash database of known input files
+  -v, --verbose         Enables verbose output
+```
+For example, if you want to repair several PDF files in a given directory and all subdirectiories, you can use
+```
+GlyphRepair -m "c:\PDFs are here" -r -d known_docs.psv
+```
+
+**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, file MD5 hash and name of the source PDF file. But only the MD5 hash decides whether a file is repaired or not; in fact and you may entirely omit the file name column. On Windows, you can use its built-in certification utility to calculate the hash:
 ```
 certutil -hashfile ABCD.pdf md5
 ```
@@ -240,11 +266,13 @@ To hash multiple files in a directory, you can use
 ```
 forfiles /m *.pdf /c "cmd /c certutil -hashfile @file md5" 
 ```
-You can also include subdirectories with /s option. We currently don't have any program or utility to collect or filter the resulting MD5 hases, so'll have to do it manually in a text editor etc. The repair itself displays similar progress bars and font statistics like manual repair:
+You can also include subdirectories with ```forfiles /s``` option. We currently don't have any program or utility to collect or filter the resulting MD5 hashes, so'll have to do it manually in a text editor etc. Console displays progress bars and font statistics which are similar to GUI:
 
 <p>
 <img width="544" height="182" alt="Multiple repair result" src="https://github.com/user-attachments/assets/ee0660c1-9781-441d-bc5d-7906e6ad55cb" />
 </p>
+
+You can further expand these results if you run GlyphRepair with -v option.
 
  # Other ways to fix your documents, but with lower fidelity
 
