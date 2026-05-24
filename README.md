@@ -1,4 +1,4 @@
-**This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).**
+### This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).
 
 # Keywords
 
@@ -127,7 +127,9 @@ When you map all glyphs in entire document, you'll get this message window:
 
 ## Where to find and copy special characters
 
-GlyphRepair has button XXXXXXXXXXXXXX which links to a web page of common special characters, so you can copy and paste them. There are many sites like that
+GlyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. There are also several other sites with searchable lists of Unicode characters:
+
+However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Old characters sets vary between languages and operating systems, but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Czech language. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du)
 
 # Glyph database and its impact on auto-suggestion
 
@@ -258,7 +260,7 @@ For example, if you want to repair several PDF files in a given directory and al
 GlyphRepair -m "c:\PDFs are here" -r -d known_docs.psv
 ```
 
-**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, file MD5 hash and name of the source PDF file. But only the MD5 hash decides whether a file is repaired or not; in fact and you may entirely omit the file name column. On Windows, you can use its built-in certification utility to calculate the hash:
+**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. However, only the MD5 hash decides whether a file is repaired or not; in fact you may entirely omit the file name column. On Windows, you can use its built-in certification utility to calculate file hash:
 ```
 certutil -hashfile ABCD.pdf md5
 ```
@@ -266,7 +268,7 @@ To hash multiple files in a directory, you can use
 ```
 forfiles /m *.pdf /c "cmd /c certutil -hashfile @file md5" 
 ```
-You can also include subdirectories with ```forfiles /s``` option. We currently don't have any program or utility to collect or filter the resulting MD5 hashes, so'll have to do it manually in a text editor etc. Console displays progress bars and font statistics which are similar to GUI:
+You can also include subdirectories with ```forfiles /s``` option. We currently don't have any program or utility to collect or filter the resulting MD5 hashes, so'll have to do it manually in a text editor etc. During repair, the console displays progress bars and font statistics which are similar to GUI:
 
 <p>
 <img width="544" height="182" alt="Multiple repair result" src="https://github.com/user-attachments/assets/ee0660c1-9781-441d-bc5d-7906e6ad55cb" />
