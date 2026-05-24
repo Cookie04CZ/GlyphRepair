@@ -127,7 +127,7 @@ When you map all glyphs in a document, you'll get this message window:
 
 # Glyph database and its impact on auto-suggestion
 
-As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening, it may be best if you start with a blank database. Simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
+As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 38 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening, it may be best if you start with a blank database. Also, the program will work a bit faster when the database is smaller. You can simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
 By default, GlyphRepair auto-saves the database whenever you finish mapping a font or entire document. This auto-saving feature can be disabled in the Settings. You can also save the database manually at any time with Save All to DB button.
 
@@ -240,9 +240,11 @@ To hash multiple files at once, you can use
 ```
 forfiles /m *.pdf /c "cmd /c certutil -hashfile @file md5" 
 ```
-We currently don't have any program or utility to collect or filter the resulting MD5 hases, so'll have to do it manually in a text editor etc.
+We currently don't have any program or utility to collect or filter the resulting MD5 hases, so'll have to do it manually in a text editor etc. The repair itself displays similar progress bars and font statistics like manual repair:
 
-
+<p>
+<img width="544" height="182" alt="Multiple repair result" src="https://github.com/user-attachments/assets/ee0660c1-9781-441d-bc5d-7906e6ad55cb" />
+</p>
 
  # Other ways to fix your documents, but with lower fidelity
 
