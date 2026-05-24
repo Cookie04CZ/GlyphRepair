@@ -174,7 +174,11 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
  # Saving repaired documents
 
-Unsuprisingly, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of pages again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
+Unsuprisingly, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
+
+
+
+The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
 
  **TBD**
 
@@ -260,11 +264,11 @@ For example, if you want to repair several PDF files in a given directory and al
 GlyphRepair -m "c:\PDFs are here" -r -d known_docs.psv
 ```
 
-**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. However, only the MD5 hash decides whether a file is repaired or not; in fact you may entirely omit the file name column. On Windows, you can use its built-in certification utility to calculate file hash:
+**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. Note that only the MD5 hash decides whether a file is repaired; you may leave the file name column blank. On Windows, you can use its built-in certification utility to calculate the MD5 hash:
 ```
 certutil -hashfile ABCD.pdf md5
 ```
-To hash multiple files in a directory, you can use
+To hash multiple PDF files in a directory, you can use
 ```
 forfiles /m *.pdf /c "cmd /c certutil -hashfile @file md5" 
 ```
@@ -274,7 +278,7 @@ You can also include subdirectories with ```forfiles /s``` option. We currently 
 <img width="544" height="182" alt="Multiple repair result" src="https://github.com/user-attachments/assets/ee0660c1-9781-441d-bc5d-7906e6ad55cb" />
 </p>
 
-You can further expand these results if you run GlyphRepair with -v option.
+You can further expand these results if you run GlyphRepair with -v or --verbose option.
 
  # Other ways to fix your documents, but with lower fidelity
 
