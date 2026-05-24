@@ -56,6 +56,7 @@ If you want to run Python code, you have to install following packages:
 * PySide6 6.10.3 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
 * Matplotlib 3.9.4 https://matplotlib.org/
 * qtawesome 1.4.2 https://github.com/spyder-ide/qtawesome
+* colorama 0.4.6 https://github.com/tartley/colorama
 
 All can be installed with pip
 ```
@@ -64,6 +65,7 @@ pip3 install PyMuPDF
 pip3 install PySide6
 pip3 install Matplotlib
 pip3 install qtawesome
+pip3 install colorama
 ```
 Note the program was developed and tested only with these package versions and only on Windows. We have no idea if it works on other operating systems. 
 
@@ -115,6 +117,12 @@ This will display another input field which accepts only string of 4 or 5 hexade
 
 <p>
 <img width="1202" height="855" alt="First document Unicode enabled" src="https://github.com/user-attachments/assets/7b7abc75-50c3-420d-a243-ce87ec42498a" />
+</p>
+
+When you map all glyphs in a document, you'll get this message window:
+
+<p>
+<img width="344" height="129" alt="All glyphs mapped" src="https://github.com/user-attachments/assets/d74477a3-f031-43cc-9d1c-d0bd98aaecf3" />
 </p>
 
 # Glyph database and its impact on auto-suggestion
@@ -220,6 +228,21 @@ GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them 
 ## Why so many font names start with strings like ABCDEF+ ?
 
 As we mentioned in previous chapter, Type 1 fonts typically store only glyphs that are needed to render the given document. These are called "embedded subset" fonts.
+
+
+ # Repairing multiple documents at once
+
+GlyphRepair has command line interface that allows you to repair many files at once. But you know how it is: most people have quite a mess on their drives. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_files.psv database**. This PSV file has only two columns, file MD5 hash and name of the source PDF file. But only the MD5 hash decides whether a file is repaired or not; in fact and you may entirely omit the file name column. On Windows, you can use its built-in certification utility to calculate the hash:
+```
+certutil -hashfile ABCD.pdf md5
+```
+To hash multiple files at once, you can use
+```
+forfiles /m *.pdf /c "cmd /c certutil -hashfile @file md5" 
+```
+We currently don't have any program or utility to collect or filter the resulting MD5 hases, so'll have to do it manually in a text editor etc.
+
+
 
  # Other ways to fix your documents, but with lower fidelity
 
