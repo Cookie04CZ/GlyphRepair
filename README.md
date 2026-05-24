@@ -236,11 +236,11 @@ GlyphRepair has command line interface that allows you to repair many files at o
 ```
 certutil -hashfile ABCD.pdf md5
 ```
-To hash multiple files at once, you can use
+To hash multiple files in a directory, you can use
 ```
 forfiles /m *.pdf /c "cmd /c certutil -hashfile @file md5" 
 ```
-We currently don't have any program or utility to collect or filter the resulting MD5 hases, so'll have to do it manually in a text editor etc. The repair itself displays similar progress bars and font statistics like manual repair:
+You can also include subdirectories with /s option. We currently don't have any program or utility to collect or filter the resulting MD5 hases, so'll have to do it manually in a text editor etc. The repair itself displays similar progress bars and font statistics like manual repair:
 
 <p>
 <img width="544" height="182" alt="Multiple repair result" src="https://github.com/user-attachments/assets/ee0660c1-9781-441d-bc5d-7906e6ad55cb" />
