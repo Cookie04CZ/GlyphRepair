@@ -1,4 +1,4 @@
-### This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).
+## This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).
 
 # Keywords
 
@@ -89,7 +89,7 @@ If your file doesn't contain any repairable fonts, you will get message "This do
 
 You can test GlyphRepair on this sample 2-page document, provided under [fair use](https://en.wikipedia.org/wiki/Fair_use) doctrine:
 
-[GR_Sample.zip](https://github.com/user-attachments/files/28022076/GR_Sample.zip)
+[GR_Sample.zip](https://github.com/user-attachments/files/28198468/GR_Sample.zip)
 
 Note the sample will appear as fully mapped if you load it with default glyph_mappings.psv database from main repository. Therefore, the sample also contains much smaller glyph_mappings.psv which contains mapping only for one font. Simply overwrite it; you can always download full database again.
 
@@ -174,9 +174,13 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
  # Saving repaired documents
 
-Unsuprisingly, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
+**Important! Always load and repair only original documents!** While you can re-load documents that were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work progress is saved in glyph_mappings.psv, so you don't need to save unfinished documents. 
 
+As you've probably guessed, you have to use Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
 
+<p>
+<img width="552" height="432" alt="Repair with missing glyphs" src="https://github.com/user-attachments/assets/0daa912d-cf6d-4893-a23d-f26eeec3dce2" />
+</p>
 
 The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
 
