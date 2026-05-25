@@ -184,7 +184,7 @@ The font selector will now cycle only through fonts which are used on the select
 
 Note that Next Unmapped button is **not** limited to selected page -- it always searches all fonts within the document and will automatically jump to other pages, even with Page Mode Navigation enabled.
 
-If you want to repair only a specific font, you don't need the Page Mode Navigation. Instead, you can switch to it with font selector as explained in previous chapters. The real trick is to know which font you actually need to select, because most PDF viewers don't tell you which parts of the text use which font. You will have to use a 3rd party program for that. We've been using two programs, [Infix PDF Editor](https://infix-pdf-editor.en.softonic.com/) and [PDF-XChange Editor](https://www.pdf-xchange.com/product/downloads/enduser/pdf-xchange-editor). Both have free trial versions. They both work similarly -- activate their text editing mode, click somewhere into text and they will display its font:
+If you want to repair only a specific font, you don't need the Page Mode Navigation. Instead, you can switch to it with font selector as explained in previous chapters. The real trick is to know which font you actually need to select, because most PDF viewers won't tell you which parts use which font. You will have to use a 3rd party program for that. We've been using two programs, [Infix PDF Editor](https://infix-pdf-editor.en.softonic.com/) and [PDF-XChange Editor](https://www.pdf-xchange.com/product/downloads/enduser/pdf-xchange-editor), both have free trial versions. They both work similarly -- activate their text editing mode, click somewhere into text and they will display its font:
 
 <p>
 <img width="880" height="570" alt="Select font in Infix" src="https://github.com/user-attachments/assets/eff8d2dc-4191-488c-aef6-3d7287ba870d" />
@@ -329,11 +329,14 @@ You can further expand these results if you run GlyphRepair with -v or --verbose
 
 # Known limitations and issues
 
-* TBD
+* In sans-serif fonts like Arial, glyphs for uppercase I and lowercase L are indistinguishable: they have exactly the same PostScript data (thus the same MD5 hash) and differ only by their Glyph Name. We tried some solutions, but couldn't find anything that worked reliably.
+* Program tries to fix some unsupported fonts. It needs a better algorithm to deal with nonstandard documents and/or non-compliant font formats.
 
 # Possible further work
 
-* TBD
+* Remove mandatory known_docs.psv when doing mass repair via CLI?
+* Display entire words or lines instead of individual glyphs, so it would be better apparent whether they're uppercase or lowercase.
+* Use Tesseract OCR to recognize glyphs instead of manual mapping. Then use Tesseract Confidence Score to filter out problematic glyphs and allow the user to correct (remap) them manually.
 
 # Credits
 GlyphRepair was developed as part of bachelor's thesis ["XXXXXXXXXXXXXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) at [Brno University of Technology](https://www.vut.cz/en/), Faculty of Electrical Engineering and Communications, [Dept. of Telecommunications](https://www.utko.fekt.vut.cz/en). Glyph mapping database and this manual was created by [thesis advisor](https://www.vut.cz/en/people/pavel-hanak-11679).
