@@ -131,6 +131,12 @@ When you map all glyphs in entire document, you'll get this message window:
 <img width="344" height="129" alt="All glyphs mapped" src="https://github.com/user-attachments/assets/d74477a3-f031-43cc-9d1c-d0bd98aaecf3" />
 </p>
 
+## Deciding between uppercase and lowercase characters
+
+Whenever possible, GlyphRepair displays two thin blue guidelines that should help you decide whether glyphs are uppercase or lowercase characters. Another clue may be glyph order in the work area, because they as we'll [explain later](#how-glyphrepair-works-internally), the order frequently represents first words in the given font. Unfortunately, there are also fonts which have undefined character height, so displaying the blue lines is impossible. In these cases, GlyphRepair displays only glyph's baseline in red. That makes the decision harder for certain characters like C, O, S, V, X or Z:
+
+<img width="827" height="446" alt="Character height guidelines" src="https://github.com/user-attachments/assets/f1e2fdb4-8bab-4ad7-8ecd-84943ebd73aa" />
+
 ## Where to find and copy special characters
 
 GlyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. But of course there are many other sites with searchable lists of Unicode characters:
@@ -139,14 +145,7 @@ GlyphRepair has button Special Characters which links to a [web page of common s
 * https://www.compart.com/en/unicode
 * https://unicode.org/charts/
 
-However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues which they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European language. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du)
-
-## Deciding between uppercase and lowercase characters
-
-Whenever possible, GlyphRepair displays two thin blue guidelines that should help you decide whether glyphs are uppercase or lowercase characters. Another clue may be glyph order in the work area, because they as we'll [explain later](#how-glyphrepair-works-internally), the order frequently represents first words in the given font. Unfortunately, there are also fonts which have undefined character height, so displaying the blue lines is impossible. In these cases, GlyphRepair displays only glyph's baseline in red. That makes the decision harder for certain characters like C, O, S, V, X or Z:
-
-<img width="827" height="446" alt="Character height guidelines" src="https://github.com/user-attachments/assets/f1e2fdb4-8bab-4ad7-8ecd-84943ebd73aa" />
-
+However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European languages. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du).
 
 # Glyph database and its impact on auto-suggestion
 
@@ -154,7 +153,7 @@ As we already mentioned, the database is stored in glyph_mappings.psv file. It c
 
 By default, GlyphRepair auto-saves the database whenever you finish mapping a font or entire document. This auto-saving feature can be disabled in the Settings. You can also save the database manually at any time with Save All to DB button.
 
-# Mapping another document(s)
+# Mapping another document
 
 When you load another similar document into GlyphRepair, you will notice that many glyphs in the work area are already green. That means you've already mapped and saved them into the database. However, real-world documents rarely use exactly the same set of glyphs, so you need to find and map the missing ones. For that, you have to use the Next Unmapped button. In practice, GlyphRepair will make large jumps in the work area or even skip entire fonts, making manual navigation difficult. If you think you've made a mistake, use Previously Mapped button to easily go back. Be aware that this glyph mapping history is remembered only for currently opened document.
 
@@ -189,7 +188,7 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 </p>
 
 
- # Saving repaired documents
+ # Saving repaired document
 
 **Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents.
 
@@ -205,7 +204,7 @@ The big Repair button will be green only if all fonts are 100% mapped. If it's o
 
  # What is AGL?
 
-You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it leaves all such fonts untouched.
+You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it and leaves all such fonts untouched.
 
 <p>
 <img width="1202" height="855" alt="AGL font example" src="https://github.com/user-attachments/assets/95c85c04-2f77-444c-82a0-b6267f72c30d" />
@@ -213,7 +212,7 @@ You may notice that GlyphRepair automatically skips glyphs and fonts that are di
 
  # How GlyphRepair works internally 
 
-Glyphs in Type 1 fonts are stored as vector image instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript chunks and then calculates MD5 hash from them. The reason for this is threefold:
+Glyphs in Type 1 fonts are stored as vector instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript chunks and then calculates MD5 hash from them. The reason for this is threefold:
 1. Even slight difference in glyph PostScript instructions will result in a completely different hash.
 2. The resulting hash always has the same length, which is useful for storing them in database.
 3. Many fonts are copyrighted, so you can't store and distibute their original data, anyway.
@@ -222,13 +221,13 @@ While you're creating new mappings for a document, the data flow is:
 
 **Read glyph data -> calculate MD5 hash -> pair the hash with user-assigned character -> store Unicode code for the character into database.**
 
-There's a reason why mapped characters are stored in Unicode. In old PDF files with Type 1 fonts, glyphs are just graphical symbols that may or may not contain information about which character they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. These are called "embedded subset" fonts. Another file size reduction comes from character ordering. In Type 1 fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
+There's a reason why mapped characters are stored as Unicode. In old PDF files with Type 1 fonts, glyphs are just graphical symbols that may or may not contain information about which character they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. These are called "embedded subset" fonts. Another file size reduction comes from character ordering. In embedded subset fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
 
 | Letter | O |U |R |O |B |O |R |O |S |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Character code (CC) | 1 |2 |3 |1 |4 |1 |3 |1 |5 |
 
-Notice that CC for letter "O" gets repeated every time it's needed. These character codes are linked with glyphs, so the renderer knows what to display at each code position. Glyphs have their own Glyph Names (GN) which may be linked to CCs like this:
+Notice that CC for letter "O" gets repeated every time it's needed. These character codes are linked with glyphs, so the renderer knows what to draw at each code position. Glyphs have their own Glyph Names (GN) which may be linked to CCs like this:
 
 | Letter | O | U | R | B | S |
 |:---:|:---:|:---:|:---:|:---:|:---:|
@@ -242,11 +241,11 @@ Unlike Adobe Glyph List, such Glyph Names don't reliably convey which character 
 | Character code (CC) | 1 | 2 | 3 | 4 | 5 |
 | ToUnicode | 004F | 0055 | 0052 | 0042 | 0053 |
 
-GlyphRepair fixes documents encoding by creating and injecting new ToUnicode tables for each font. In simplified form, it works like this:
+GlyphRepair fixes document encoding by creating and injecting new ToUnicode tables for each font. In simplified form, it works like this:
 
 **Read glyph data -> calculate MD5 hash -> look up the hash in database -> read associated Unicode from database -> create CC-Unicode pair**
 
-When all pairs are found, they are compiled into a ToUnicode table and injected into the PDF. This ensures that the document's original contents are not modified in any way.
+When all pairs are created, they are compiled into a ToUnicode table and injected into the PDF. This ensures that the document's original contents are preserved. Another advantage is that repaired file size increases only slightly.
 
 # glyph_mappings.psv database format
 
@@ -258,12 +257,13 @@ The glyph database is designed to be human-readable and editable. It's a [Pipe-S
 * Unicode of character, assigned (mapped) by user.
 * Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
 
-GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows. You can easily import the database to MS Excel or other similar program to search, sort or otherwise modify it.
+GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows in glyph_mappings.psv. You can easily import the file to MS Excel or other similar program to search, sort or otherwise modify it.
 
 ## Why so many font names start with strings like ABCDEF+ ?
 
-As we mentioned in previous chapter, Type 1 fonts typically store only glyphs that are needed to render the given document. These are called "embedded subset" fonts.
+As we mentioned in previous chapter, Type 1 embedded subset fonts store only glyphs that are needed to render the given document. The PDF standard stipulates any such fonts must
 
+$\color{#f00}{\textsf{lorem ipsum}}$
 
  # Repairing multiple documents at once
 
