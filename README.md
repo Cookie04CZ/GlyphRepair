@@ -1,7 +1,5 @@
 ## This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).
 
-$\color{#f00}{\textsf{lorem ipsum}}$
-
 # Keywords
 
 PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnicode table, Python, Windows executable
@@ -259,13 +257,16 @@ The glyph database is designed to be human-readable and editable. It's a [Pipe-S
 * Unicode of character, assigned (mapped) by user.
 * Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
 
+<p>
+<img width="600" height="78" alt="Database format example" src="https://github.com/user-attachments/assets/601c2f70-6b33-48a8-afbb-190c93bd378d" />
+</p>
+
 GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows in glyph_mappings.psv. You can easily import the file to MS Excel or other similar program to search, sort or otherwise modify it.
 
 ## Why so many font names start with strings like ABCDEF+ ?
 
-As we mentioned in previous chapter, Type 1 embedded subset fonts store only glyphs that are needed to render the given document. The PDF standard stipulates any such fonts must
+As we mentioned in previous chapter, Type 1 embedded subset fonts store only glyphs that are needed to render the given document. The PDF standard stipulates that names of such fonts must start with so-called Font Subset Tag, which is a string of 6 random uppercase letters A-Z, followed by +. You should ignore these tags when searching the fonts, as they don't convey any meaningful information.
 
-$\color{#f00}{\textsf{lorem ipsum}}$
 
  # Repairing multiple documents at once
 
@@ -286,12 +287,12 @@ optional arguments:
                         Path to hash database of known input files
   -v, --verbose         Enables verbose output
 ```
-For example, if you want to repair several PDF files in a given directory and all subdirectiories, you can use
+For example, if you want to repair all PDF files in given directory and subdirectiories, you can use
 ```
 GlyphRepair -m "c:\PDFs are here" -r -d known_docs.psv
 ```
 
-**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. Note that only the MD5 hash decides whether a file is repaired; you may leave the file name column blank. On Windows, you can use its built-in certification utility to calculate the MD5 hash:
+**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. Note that only the MD5 hash decides whether a file will be repaired; you may leave the file name column blank. On Windows, you can use a system utility to calculate the MD5 hash:
 ```
 certutil -hashfile ABCD.pdf md5
 ```
@@ -320,136 +321,6 @@ Notice the -sUseOCR=AsNeeded parameter. As explained in the [link above](https:/
 **Be warned that using Ghostscript has many other caveats.** Ghostscript actually completely rebuilds the input file, resulting in an entirely new PDF that only closely resembles the original one. In other words, even though it preserves vector content, it's still much more destructive than Type1toUnicode. This is apparent even in our simple sample, for example the main body font is slightly thicker. Even worse changes can occur with bitmap images, because by default, Ghostscript [recompresses them to optimize file size](https://ghostscript.com/blog/optimizing-pdfs.html). It's complicated to suppress this behavior, but in most cases it can be done via "Distiller Parameters". In our example, there are 4 "Filter" parameters that disable recompression for lossless grayscale and color images. Recompression is disabled by default for lossy (JPEG/DCT) images, but it can still kick in for large images (see PassThroughJPEGImages parameter). [Full list of these Distiller Parameters is here](https://ghostscript.readthedocs.io/en/latest/VectorDevices.html#distiller-parameters), but in our experience they can lead to counter-intuitive results. Be sure to examine your output files closely if you decide to give Ghostscript a try.
 
 
-
-
-## Font names matching and alternative names
-
-In real-world documents, fonts rarely have "clean" names like "Arial". There may be dozens of variants of a given font, each for different size, color, emphasis etc. All fonts must have unique names and PDF authoring programs use different strategies how to make sure they stay unique. In the [sample files](https://github.com/user-attachments/files/16921939/T1tU_sample.zip), actual font names look like
-```
-GKCMAE+Arial068.313
-GKCNLC+Arial.kurz.va058.313
-GKCJJF+Arial.tu.n.083.313
-GKCJHD+Times.New.Roman.tu.n.083.313
-```
-As you can see, each name starts with random 6-letter string and ends with numbers that represent font's size (height). Moreover, each font family (e.g. Arial vs. Times) can require different glyph mapping (we've encountered such files). Type1toUnicode is designed to deal with both these issues: The JSON file can have separate sections that can hold different maps; each section must have name of the base font family. That's because Type1toUnicode employs a name-matching algorithm to decide which JSON section will be used to fix the respective font. In other words, it recognizes it should use section "Arial", even when the actual font name is much longer.
-
-Having said that, we've found that different font families usually use the same mapping if the PDF was authored by one program. Obviously, it would be impractical to have multiple copies of the same map in the JSON file, just with different section name. Therefore, every section can also have multiple alternative names, as in the example below. If a match is found with one of these alternative names, that section is used during repair. When this happens, lines "no matching font section found in JSON file -> using alternative name AAA from section BBB" appear in the logs.
-```json
-  "product": "ToUnicode map",
-  "version": 0.8,
-  "releaseDate": "2024-05-17T00:00:00.000Z",
-  "fonts":[
-    {
-      "name": "Arial",
-      "alternativeNames": ["Bookman", "Courier", "Forte", "Franklin", "Helvetica", "+IBMPCDOS0", "ItcEras", "ItcErasBlackTT",  "Microsoft", "Lucida", "Switzerland", "Tahoma", "Times", "Verdana"],
-      "data": {
-        "G32": "0020",
-        "G33": "0021",
-        "G34": "0022",
-        "G35": "0023",
-```
-The name-matching algorithm may fail to find a match if the full font name is too long. In the example above, notice there are two similar alternative names "ItcEras" and "ItcErasBlackTT". They belong to the same font family, but we encountered font name GGCNKL+ItcErasBlackTT058.313 that was so long that "ItcEras" wasn't sufficient to produce a match. Thus we had to add "ItcErasBlackTT" to the list, too. Similar situation happened with IBMPCDOS font, we had to add it as "+IBMPCDOS0". Such situations are announced by "no matching mapping name found in JSON file -> skipping" messages in the (verbose) logs.
-
-Theoretically, the name-matching algorithm may also find wrong matches, i.e. choose wrong map section. We haven't encountered such occurence yet, but there is a possible workaround: sections that are at the top of the JSON file are searched first. So you could fix this by reordering and/or renaming sections within the file.
-
-## Character codes, glyph names and ToUnicode tables
-
-The fact that you can copy+paste text from PDFs is more complex than you probably think. What you see on the screen are just glyphs, graphical symbols that may or may not contain information about which alphabet letter they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. This is called "embedded subset" fonts. Another file size reduction comes from character ordering. In Type1 fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
-
-| Letter | O |U |R |O |B |O |R |O |S |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Character code (CC) | 1 |2 |3 |1 |4 |1 |3 |1 |5 |
-
-Notice that CC for letter "O" gets repeated every time it's needed. These character codes are linked with glyphs, so the renderer knows what to display at each code position. Glyphs have their own Glyph Names (GN) which may be linked to CCs like this:
-
-| Letter | O | U | R | B | S |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| Character code (CC) | 1 | 2 | 3 | 4 | 5 |
-| Glyph name (GN) | G79 | G85 | G82 | G66 | G83 |
-
-There is no official or preferred glyph naming scheme, [as you will see later](#glyph-naming-schemes-and-possible-problems). Indeed, we've seen files where GNs were just arbitrary numbers, similar to CCs. But in the magazines we've repaired, the most glyphs had fixed names in Gxxx format. Non-Adobe authoring programs may use different glyph names, but they usually stay fixed, too. **Type1toUnicode can work only because of this fact.**
-
-However, GNs themselves still don't reliably convey information about which letter they represent. It may work only in legacy font encodings like [WinANSI](https://en.wikipedia.org/wiki/Windows-1252) and [MacRoman](https://apple.fandom.com/wiki/Mac-Roman_encoding), but these are limited to about 220 characters, which is insufficient for modern documents. So in 1996, Adobe introduced toUnicode tables into PDF version 1.2. These are separate tables that link character codess with their [Unicode](https://en.wikipedia.org/wiki/Unicode) equivalent. For OUROBOROS, the toUnicode table would look like this:
-
-| Letter | O | U | R | B | S |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| Character code (CC) | 1 | 2 | 3 | 4 | 5 |
-| toUnicode | 004F | 0055 | 0052 | 0042 | 0053 |
-
-**If you copy+paste garbled text from your PDF, it usually means these toUnicode tables are missing or are generated incorrectly.**
-
-## How Type1toUnicode works internally
-
-Type1toUnicode repairs the documents by generating new toUnicode tables and inserting them into the PDF files. PDF viewers will then prefer it instead of the broken original encoding. As mentioned above, Type1toUnicode leverages the fact that glyphs usually have fixed names for given letters. This is where the JSON mapping file comes in - if it contains correct GN-Unicode pairs, it can be used to construct valid CC-toUnicode tables. Grossly simplified, it works like this:
- 
- **Read a CC -> read GN linked to the CC -> look up the GN in JSON mapping file and get its Unicode value -> add new CC-Unicode pair into the toUnicode table.**
- 
-This process has to be repeated for all CCs in every font, because the PDF standard requires that CC-Unicode table must have exactly the same length as CC-GN table.
-
-## How to find the correct GN-Unicode pairs
-
-This is where the real work begins, because you may need to manually construct the correct mapping. We've found only one effective way how to do it and it requires trial version of Infix PDF Editor:
-
-https://www.iceni.com/infix.htm
-
-Trial is limited to 30 days, but you will be able to use it even after it expires. (The company offers cheap monthly subscription if you wish to support them).
-
-**Rule #1: unless necessary, don't try to repair all the fonts.** Real-world documents may contain dozens of fonts, but usually only one or two of them hold bulk of the text. The rest are for headings, image labels, special symbols (greek, math, dingbat etc.) and other "auxilliary" content. It's pretty common that such fonts contain less than 10 characters and contribute little practical information. We've even encountered "ghost" fonts - they were in the font list, but they weren't used anywhere within the document. Symbol fonts in particular are very laborious to repair, as we can tell from our experience. Nevertheless, [to_unicode.json](to_unicode.json) does contain maps for some such fonts; we were repairing about 200 similar magazines, so the effort was more justified. Remember: if you want to skip some font family, simply don't put its name anywhere within the JSON file.
- 
-So as the first step, you need to decide which font families you wish to repair and which ones you'll ignore. This is where Infix PDF Editor comes in handy for the first time. If you activate "Edit text" mode and click anywhere into text, its font name will be displayed in the small field on the left.
- 
-![Infix-click-font](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/c1b98156-0d36-4200-bddf-594ccfe05874)
-
-**Rule #2: if you decide some font family is important, try to make its JSON character map as complete as possible.** You should do this for two reasons:
-
-1. As mentioned earlier, the new toUnicode table must always have the same length as CC-GN table. If a GN is not found within the JSON file, Type1toUnicode replaces it with space (U+0020). In the extreme case (no GNs are found), the script would replace **all** characters with spaces!!
-
-2. If too many characters are undefined, the log files will become flooded with "Glyph Gxxx not found in mapping" messages, particularly if the document contains multiple fonts from the same family. That makes them hard to read and mass-analyze with tools like Grep.
-
-Okay, so how do you find the GN-Unicode pairs in practice? This is the real reason you'll need Infix PDF Editor; it's probably the only user-friendly program that can display how each glyph looks like. Suppose you'll see "Font /GKCKNF+Arial062.5 -> Glyph G232 not found in mapping" in the log. You need to load the PDF into Infix and then select "Text -> Remap fonts" in the main menu. This window will open:
-
-![Infix GN](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/1520b027-6c61-4c5e-a1da-36b199db6c45)
-
-Then you must select the correct font in the drop-down menu in the upper left corner. Infix will display all glyphs that are present in this font. Now you have to find glyph G232, their names (GNs) are displayed in the Raw Glyph field. The problem is, you don't know how the glyph looks like (which letter it represents). And unfortunately, Infix can't sort or filter the glyphs by their name (GN), it always displays them by their CC order. That means you have to manually go through the glyphs until you find G232. In the image, it's small latin letter C with caron, or "č". Now you have to manually find Unicode equivalent for this letter. The simplest way is to google it, but there are also specialized sites with entire Unicode listings, such as [Compart.com](https://www.compart.com/en/unicode/block/U+0100) or [Xah Code](http://xahlee.info/comp/unicode_index.html). These have been really useful when looking up Greek, math and dingbat characters. Either way, letter "č" has Unicode code 010D, which is what you need to add to your JSON file.
-```json
-        "G232": "010D",
-```
-Infix has another very useful feature, which is a bit hidden. If you select some text with cursor, then the "Text -> Remap fonts" menu will be replaced with "Text -> Remap selected characters". This will limit the Remap window only to the selected characters, as you can see in the image below. What's even better, characters are now sorted by their order in the *selected* text, not by their (arbitrary) CC. Note that some PDF documents mix different fonts even within single words; if that happens, you need to switch between them in the drop-down menu.
-
-![Infix remap selected](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/69716953-3edb-4833-a71f-8bd2194e57f2)
-
-Notice the small green triangles in the Remap font window. Here Infix displays what it presumes is actual letter the glyph represents. **But don't get fooled by them**, Infix frequently presumes wrong (it wanted to export G232 as "è"). Sometimes the triangles turn red; that occurs when Infix is unable to guess the letter, but it doesn't work consistently. Here is how it looks like for font GKCMAE+Arial068.313 from the [sample file](https://github.com/user-attachments/files/16921939/T1tU_sample.zip):
-
-![Infix-remap-red](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/0490fd32-934c-4104-8224-1a96d1c5b9d9)
-
-Again, don't rely on it. Even when Infix displays some font in green, it usually copy+pastes the text garbled, either completely or for non-ASCII characters.
-
-BTW, if you can't use Infix for whatever reason (you don't use Windows, for example), there is [open source font editor FontForge](https://fontforge.org/) which can display the glyphs, too. On the "Open Font" screen, you need to switch "Filter" to "Extract from PDF". Unfortunately, it doesn't work very well:
-
-1. FontForge is **extremely** picky about correct PDF syntax, it refused to open about **half** of all files we tried.
-
-2. There is no easy way to switch between fonts within one PDF file. You have to close FontForge, run it again, open the same PDF file and choose a different font.
-
-Infix is much faster to use and far more reliable.
-
-## Glyph naming schemes and possible problems
-
-Like we previously mentioned, different fonts and/or PDF authoring programs use different glyph naming schemes. Obviously it's impossible to cover them all, but here is what we've encountered so far. You can see most of them in [to_unicode.json](to_unicode.json), although the czech magazines predominantly used Gxxx scheme.
-
-* First of all, **beware of glyph names with numbers 0 to 31,** like G20 or g3. These frequently aren't fixed and their glyph (and thus Unicode equivalent) changes file from file. There are historical reasons why it happens. In short, ASCII codes 0 to 31 are reserved for unprintable control characters. So in order to optimize file size, some PDF authoring programs replace them with actual printable glyphs. However, this replacement may be arbitrary. If you want to repair such glyphs in multiple documents, you need to cross-compare them to make sure they're really fixed. Theoretically, you could also create a separate JSON file for every PDF document, but that would be very time-consuming.
-
-* **Glyphs G232 and g232 may have different toUnicode mapping!** Type1toUnicode glyph name search subroutine is case-sensitive because of this, and you **must** put exact glyph names into the JSON file. Nevertheless, the mapping is usually identical for standard ASCII (codes 32 to 126), only then it starts to differ. We're not sure which fonts or programs use the gxxx scheme. 
-
-* Glyph numbering may not be decadic, but hexadecimal. An example is section for font family MSTT31, near bottom of [to_unicode.json](to_unicode.json). Notice the hexadecimal numbers equal their Unicode code for standard ASCII characters, but start to differ from 80h (128 decadic) upwards.
-
-* In some fonts, glyphs names are human-readable, such as "zero", "zcaron", "epsilon" and so on. These names are defined in [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List) and theoretically, all PDF readers should recognize them. In other words, text from such fonts should always be copied correctly, or at least we haven't seen any document where they weren't.
-
-* In some PDF documents, GNs are simply numbers. These are usually generated arbitrarily and change file by file. Again, technically it would be possible to repair them, but you'd have to prepare a separate JSON file for each document.
-
-## Is there a more effective way to construct the JSON file?
-In most cases, yes. While glyph naming may be arbitrary, usually it's derived from some pre-existing encoding. The trick is to find out which one, because there [are many of them](https://www.iana.org/assignments/character-sets/character-sets.xhtml). In olden pre-Unicode times, character encodings were specific to operating systems and languages, due to HW and SW limitations. There were even company-specific and/or file format specific encodings, like PDF's built-in [StandardEncoding](https://en.wikipedia.org/wiki/PostScript_Standard_Encoding), WinAnsiEncoding or MacRomanEncoding. 
-
-So for staters, it's helpful to check your file's metadata for clues which OS and authoring program was used to create it. Then you need to manually identify at least a dozen glyphs (especially codes above 128 decimal), so you can compare it with pre-existing encoding tables. In our case, it was "PageMaker 6.5" and "Acrobat Distiller 4.05 for Windows". And indeed, we soon noticed that for most fonts, glyph order matches [Windows-1250 code page](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du) which was used by Czech language Windows. However, you shouldn't blindly copy-paste it to your JSON file, because there may be differences. In our case, G194 should be U+00C2 (letter Â) according to Windows-1250, but it's actually used for U+22C5 (dot operator) in the magazines. Another major difference is G234, which was changed from romanian letter "ę" to czech letter "ý". In other words, the editors created their own custom encoding, albeit only slightly different from Windows-1250. Fortunately for us, they sticked with it for almost 20 years. Unfortunately, you can't know that beforehand. In the end, we manually checked all characters in [to_unicode.json](to_unicode.json), one glyph at a time. But remember: it depends on how accurately you want to repair your PDFs. If some characters aren't normally used in your language, you can ignore them. However, we repaired 200 similar magazines, so the effort was more justified.
 
 # Known limitations and issues
 
