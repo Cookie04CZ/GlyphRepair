@@ -119,6 +119,12 @@ This will display another input field which accepts only string of 4 or 5 hexade
 <img width="1202" height="855" alt="First document Unicode enabled" src="https://github.com/user-attachments/assets/7b7abc75-50c3-420d-a243-ce87ec42498a" />
 </p>
 
+You track your mapping progress near top of the window. You can click and switch the progress bar between 4 modes: glyphs on current font, glyphs on current page, glyphs in entire document or finished page counter:
+
+<p>
+<img width="262" height="197" alt="Mapping progress bars" src="https://github.com/user-attachments/assets/f0420f3f-e403-4dd2-93c1-10c1dfa4b2f3" />
+</p>
+
 When you map all glyphs in entire document, you'll get this message window:
 
 <p>
