@@ -8,8 +8,10 @@ PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnic
 
 Většina elektronických vydání (PDF souborů) časopisů A-Radio Praktická Elektronika a Konstrukční elektronika je špatně vygenerovaná, takže v nich nejde hledat ani kopírovat text. To je v dnešním informačním věku dost výrazná vada. Tento Python program to umí opravit, přičemž je koncipován tak, aby jeho použití bylo co nejjednodušší. Abyste nemuseli instalovat Python a nezbytné balíky, je zde připaven hotový spustitelný program "opravAR.exe", ve kterém už vše je. Program záměrně opravuje pouze originální PDF časopisy z CD a DVD, které byly vydány firmou AMARO, všechny ostatní soubory ignoruje. Díky tomu je "blbuvzdorný" a nebude nic dělat, pokud ho třeba omylem spustíte jinde, než jste chtěli. To také znamená, že program ignoruje porůznu upravené nelegální kopie časopisů, které se povalují po Internetu. Pokud originální CD či DVD s časopisy nemáte, můžete je koupit například zde:
 
-https://www.hezkyden.cz/shop/dvd-aradio/
+ https://www.hezkyden.cz/shop/dvd-aradio/
+
 https://www.hezkyden.cz/shop/cd-aradio/
+
 https://www.magnetpress.cz/cd-a-dvd/
 
 Některá vydání CD jsou hodně stará, ale my máme k dispozici pouze nejnovější verzi časopisů z DVD. Může se stát, že program odmítne staré oficiální soubory opravit, protože je nerozpozná. Pokud na to narazíte, tak to nahlašte jako bug zde na GitHubu.
