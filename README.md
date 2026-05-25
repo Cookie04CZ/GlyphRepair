@@ -135,9 +135,9 @@ When you map all glyphs in entire document, you'll get this message window:
 
 GlyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. But of course there are many other sites with searchable lists of Unicode characters:
 
-https://unicodeplus.com/
-https://www.compart.com/en/unicode
-https://unicode.org/charts/
+* https://unicodeplus.com/
+* https://www.compart.com/en/unicode
+* https://unicode.org/charts/
 
 However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues which they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European language. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du)
 
