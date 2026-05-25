@@ -8,8 +8,6 @@ import difflib
 import winsound
 from hashlib import md5
 from io import BytesIO
-import colorama
-from colorama import Fore, Style
 
 import fitz  # PyMuPDF
 
@@ -33,6 +31,9 @@ from fontTools.agl import UV2AGL, AGL2UV
 from fontTools.cffLib import CFFFontSet
 from fontTools.pens.basePen import BasePen
 
+import colorama
+from colorama import Fore, Style
+
 # Dictionary combining standard AGL with custom project-specific glyph names
 EXTENDED_AGL = AGL2UV.copy()
 EXTENDED_AGL.update({
@@ -48,31 +49,6 @@ GLYPH_DATABASE = "glyph_mappings.psv"
 
 # Turn off PyMuPDF logging
 fitz.TOOLS.mupdf_display_errors(False)
-
-
-# Function to extract raw font data from a specific page in a PDF
-# It looks for a font with a specific name in CFF format (without ToUnicode) and returns its binary buffer
-def extract_cff_fonts(pdf_path, page, font_name):
-    # Open the PDF file using PyMuPDF
-    with fitz.open(pdf_path) as doc:
-        # Load the specific page object
-        page_obj = doc.load_page(page)
-        # Get a list of all fonts referenced on this page
-        fonts = page_obj.get_fonts(full=True)
-
-        # Iterate through the found fonts to find the one matching font_name
-        for font in fonts:
-            xref = font[0]
-            # Extract font metadata and the binary content (buffer)
-            name, ext, _, buffer = doc.extract_font(xref)
-
-            # We only care about CFF files that match our target name and lack ToUnicode
-            if ext and ext.lower() == "cff" and name == font_name:
-                if not has_tounicode(doc, xref):
-                    return buffer
-
-        # If the loop finishes without returning, the font was not found or has ToUnicode
-        raise ValueError(f"Font '{font_name}' not found, not in CFF format, or already has a ToUnicode map.")
 
 
 # Function to check if a font dictionary contains a /ToUnicode stream
@@ -542,8 +518,8 @@ class PageSelectionDialog(QDialog):
             page_mapped = 0
             page_total = 0
             page_agl = 0
-            for name in font_names:
-                info = font_cache.get((page_num, name), {})
+            for xref in font_names:
+                info = font_cache.get(xref, {})
                 page_total += info.get('glyph_count', 0)
                 page_mapped += info.get('mapped_count', 0)
                 page_agl += info.get('agl_count', 0)
@@ -693,8 +669,9 @@ class PageSelectionDialog(QDialog):
 # Dialog window for font selection
 # It allows the user to view font progress and info
 class FontSelectionDialog(QDialog):
-    def __init__(self, menu_data, font_cache, current_font_name, current_page, doc_stats=None, parent=None):
+    def __init__(self, menu_data, font_cache, current_xref, current_page, doc_stats=None, parent=None):
         super().__init__(parent)
+        self.current_xref = current_xref
         self.current_page = current_page
         self.setWindowTitle("Select Font")
         self.setMinimumSize(650, 500)
@@ -805,20 +782,23 @@ class FontSelectionDialog(QDialog):
 
         # Get unique fonts and their progress
         unique = {}
-        for page_num, names in menu_data.items():
-            for name in names:
-                info = font_cache.get((page_num, name), {})
+        for page_num, xrefs in menu_data.items():
+            for xref in xrefs:
+                info = font_cache.get(xref, {})
+                name = info.get('name', 'Unknown')
                 total = info.get('glyph_count', 0)
                 if total == 0: continue
                 mapped = info.get('mapped_count', 0)
                 agl_c = info.get('agl_count', 0)
-                if name not in unique:
-                    unique[name] = {'total': total, 'mapped': mapped, 'agl': agl_c, 'page': page_num, 'pages': set()}
-                unique[name]['pages'].add(page_num)
+                if xref not in unique:
+                    unique[xref] = {'name': name, 'total': total, 'mapped': mapped, 'agl': agl_c, 'page': page_num,
+                                    'pages': set()}
+                unique[xref]['pages'].add(page_num)
 
         # Add unique fonts to the list
         item_to_scroll = None
-        for name, data in unique.items():
+        for xref, data in unique.items():
+            name = data['name']
             item = QListWidgetItem(name)
 
             # Generate status icon for the list item
@@ -831,6 +811,7 @@ class FontSelectionDialog(QDialog):
 
             item_data = {
                 'target_page': target_p,
+                'xref': xref,
                 'name': name,
                 'all_pages': sorted(data['pages']),
                 'status': status_text,
@@ -841,7 +822,7 @@ class FontSelectionDialog(QDialog):
             item.setData(QtCore.Qt.UserRole, item_data)
 
             # Highlight the current font
-            if name == current_font_name:
+            if xref == self.current_xref:
                 font = item.font()
                 font.setBold(True)
                 item.setFont(font)
@@ -967,7 +948,7 @@ class FontSelectionDialog(QDialog):
 
     def get_selected_font(self):
         item = self.list_widget.currentItem()
-        return item.data(QtCore.Qt.UserRole)['target_page'], item.data(QtCore.Qt.UserRole)['name'] if item else None
+        return item.data(QtCore.Qt.UserRole)['target_page'], item.data(QtCore.Qt.UserRole)['xref'] if item else None
 
 
 # Dialog window for repairing documents in GUI
@@ -1274,6 +1255,7 @@ class FontWidget(QMainWindow):
         # Initialize internal state variables
         self.pdf_path = None
         self.current_page = None
+        self.current_xref = None
         self.current_font_name = None
         self.current_font = None
         self.current_glyph_set = None
@@ -1820,7 +1802,7 @@ class FontWidget(QMainWindow):
         dialog = FontSelectionDialog(
             self.menu_structure,
             self.font_cache,
-            self.current_font_name,
+            self.current_xref,
             self.current_page,
             doc_stats,
             self
@@ -1830,8 +1812,8 @@ class FontWidget(QMainWindow):
         if dialog.exec():
             selected_data = dialog.get_selected_font()
             if selected_data:
-                page, font_name = selected_data
-                self.load_font(page, font_name)
+                page, xref = selected_data
+                self.load_font(page, xref)
 
     # Helper method to change page mode dynamically from the UI
     def set_page_mode(self, mode):
@@ -1848,9 +1830,9 @@ class FontWidget(QMainWindow):
         self.action_progress.setVisible(True)
 
         # 1: Current Font
-        info = self.font_cache.get((self.current_page, self.current_font_name), {})
+        info = self.font_cache.get(self.current_xref, {})
         hashes_dict = info.get('glyph_hashes', {})
-        current_font_mapped = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
+        current_font_mapped = self.calculate_font_mapped_count(self.current_xref, hashes_dict)
         current_font_total = info.get('glyph_count', 0)
         agl_count = info.get('agl_count', 0)
         _, current_font_color = self._get_status_info(current_font_mapped, current_font_total, agl_count)
@@ -1861,10 +1843,10 @@ class FontWidget(QMainWindow):
         current_page_agl = 0
 
         fonts_on_page = self.menu_structure.get(self.current_page, [])
-        for fname in fonts_on_page:
-            f_info = self.font_cache.get((self.current_page, fname), {})
+        for xref in fonts_on_page:
+            f_info = self.font_cache.get(xref, {})
             f_hashes = f_info.get('glyph_hashes', {})
-            current_page_mapped += self.calculate_font_mapped_count(self.current_page, fname, f_hashes)
+            current_page_mapped += self.calculate_font_mapped_count(xref, f_hashes)
             current_page_total += f_info.get('glyph_count', 0)
             current_page_agl += f_info.get('agl_count', 0)
 
@@ -1881,14 +1863,14 @@ class FontWidget(QMainWindow):
 
         processed_unique_fonts = set()
 
-        for p_num, fonts in self.menu_structure.items():
+        for p_num, xrefs in self.menu_structure.items():
             page_is_complete = True
 
-            for fname in fonts:
-                f_info = self.font_cache.get((p_num, fname), {})
+            for xref in xrefs:
+                f_info = self.font_cache.get(xref, {})
                 f_hashes = f_info.get('glyph_hashes', {})
                 f_total = f_info.get('glyph_count', 0)
-                f_mapped = self.calculate_font_mapped_count(p_num, fname, f_hashes)
+                f_mapped = self.calculate_font_mapped_count(xref, f_hashes)
                 f_agl = f_info.get('agl_count', 0)
 
                 # Check if this specific font is fully mapped on this physical page
@@ -1896,20 +1878,18 @@ class FontWidget(QMainWindow):
                     page_is_complete = False
 
                 # Entire Document: Count each unique font strictly once
-                if fname not in processed_unique_fonts:
-                    processed_unique_fonts.add(fname)
+                if xref not in processed_unique_fonts:
+                    processed_unique_fonts.add(xref)
                     entire_document_mapped += f_mapped
                     entire_document_total += f_total
                     entire_document_agl += f_agl
 
             # If all fonts on this page are 100% mapped, count the physical page as fully repaired
-            if page_is_complete and len(fonts) > 0:
+            if page_is_complete and len(xrefs) > 0:
                 full_pages_mapped += 1
 
-        _, entire_document_color = self._get_status_info(entire_document_mapped, entire_document_total,
-                                                         entire_document_agl)
-        _, full_pages_color = self._get_status_info(full_pages_mapped, full_pages_total,
-                                                    0)
+        _, entire_document_color = self._get_status_info(entire_document_mapped, entire_document_total, entire_document_agl)
+        _, full_pages_color = self._get_status_info(full_pages_mapped, full_pages_total, 0)
 
         # Update progress bar
         self.widget_prog_current_font.update_progress(current_font_mapped, current_font_total, current_font_color)
@@ -2032,7 +2012,7 @@ class FontWidget(QMainWindow):
             if not fonts_on_page: return
 
             try:
-                idx = fonts_on_page.index(self.current_font_name)
+                idx = fonts_on_page.index(self.current_xref)
             except ValueError:
                 idx = 0
 
@@ -2047,15 +2027,15 @@ class FontWidget(QMainWindow):
 
             # Find current font index
             idx = 0
-            for i, (p, f) in enumerate(seq):
-                if f == self.current_font_name:
+            for i, (p, xref) in enumerate(seq):
+                if xref == self.current_xref:
                     idx = i
                     break
 
             # Jump to next/prev font
             next_idx = (idx + step) % len(seq)
-            next_page, next_font = seq[next_idx]
-            self.load_font(next_page, next_font)
+            next_page, next_xref = seq[next_idx]
+            self.load_font(next_page, next_xref)
 
     # Page Navigation Logic
     def go_to_prev_page(self):
@@ -2085,11 +2065,11 @@ class FontWidget(QMainWindow):
         if fonts_on_page:
 
             # Prefer loading the same font on the new page if it exists there
-            target_font = fonts_on_page[0]
-            if self.current_font_name in fonts_on_page:
-                target_font = self.current_font_name
+            target_xref = fonts_on_page[0]
+            if self.current_xref in fonts_on_page:
+                target_xref = self.current_xref
 
-            self.load_font(next_page, target_font)
+            self.load_font(next_page, target_xref)
 
     # Update navigation tooltips depening on page mode
     def update_navigation_tooltips(self):
@@ -2104,7 +2084,7 @@ class FontWidget(QMainWindow):
             fonts_on_page = self.menu_structure.get(self.current_page, [])
             total_fonts = len(fonts_on_page)
             try:
-                current_font_idx = fonts_on_page.index(self.current_font_name) + 1
+                current_font_idx = fonts_on_page.index(self.current_xref) + 1
             except ValueError:
                 current_font_idx = 0
 
@@ -2116,8 +2096,8 @@ class FontWidget(QMainWindow):
             page_mapped = 0
             page_total = 0
             page_agl = 0
-            for fname in fonts_on_page:
-                info = self.font_cache.get((self.current_page, fname), {})
+            for xref in fonts_on_page:
+                info = self.font_cache.get(xref, {})
                 page_total += info.get('glyph_count', 0)
                 page_mapped += info.get('mapped_count', 0)
                 page_agl += info.get('agl_count', 0)
@@ -2142,8 +2122,8 @@ class FontWidget(QMainWindow):
             unique_fonts = self._get_unique_mode_sequence()
             total_fonts = len(unique_fonts)
             current_font_idx = 0
-            for i, (p, f) in enumerate(unique_fonts):
-                if f == self.current_font_name:
+            for i, (p, xref) in enumerate(unique_fonts):
+                if xref == self.current_xref:
                     current_font_idx = i + 1
                     break
 
@@ -2257,11 +2237,11 @@ class FontWidget(QMainWindow):
         self.update_progress_bar()
 
         # Calculate completion accurately including DB hashes
-        info = self.font_cache.get((self.current_page, self.current_font_name), {})
+        info = self.font_cache.get(self.current_xref, {})
         hashes_dict = info.get('glyph_hashes', {})
 
         # Check font completion
-        mapped_count = self.calculate_font_mapped_count(self.current_page, self.current_font_name, hashes_dict)
+        mapped_count = self.calculate_font_mapped_count(self.current_xref, hashes_dict)
         total_count = len(self.current_font_glyph_names)
         is_100_percent = (mapped_count == total_count)
 
@@ -2279,13 +2259,13 @@ class FontWidget(QMainWindow):
         if self.setting_auto_jump_glyph:
             self.jump_to_next_unmapped()
 
-    # Returns an ordered list of all (page, font_name) pairs
+    # Returns an ordered list of all (page, xref) pairs
     def _get_page_mode_sequence(self):
         sequence = []
         if hasattr(self, 'menu_structure') and self.menu_structure:
             for p in sorted(self.menu_structure.keys()):
-                for f in self.menu_structure[p]:
-                    sequence.append((p, f))
+                for xref in self.menu_structure[p]:
+                    sequence.append((p, xref))
         return sequence
 
     # Returns a list of unique fonts for global mode mapping
@@ -2293,11 +2273,11 @@ class FontWidget(QMainWindow):
         sequence = []
         if hasattr(self, 'menu_structure') and self.menu_structure:
             unique = set()
-            for p, fonts in sorted(self.menu_structure.items()):
-                for f in fonts:
-                    if f not in unique:
-                        unique.add(f)
-                        sequence.append((p, f))
+            for p, xrefs in sorted(self.menu_structure.items()):
+                for xref in xrefs:
+                    if xref not in unique:
+                        unique.add(xref)
+                        sequence.append((p, xref))
         return sequence
 
     # Next unmapped glyph logic
@@ -2307,7 +2287,7 @@ class FontWidget(QMainWindow):
 
         if self.current_font_glyph_names:
             # Add current glyph to history
-            current_pos = (self.current_page, self.current_font_name, self.current_index)
+            current_pos = (self.current_page, self.current_xref, self.current_index)
             if not hasattr(self, 'history_stack'):
                 self.history_stack = []
             if not self.history_stack or self.history_stack[-1] != current_pos:
@@ -2330,12 +2310,12 @@ class FontWidget(QMainWindow):
         if not seq: return
 
         cur_idx = -1
-        current_pair = (self.current_page, self.current_font_name)
+        current_pair = (self.current_page, self.current_xref)
 
         # Order fonts with current font on top
         if not self.setting_page_mode:
-            for i, (p, f) in enumerate(seq):
-                if f == self.current_font_name:
+            for i, (page, xref) in enumerate(seq):
+                if xref == self.current_xref:
                     cur_idx = i
                     break
         else:
@@ -2350,23 +2330,23 @@ class FontWidget(QMainWindow):
             ordered_seq = seq
 
         # Check other fonts for unmapped non-AGL glyphs
-        for p, fname in ordered_seq:
+        for page, xref in ordered_seq:
             # Skip current glyph
-            if p == self.current_page and fname == self.current_font_name:
+            if page == self.current_page and xref == self.current_xref:
                 continue
 
             # Get font info
-            info = self.font_cache.get((p, fname), {})
+            info = self.font_cache.get(xref, {})
             mapped = info.get('mapped_count', 0)
             agl_c = info.get('agl_count', 0)
             total = info.get('glyph_count', 0)
 
             # Check if font has any non-AGL and unmapped glyphs left
-            if (mapped + agl_c) < total:
+            if mapped < total:
                 if self.unsaved_changes:
                     self.save_to_db()
 
-                self.load_font(p, fname)
+                self.load_font(page, xref)
                 for i, gname in enumerate(self.current_font_glyph_names):
                     if gname not in self.user_glyph_to_char and gname not in EXTENDED_AGL:
                         self.current_index = i
@@ -2391,13 +2371,13 @@ class FontWidget(QMainWindow):
             QMessageBox.information(self, "Info", "History is empty")
             return
 
-        prev_page, prev_font, prev_index = self.history_stack.pop()
+        prev_page, prev_xref, prev_index = self.history_stack.pop()
 
         # Load next font from history
-        if self.current_page != prev_page or self.current_font_name != prev_font:
+        if self.current_page != prev_page or self.current_xref != prev_xref:
             if getattr(self, 'unsaved_changes', False):
                 self.save_to_db()
-            self.load_font(prev_page, prev_font)
+            self.load_font(prev_page, prev_xref)
 
         # Load glyph from history
         if self.current_font_glyph_names and 0 <= prev_index < len(self.current_font_glyph_names):
@@ -2415,8 +2395,8 @@ class FontWidget(QMainWindow):
     # Calculates or retrieves MD5 hash of the glyph shape
     def get_glyph_hash(self, glyph_name):
         # Check cache first
-        if hasattr(self, 'current_page') and hasattr(self, 'current_font_name'):
-            cache = self.font_cache.get((self.current_page, self.current_font_name), {})
+        if hasattr(self, 'current_xref') and self.current_xref:
+            cache = self.font_cache.get(self.current_xref, {})
             cached_hashes = cache.get('glyph_hashes', {})
             if glyph_name in cached_hashes:
                 return cached_hashes[glyph_name]
@@ -2448,18 +2428,23 @@ class FontWidget(QMainWindow):
         self.statusBar().showMessage(f"Saved: {mapped}/{total} glyphs", 3000)
 
     # Loads a specific font from the PDF into memory and UI
-    def load_font(self, page, font_name):
+    def load_font(self, page, xref):
         if self.setting_auto_save_on_switch and getattr(self, 'unsaved_changes', False):
             self.save_to_db()
 
         self.current_page = page
-        self.current_font_name = font_name
-        self._update_window_title()
+        self.current_xref = xref
 
-        # Check cache first for font
-        cache = self.font_cache.get((page, font_name))
+        # Retrieve data from cache via xref
+        cache = self.font_cache.get(xref)
         if not cache:
             self.statusBar().showMessage(f"Cache empty", 5000)
+            return
+
+        # Set font name for UI and DB operations
+        self.current_font_name = cache['name']
+        font_name = self.current_font_name
+        self._update_window_title()
 
         try:
             self.setEnabled(False)
@@ -2467,7 +2452,7 @@ class FontWidget(QMainWindow):
             QApplication.processEvents()
 
             # Get binary data from cache or extract if missing
-            font_data = cache.get('data') or extract_cff_fonts(self.pdf_path, page, font_name)
+            font_data = cache['data']
             self.reload_font(font_data)
 
             # Load existing mappings from database
@@ -2790,7 +2775,7 @@ class FontWidget(QMainWindow):
                 # Iterate through all pages
                 for page_num in range(len(doc)):
                     page = doc.load_page(page_num)
-                    cff_names_on_page = []
+                    cff_xrefs_on_page = []
 
                     # Analyze fonts on each page
                     for font in page.get_fonts(full=True):
@@ -2819,7 +2804,7 @@ class FontWidget(QMainWindow):
                             if has_tounicode(doc, xref):
                                 continue
 
-                            cff_names_on_page.append(name)
+                            cff_xrefs_on_page.append(xref)
 
                             # For each font uniquely
                             if xref not in processed_xrefs:
@@ -2849,32 +2834,31 @@ class FontWidget(QMainWindow):
                                         ghash = md5(sig.encode('utf-8')).hexdigest()
                                     current_font_hashes[gname] = ghash
 
-                                mapped_count = self.calculate_font_mapped_count(page_num, name, current_font_hashes)
-
                                 # Add font info to cache
                                 processed_xrefs[xref] = {
+                                    'name': name,
                                     'glyph_count': total_glyphs,
-                                    'mapped_count': mapped_count,
+                                    'mapped_count': 0,
                                     'agl_count': agl_count,
                                     'glyph_hashes': current_font_hashes,
                                     'data': buffer
                                 }
 
-                            self.font_cache[(page_num, name)] = processed_xrefs[xref]
+                            self.font_cache = processed_xrefs
 
                             # Assign first page found
                             if first_page is None:
-                                first_page, first_name = page_num, name
+                                first_page, first_xref = page_num, xref
                         except Exception as e:
                             print(f"Error parsing font {name}: {e}")
 
-                    if cff_names_on_page:
-                        self.menu_structure[page_num] = cff_names_on_page
+                    if cff_xrefs_on_page:
+                        self.menu_structure[page_num] = cff_xrefs_on_page
 
             # Update state
             if first_page is not None:
                 self.update_statistics()
-                self.load_font(first_page, first_name)
+                self.load_font(first_page, first_xref)
                 self.repair_pdf_action.setEnabled(True)
             else:
                 self.clear_ui_state()
@@ -2890,9 +2874,9 @@ class FontWidget(QMainWindow):
             self.clear_ui_state()
 
     # Helper method to calculate mapped glyphs for any given font
-    def calculate_font_mapped_count(self, page, font_name, glyph_hashes):
+    def calculate_font_mapped_count(self, xref, glyph_hashes):
         mapped_count = 0
-        is_current = (page == self.current_page and font_name == self.current_font_name)
+        is_current = (xref == getattr(self, 'current_xref', None))
 
         if not hasattr(self, 'global_db_map'):
             return 0
@@ -2901,8 +2885,9 @@ class FontWidget(QMainWindow):
         # Load global hash names from cache
         global_hash_names = {}
         if hasattr(self, 'font_cache'):
-            for (p_num, f_name), cache_info in self.font_cache.items():
-                if f_name == font_name:
+            target_font_name = self.font_cache.get(xref, {}).get('name', '')
+            for x_key, cache_info in self.font_cache.items():
+                if cache_info.get('name') == target_font_name:
                     for gn, gh in cache_info.get('glyph_hashes', {}).items():
                         if gh not in global_hash_names:
                             global_hash_names[gh] = set()
@@ -2938,11 +2923,11 @@ class FontWidget(QMainWindow):
     # Refreshes menu statistics after a DB update
     def update_statistics(self):
         self.load_db_cache()
-        for (p, fname), info in self.font_cache.items():
+        for xref, info in self.font_cache.items():
             hashes_dict = info.get('glyph_hashes', {})
             if not hashes_dict: continue
 
-            info['mapped_count'] = self.calculate_font_mapped_count(p, fname, hashes_dict)
+            info['mapped_count'] = self.calculate_font_mapped_count(xref, hashes_dict)
 
     # Load database to cache
     def load_db_cache(self):
@@ -3281,12 +3266,12 @@ class FontWidget(QMainWindow):
             self.load_db_cache()
         db_map = self.global_db_map
 
-        cached_hashes = self.font_cache.get((self.current_page, self.current_font_name), {}).get('glyph_hashes', {})
+        cached_hashes = self.font_cache.get(self.current_xref, {}).get('glyph_hashes', {})
 
         # Load global hash names from cache
         global_hash_names = {}
-        for (p_num, f_name), cache_info in self.font_cache.items():
-            if f_name == self.current_font_name:
+        for x_key, cache_info in self.font_cache.items():
+            if cache_info.get('name') == self.current_font_name:
                 for gn, gh in cache_info.get('glyph_hashes', {}).items():
                     if gh not in global_hash_names:
                         global_hash_names[gh] = set()
@@ -3387,26 +3372,23 @@ class FontWidget(QMainWindow):
         all_unique_xrefs = set()
         ready_xrefs_set = set()
 
-        # Open pdf and extract fonts for each page
-        with fitz.open(self.pdf_path) as doc_temp:
-            for (p_num, f_name), info in self.font_cache.items():
-                if p_num not in page_font_map: page_font_map[p_num] = []
-                found_xref = None
-                for f in doc_temp.load_page(p_num).get_fonts(full=True):
-                    name, ext, _, _ = doc_temp.extract_font(f[0])
-                    if ext == "cff" and name == f_name:
-                        found_xref = f[0]
-                        break
+        # Cycle through loaded menu_structure and extract stats
+        for p_num, xrefs in self.menu_structure.items():
+            if p_num not in page_font_map: page_font_map[p_num] = []
 
-                # get early stats
-                f_stats = {'name': f_name, 'mapped': info.get('mapped_count', 0), 'total': info.get('glyph_count', 0),
-                           'xref': found_xref}
+            for xref in xrefs:
+                info = self.font_cache.get(xref, {})
+                f_stats = {
+                    'name': info.get('name', 'Unknown'),
+                    'mapped': info.get('mapped_count', 0),
+                    'total': info.get('glyph_count', 0),
+                    'xref': xref
+                }
                 page_font_map[p_num].append(f_stats)
 
-                if found_xref:
-                    all_unique_xrefs.add(found_xref)
-                    if f_stats['total'] > 0 and f_stats['mapped'] >= f_stats['total']:
-                        ready_xrefs_set.add(found_xref)
+                all_unique_xrefs.add(xref)
+                if f_stats['total'] > 0 and f_stats['mapped'] >= f_stats['total']:
+                    ready_xrefs_set.add(xref)
 
         total_unique_cff_fonts = len(all_unique_xrefs)
         ready_xrefs = list(ready_xrefs_set)
@@ -3464,7 +3446,7 @@ class FontWidget(QMainWindow):
                     # Display summary
                     dialog.log("\n[INFO] Document analysis summary:", "#aaaaaa")
                     dialog.log(f"  -> Total CFF fonts in PDF: {total_unique_cff_fonts}", "#aaaaaa")
-                    dialog.log(f"  -> Fully mapped (ready):   {ready_xrefs_count}", "#228B22" if ready_xrefs_count > 0 else "#aaaaaa")
+                    dialog.log(f"  -> Fully mapped:   {ready_xrefs_count}", "#228B22" if ready_xrefs_count > 0 else "#aaaaaa")
 
                     if incomplete_fonts_count > 0:
                         dialog.log(f"  -> Incomplete (skipped):   {incomplete_fonts_count}", "#FF8C00")
@@ -3480,7 +3462,7 @@ class FontWidget(QMainWindow):
                                         break
                             dialog.log(f"      - '{gx_name}' (skipped)", "#888888")
 
-                    dialog.log(f"\n[INFO] Proceeding to repair {ready_fonts_count} active fonts.\n", "#3d7eff")
+                    dialog.log(f"\n[INFO] Proceeding to repair {ready_fonts_count} fully mapped fonts.\n", "#3d7eff")
 
                     dialog.log("[1/3] Temporary ToUnicode injection", "#3d7eff")
                     dialog.log("-" * 68, "#aaaaaa")
@@ -3507,7 +3489,7 @@ class FontWidget(QMainWindow):
                 with fitz.open("pdf", temp_pdf_bytes) as doc_temp:
                     internal_sequence = load_sequence(doc_temp, custom_flags, db_map, font_cache_local, mode="temp")
 
-                dialog.log(f"  -> Extraction succeeded (processing {ready_fonts_count} ready fonts).", "#228B22")
+                dialog.log(f"  -> Extraction succeeded (processing {ready_fonts_count} fully mapped fonts).", "#228B22")
 
                 dialog.log("\n[3/3] Final ToUnicode generation", "#3d7eff")
                 dialog.log("-" * 68, "#aaaaaa")
@@ -3575,7 +3557,7 @@ class FontWidget(QMainWindow):
                 dialog.log(f"Repaired file: {os.path.basename(out_path)}")
 
                 # Log success
-                dialog.log(f"Active fonts successfully repaired: {success_count} / {ready_fonts_count}", "#228B22" if success_count == ready_fonts_count else "#ff4444")
+                dialog.log(f"Fonts successfully repaired: {success_count} / {ready_fonts_count}", "#228B22" if success_count == ready_fonts_count else "#ff4444")
 
                 if incomplete_fonts_count > 0:
                     dialog.log(f"Fonts skipped due to incomplete mapping: {incomplete_fonts_count}", "#FF8C00")
@@ -3598,9 +3580,9 @@ class FontWidget(QMainWindow):
                     self.play_sound(success=True)
                 else:
                     if success_count < ready_fonts_count:
-                        dialog.log("[STATUS] Finished with errors, some active fonts failed...", "#FF8C00")
+                        dialog.log("[STATUS] Finished with errors, some fonts failed to repair...", "#FF8C00")
                     else:
-                        dialog.log("[STATUS] Finished partially, incomplete fonts were skipped.", "#FF8C00")
+                        dialog.log("[STATUS] File repaired partially, incomplete fonts were skipped.", "#FF8C00")
                     self.play_sound(success=False)
 
                 dialog.finish()
@@ -4211,9 +4193,9 @@ def run_cli_mode(args):
 
     # Log number of loaded files
     if len(target_files) == 1:
-        print(f"1 known PDF file found in specified directory.\n")
+        print(f"1 known PDF file found in target directory.\n")
     else:
-        print(f"{len(target_files)} known PDF files found in specified directory.\n")
+        print(f"{len(target_files)} known PDF files found in target directory.\n")
 
     glyph_db_map = load_db(GLYPH_DATABASE)
 
@@ -4224,7 +4206,7 @@ def run_cli_mode(args):
         if valid_hashes:
             file_hash = calculate_file_hash(pdf_path)
             if file_hash not in valid_hashes:
-                print(f"    {Fore.RED}[BLOCKED] File hash not in database.{Style.RESET_ALL}\n")
+                print(f"    {Fore.RED}[BLOCKED] File hash not found in known documents database.{Style.RESET_ALL}\n")
                 continue
 
         headless_repair(pdf_path, glyph_db_map, verbose=args.verbose)
