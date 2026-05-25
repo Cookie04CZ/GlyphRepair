@@ -1,4 +1,6 @@
-**This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).**
+## This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).
+
+$\color{#f00}{\textsf{lorem ipsum}}$
 
 # Keywords
 
@@ -35,7 +37,7 @@ Je nejasné, proč všechny ty časopisy mají špatné kódování textu. Nicm�
 Opravný skript vzniknul v rámci diplomové práce ["Skripty pro hromadnou úpravu fontů v PDF dokumentech"](https://hdl.handle.net/11012/246071) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Tento český a anglický návod byl vytvořen vedoucím práce. Pokud vás zajímá, jak skript interně funguje, přečtěte si tu diplomku (slovensky) nebo anglický návod níže.
 
  # What GlyphRepair does
-This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair can works around these limitations:
+This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair works around these limitations:
 
 * Meaning of each character (glyph) is manually defined (mapped) by user, which allows for 100% text fidelity.
 * GlyphRepair preserves original document data, only adds new text encoding tables to it.
@@ -56,6 +58,7 @@ If you want to run Python code, you have to install following packages:
 * PySide6 6.10.3 https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/index.html
 * Matplotlib 3.9.4 https://matplotlib.org/
 * qtawesome 1.4.2 https://github.com/spyder-ide/qtawesome
+* colorama 0.4.6 https://github.com/tartley/colorama
 
 All can be installed with pip
 ```
@@ -64,6 +67,7 @@ pip3 install PyMuPDF
 pip3 install PySide6
 pip3 install Matplotlib
 pip3 install qtawesome
+pip3 install colorama
 ```
 Note the program was developed and tested only with these package versions and only on Windows. We have no idea if it works on other operating systems. 
 
@@ -87,7 +91,7 @@ If your file doesn't contain any repairable fonts, you will get message "This do
 
 You can test GlyphRepair on this sample 2-page document, provided under [fair use](https://en.wikipedia.org/wiki/Fair_use) doctrine:
 
-[GR_Sample.zip](https://github.com/user-attachments/files/28022076/GR_Sample.zip)
+[GR_Sample.zip](https://github.com/user-attachments/files/28198468/GR_Sample.zip)
 
 Note the sample will appear as fully mapped if you load it with default glyph_mappings.psv database from main repository. Therefore, the sample also contains much smaller glyph_mappings.psv which contains mapping only for one font. Simply overwrite it; you can always download full database again.
 
@@ -117,13 +121,41 @@ This will display another input field which accepts only string of 4 or 5 hexade
 <img width="1202" height="855" alt="First document Unicode enabled" src="https://github.com/user-attachments/assets/7b7abc75-50c3-420d-a243-ce87ec42498a" />
 </p>
 
+You track your mapping progress near top of the window. You can click and switch the progress bar between 4 modes: glyphs on current font, glyphs on current page, glyphs in entire document or finished page counter:
+
+<p>
+<img width="262" height="197" alt="Mapping progress bars" src="https://github.com/user-attachments/assets/f0420f3f-e403-4dd2-93c1-10c1dfa4b2f3" />
+</p>
+
+When you map all glyphs in entire document, you'll get this message window:
+
+<p>
+<img width="344" height="129" alt="All glyphs mapped" src="https://github.com/user-attachments/assets/d74477a3-f031-43cc-9d1c-d0bd98aaecf3" />
+</p>
+
+## Deciding between uppercase and lowercase characters
+
+Whenever possible, GlyphRepair displays two thin blue guidelines that should help you decide whether glyphs are uppercase or lowercase characters. Another clue may be glyph order in the work area, because they as we'll [explain later](#how-glyphrepair-works-internally), the order frequently represents first words in the given font. Unfortunately, there are also fonts which have undefined character height, so displaying the blue lines is impossible. In these cases, GlyphRepair displays only glyph's baseline in red. That makes the decision harder for certain characters like C, O, S, V, X or Z:
+
+<img width="827" height="446" alt="Character height guidelines" src="https://github.com/user-attachments/assets/f1e2fdb4-8bab-4ad7-8ecd-84943ebd73aa" />
+
+## Where to find and copy special characters
+
+GlyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. But of course there are many other sites with searchable lists of Unicode characters:
+
+* https://unicodeplus.com/
+* https://www.compart.com/en/unicode
+* https://unicode.org/charts/
+
+However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European languages. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du).
+
 # Glyph database and its impact on auto-suggestion
 
-As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 35 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening, it may be best if you start with a blank database. Simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
+As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 38 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening, it may be best if you start with a blank database. Also, the program will work a bit faster when the database is smaller. You can simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
 By default, GlyphRepair auto-saves the database whenever you finish mapping a font or entire document. This auto-saving feature can be disabled in the Settings. You can also save the database manually at any time with Save All to DB button.
 
-# Mapping another document(s)
+# Mapping another document
 
 When you load another similar document into GlyphRepair, you will notice that many glyphs in the work area are already green. That means you've already mapped and saved them into the database. However, real-world documents rarely use exactly the same set of glyphs, so you need to find and map the missing ones. For that, you have to use the Next Unmapped button. In practice, GlyphRepair will make large jumps in the work area or even skip entire fonts, making manual navigation difficult. If you think you've made a mistake, use Previously Mapped button to easily go back. Be aware that this glyph mapping history is remembered only for currently opened document.
 
@@ -158,19 +190,31 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 </p>
 
 
- # Saving repaired documents
+ # Saving repaired document
 
-Unsuprisingly, this is done via Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of pages again, with their mapping status indicated by colors. The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
+**Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents.
+
+As you've probably guessed, you have to use Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
+
+<p>
+<img width="552" height="432" alt="Repair with missing glyphs" src="https://github.com/user-attachments/assets/0daa912d-cf6d-4893-a23d-f26eeec3dce2" />
+</p>
+
+The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffixes _Repaired or _Partially_Repaired to their name.
 
  **TBD**
 
  # What is AGL?
 
-You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Scaron" should always represent letter "Š" and so on, you can see [the full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current version **does not** support it leaves all such fonts untouched.
+You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it and leaves all such fonts untouched.
+
+<p>
+<img width="1202" height="855" alt="AGL font example" src="https://github.com/user-attachments/assets/95c85c04-2f77-444c-82a0-b6267f72c30d" />
+</p>
 
  # How GlyphRepair works internally 
 
-Glyphs in Type 1 fonts are stored as vector image instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript chunks and then calculates MD5 hash from them. The reason for this is threefold:
+Glyphs in Type 1 fonts are stored as vector instructions in PostScript language. Even visually very similar glyphs have slight differences in vector coordinates, which can be detected. GlyphRepair extracts raw binary data from each font, decodes them into separate PostScript chunks and then calculates MD5 hash from them. The reason for this is threefold:
 1. Even slight difference in glyph PostScript instructions will result in a completely different hash.
 2. The resulting hash always has the same length, which is useful for storing them in database.
 3. Many fonts are copyrighted, so you can't store and distibute their original data, anyway.
@@ -179,13 +223,13 @@ While you're creating new mappings for a document, the data flow is:
 
 **Read glyph data -> calculate MD5 hash -> pair the hash with user-assigned character -> store Unicode code for the character into database.**
 
-There's a reason why mapped characters are stored in Unicode. In old PDF files with Type 1 fonts, glyphs are just graphical symbols that may or may not contain information about which character they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. These are called "embedded subset" fonts. Another file size reduction comes from character ordering. In Type 1 fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
+There's a reason why mapped characters are stored as Unicode. In old PDF files with Type 1 fonts, glyphs are just graphical symbols that may or may not contain information about which character they actually represent. Moreover, PDF supports several schemes to reduce overall file size, so it typically stores only glyphs that are needed to render the given document. These are called "embedded subset" fonts. Another file size reduction comes from character ordering. In embedded subset fonts, characters are ordered by their appearance in the text. In other words, every font has different character order. Suppose you have a document that starts with word "OUROBOROS", then characters in its font will get these character codes (CC):
 
 | Letter | O |U |R |O |B |O |R |O |S |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Character code (CC) | 1 |2 |3 |1 |4 |1 |3 |1 |5 |
 
-Notice that CC for letter "O" gets repeated every time it's needed. These character codes are linked with glyphs, so the renderer knows what to display at each code position. Glyphs have their own Glyph Names (GN) which may be linked to CCs like this:
+Notice that CC for letter "O" gets repeated every time it's needed. These character codes are linked with glyphs, so the renderer knows what to draw at each code position. Glyphs have their own Glyph Names (GN) which may be linked to CCs like this:
 
 | Letter | O | U | R | B | S |
 |:---:|:---:|:---:|:---:|:---:|:---:|
@@ -199,11 +243,11 @@ Unlike Adobe Glyph List, such Glyph Names don't reliably convey which character 
 | Character code (CC) | 1 | 2 | 3 | 4 | 5 |
 | ToUnicode | 004F | 0055 | 0052 | 0042 | 0053 |
 
-GlyphRepair fixes documents encoding by creating and injecting new ToUnicode tables for each font. In simplified form, it works like this:
+GlyphRepair fixes document encoding by creating and injecting new ToUnicode tables for each font. In simplified form, it works like this:
 
 **Read glyph data -> calculate MD5 hash -> look up the hash in database -> read associated Unicode from database -> create CC-Unicode pair**
 
-When all pairs are found, they are compiled into a ToUnicode table and injected into the PDF. This ensures that the document's original contents are not modified in any way.
+When all pairs are created, they are compiled into a ToUnicode table and injected into the PDF. This ensures that the document's original contents are preserved. Another advantage is that repaired file size increases only slightly.
 
 # glyph_mappings.psv database format
 
@@ -215,11 +259,53 @@ The glyph database is designed to be human-readable and editable. It's a [Pipe-S
 * Unicode of character, assigned (mapped) by user.
 * Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
 
-GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows. You can easily import the database to MS Excel or other similar program to search, sort or otherwise modify it.
+GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows in glyph_mappings.psv. You can easily import the file to MS Excel or other similar program to search, sort or otherwise modify it.
 
 ## Why so many font names start with strings like ABCDEF+ ?
 
-As we mentioned in previous chapter, Type 1 fonts typically store only glyphs that are needed to render the given document. These are called "embedded subset" fonts.
+As we mentioned in previous chapter, Type 1 embedded subset fonts store only glyphs that are needed to render the given document. The PDF standard stipulates any such fonts must
+
+$\color{#f00}{\textsf{lorem ipsum}}$
+
+ # Repairing multiple documents at once
+
+GlyphRepair has a command line interface that allows you to repair many files at once. You can display help if you run it with -h or --help option:
+```
+usage: GlyphRepair_v19.py [-h] [-m] [Target directory] [-r] [-d HASH_DB] [-v]
+
+PDF Glyph Repair Tool - GUI & CLI
+
+positional arguments:
+  Target directory      Path to target file or directory
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -m, --multiple        Enables automated repair of multiple input files
+  -r, --recursive       Also repairs files in subdirectories (-m required)
+  -d HASH_DB, --hash-db HASH_DB
+                        Path to hash database of known input files
+  -v, --verbose         Enables verbose output
+```
+For example, if you want to repair several PDF files in a given directory and all subdirectiories, you can use
+```
+GlyphRepair -m "c:\PDFs are here" -r -d known_docs.psv
+```
+
+**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. Note that only the MD5 hash decides whether a file is repaired; you may leave the file name column blank. On Windows, you can use its built-in certification utility to calculate the MD5 hash:
+```
+certutil -hashfile ABCD.pdf md5
+```
+To hash multiple PDF files in a directory, you can use
+```
+forfiles /m *.pdf /c "cmd /c certutil -hashfile @file md5" 
+```
+You can also include subdirectories with ```forfiles /s``` option. We currently don't have any program or utility to collect or filter the resulting MD5 hashes, so'll have to do it manually in a text editor etc. During repair, the console displays progress bars and font statistics which are similar to GUI:
+
+<p>
+<img width="544" height="182" alt="Multiple repair result" src="https://github.com/user-attachments/assets/ee0660c1-9781-441d-bc5d-7906e6ad55cb" />
+</p>
+
+You can further expand these results if you run GlyphRepair with -v or --verbose option.
 
  # Other ways to fix your documents, but with lower fidelity
 
