@@ -257,10 +257,15 @@ The glyph database is designed to be human-readable and editable. It's a [Pipe-S
 * Unicode of character, assigned (mapped) by user.
 * Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
 
-<p>
-<img width="600" height="78" alt="Database format example" src="https://github.com/user-attachments/assets/601c2f70-6b33-48a8-afbb-190c93bd378d" />
-</p>
-
+In practice, it looks like this:
+```
+0089549e52807f487abfda979c833058|AOGNPO+Arial.tu.n.0150|G48|0030|zero
+0089e72a1831b9725ce36eb6a0852e60|GOBEDD+Arial035|G35|0023|numbersign
+008db3d884e87e669a851081b6847bb1|BIKJJG+Arial.tu.n.095.813|G110|006e|n
+008e368c96dc9b9c2940f04a776bb12d|AJELJP+Arial.tu.n.050|G98|0062|b
+0090901c94af61bbe3aafc2b123585ef|AJFICH+Arial035.813|G47|002f|slash
+0093634fbd7c628df8598147529265de|AFGFPL+Arial.tu.n.0111.125|G106|006a|j
+```
 GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows in glyph_mappings.psv. You can easily import the file to MS Excel or other similar program to search, sort or otherwise modify it.
 
 ## Why so many font names start with strings like ABCDEF+ ?
@@ -292,7 +297,14 @@ For example, if you want to repair all PDF files in given directory and subdirec
 GlyphRepair -m "c:\PDFs are here" -r -d known_docs.psv
 ```
 
-**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. Note that only the MD5 hash decides whether a file will be repaired; you may leave the file name column blank. On Windows, you can use a system utility to calculate the MD5 hash:
+**Note that -d option is mandatory**, because you know how it is: most people have a mess in their PCs. We originally devised the program to repair popular hobby magazines and we had to make sure it doesn't touch any other PDF files it may find. Therefore, the multiple repair function has a safety feature built in it: **it repairs only files whose MD5 hashes are stored in known_docs.psv database**. This PSV file has only two columns, MD5 hash and name of the source PDF file. Note that only the MD5 hash decides whether a file will be repaired; you may leave the file name column blank. 
+```
+6693b059e2f51b9f48b52bc9e2355cd8|_PE11_2002.pdf
+496aabde27329d0055411f571af03656|_PE12_2002.pdf
+62909c8922a57254ef82cd18f076573d|Electus2003.pdf
+56d32e4d771ce352d59dbb862e8032cf|KE01_2003.pdf
+```
+On Windows, you can use a system utility to calculate the MD5 hash:
 ```
 certutil -hashfile ABCD.pdf md5
 ```
