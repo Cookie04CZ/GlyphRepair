@@ -320,6 +320,18 @@ You can also include subdirectories with ```forfiles /s``` option. We currently 
 
 You can further expand these results if you run GlyphRepair with -v or --verbose option.
 
+
+# Known limitations and issues
+
+* TBD
+
+# Possible further work
+
+* TBD
+
+# Credits
+GlyphRepair was developed as part of bachelor's thesis ["XXXXXXXXXXXXXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) at [Brno University of Technology](https://www.vut.cz/en/), Faculty of Electrical Engineering and Communications, [Dept. of Telecommunications](https://www.utko.fekt.vut.cz/en). Glyph mapping database and this manual was created by [thesis advisor](https://www.vut.cz/en/people/pavel-hanak-11679).
+ 
  # Other ways to fix your documents, but with lower fidelity
 
 If you don't need to preserve document's fidelity, garbled text can be permanently fixed via OCR. Each page is rendered as ordinary bitmap image (it's called "flattening") and then fed to OCR. However, most OCR algorithms still struggle with diacritics, math and/or non-latin characters, so the extracted text usually contains errors. Also, vector graphics may not be preserved, depending on how smart the OCR algorithm is. That's usually highly undesirable and may significantly increase file size. 
@@ -334,86 +346,4 @@ Notice the -sUseOCR=AsNeeded parameter. As explained in the [link above](https:/
 
 
 
-# Known limitations and issues
-
-* Type1toUnicode doesn't just inject new toUnicode tables into existing files. The PyPDF library actually completely rebuilds them, so all PDF objects get new IDs, page tree will have different hierarchy etc. While Type1toUnicode preserves metadata, other PDF settings in the root are lost. It's possible other data (attachments, multimedia objects) may get lost, too. **Double check the output files!**
-
-* When log reports a missing glyph definition, the glyph may be on a different page than indicated in the log. That's because one font may used on multiple pages and the script lists only the first occurence of the font (i.e. not page where the missing glyph is actually used).
-
-* Type1toUnicode can repair only Type1 fonts that have complete Differences table, i.e. every character (glyph) must be replaced. That's not typical.
-
-* toUnicode table must be completely missing, Type1toUnicode can't be used to replace existing one.
-
-* If JSON mapping table is incomplete, Type1toUnicode replaces undefined characters with spaces (U+0020). If you then copy text from the "repaired" file, it looks deceptively "clean", i.e. without any garbled characters.
-
-* There are no safeguards against duplicate font/glyph names or other user errors in the JSON file. The script does report its syntax errors, however.
-
-* In retrospect, JSON wasn't the best choice to store the mapping data, because it doesn't allow for comments. It would be nice to see what letter each GN-Unicode pair actually represents...
-
-* We've seen documents with multiple fonts whose names were empty strings (even though PDF standard prohibits it). Type1toUnicode's logs and final statistic will count them incorrectly.
-
-* Real-world documents may contain other PDF standard violations which can cause erratic behaviour. Your mileage may vary.
-
-# Script opravAR for user-friendly repair
-
-As mentioned at the beginning, Type1toUnicode was originally created to repair encoding in popular czech hobby magazines. Of course, the magazines are copyrighted. So the idea is that every subscriber can download these scripts and repair their own copies of the magazines. But we had to make sure it would repair only the magazines and nothing else. We couldn't rely on file names, because let's be honest here, most people's HDD is a mess. Thus opravAR searches all directories and subdirectories for PDF files, computes their SHA-256 hash and compares it with a list of known (repairable) magazines. This list is stored in [magazine_hash.json](magazine_hash.json). If a hash match is found, opravAR calls Type1toUnicode which performs the actual repair.
-
-XXXXXXXXXXXXXXXXXXXXx TBD
-
-If you want to use opravAR, you'll need SHA-256 hashes of files you want to repair. On Windows, you can use its built-in certification utility
-```
-certutil -hashfile ABCD.pdf sha256
-```
-To hash multiple files at once, you can use
-```
-forfiles /m *.pdf /c "cmd /c certutil -hashfile @file sha256" 
-```
-BTW, "oprav" means "repair" in Czech and "AR" is abbreaviation of magazines' main title "A-Radio". They're similar to "Popular Electronics" or "Elektor", except they're even older, as they're being published continuously since 1952. 
-
-# The gory details
-Type1toUnicode allows you to analyze fonts within your PDF files (-v switch), but before it existed, we had to do it some other way. Probably the most user-friendly program is [PDFtalk Snooper](https://pdftalk.de/doku.php?id=pdftalksnooper). It has GUI that can display entire internal PDF object tree and even decode some of the objects. If you want to analyze a font, you need to select the appropriate page and then expand Resources -> Font -> Font Name. Here is how it looks like for [the sample file](https://github.com/user-attachments/files/16921939/T1tU_sample.zip):
-
-![Snooper_tree](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/fe797bbb-9f00-419b-8d70-1f5af301084c)
-
-Sadly, it seems PDFtalk Snooper's development has stalled and it outright crashed (unhandled exception) on about 1/5 of files we tried. (Maybe the authors would fix them if enough people asked?) Despite that, it's a very handy tool and we've been using it extensively.
-
-As we mentioned in the [analysis chapter](#analyzing-your-pdf-files), Type1toUnicode automatically skips all fonts that don't meet certain criteria. These deserve to be explained in greater detail, so let's list them:
-
-* Must be Type1 font.
-* Its toUnicode table must be missing.
-* FontDescriptor must exist and must contain FirstChar and LastChar entries.
-* All characters in the font must be replaced via Differences table.
-
-Read [this article](https://www.gnostice.com/nl_article.asp?id=383) to give you some idea about supported font types and encoding combinations. Displaying font type is easy and many PDF viewers can do it. Here is how it looks in Adobe Reader XI:
-
-![Reader_XI_fonts](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/8c56af8e-1313-4a6d-8641-d6085b8f3841)
-
-Obviously, if a font is not Type1 font, Type1toUnicode will print "Font has other type than Type1 -> skipping" into the (verbose) log. If a font already has a toUnicode table, then it prints "ToUnicode already exists -> skipping" into the log.
-
-Like explained in previous chapters, Type1toUnicode requires glyph names (GNs) and their order to work, but they're surprisingly hard to obtain. Normally they're hidden in the font's raw data (PDFStream) which is embedded within the PDF file. Type1 fonts are in PostScript language and the stream is normally decoded with a PostScript interpreter. However, such intepreters usually aren't designed to collect glyph names and pass them to an "outside" program. Glyph names and their data are stored in /CharStrings dictionary, so we would need to *somehow* loop through all the entries and get what we need. There also are other complications, such as undefined characters etc. PDFtalk Snooper doesn't help much here - you can view the data if you expand Font Name -> FontDescriptor -> FontFile:PDFStream -> Internal sub-tree, but they look like gibberish. So we'd either have to "bend" some existing PostScript interpreter for our purposes or write our own parser.
-
-![Snooper_internal](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/961f82a6-cd31-4222-86bb-c1272b903ca5)
-
-Fortunately, there was another way. Most of the czech magazines used fonts whose characters were completely replaced via Differences table. Differences table was originally devised as a supplement for legacy encodings like WinANSI or MacRoman. These were limited to 255 characters, which is not nearly enough to cover most Latin-script languages (let alone other languages). If other characters were required, they could be replaced via Differences table. Such fonts are then regarded as having "custom encoding", like in the font list above. Normally, the number of replacements is low, but for some arcane reason, all characters were replaced in the magazines. Such Differences tables contain GNs in the same order as CCs, making it was unnecessary to decode font data. If a font has Differences table, you can view it if you expand its Encodning subtree in PDFtalk Snooper:
-
-![Snooper_Differences](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/cd3b540d-bef0-44f7-b60c-41e2e490a5b1)
-
-One last obstacle remained - how to check that all characters were really replaced, again without decoding font data. This is where FirstChar and LastChar entries come in. If LastChar-FirstChar matches the numbner of entries in the Differences table, then it means all characters were replaced. If they're not, the script prints "no ToUnicode but Differences incomplete -> skipping" into the log. In some fonts, FirstChar, LastChar and/or entire FontDescriptor is missing ([PDF standard allows it](https://www.verypdf.com/document/pdf-format-reference/txtidx0413.htm)). Type1toUnicode can't repair such fonts and prints "FontDescriptor entries missing -> skipping" messages in the (verbose) logs. In PDFtalk Snooper, FirstChar and LastChar are displayed here:
-
-![Snooper_first_last](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/3811fff2-16ca-4423-b379-d8930032c0f4)
-
-
-# Possible further work
-Just some ideas in case someone wants to build upon this...
-
-* Type1toUnicode now requires Differences table for all glyphs in the font. Theoretically, it could be modified to also fix fonts that employ the original idea behind Differences, i.e. take some standard encoding like WinANSI and replace only a few glyphs within it. There are many unknowns, for example how to reliably identify the original encoding and GNs within it.
-
-* Manual glyph identification via Infix PDF Editor is still too laborious. Feed the glyphs into OCR and construct JSON mapping automatically? User could only confirm and/or manually correct whatever glyphs OCR doesn't get right.
-
-* Use image similarity algorithm and/or OCR to automatically cross-compare GNs between multiple documents?
-
-* Or even better: use OCR/user input to identify the glyphs, but store their hash. Hash would be computed from the glyphs' binary data. Build big database of such glyph hashes. Script would then construct toUnicode tables based on the hashes, not GNs. It would be possible to fully automatically repair even documents where GNs are arbitrary. (Many fonts are copyrighted, so only glyph hashes can be distributed legally). Unfortunately, glyph data may change with font's size (height) because of [hinting](https://en.wikipedia.org/wiki/Font_hinting) and other typographical "tricks". It happens extensively in the czech magazines, which means that every font size would need separate hash table. That would be very laborious to make.
-
-# Credits
-The scripts were developed as part of master's thesis ["Skripty pro hromadnou úpravu fontů v PDF dokumentech"](https://hdl.handle.net/11012/246071) at [Brno University of Technology](https://www.vut.cz/en/), Faculty of Electrical Engineering and Communications, [Dept. of Telecommunications](https://www.utko.fekt.vut.cz/en). This czech and english manual was created by thesis advisor.
 
