@@ -35,7 +35,7 @@ Je nejasné, proč všechny ty časopisy mají špatné kódování textu. Nicm�
 Opravný skript vzniknul v rámci diplomové práce ["Skripty pro hromadnou úpravu fontů v PDF dokumentech"](https://hdl.handle.net/11012/246071) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Tento český a anglický návod byl vytvořen vedoucím práce. Pokud vás zajímá, jak skript interně funguje, přečtěte si tu diplomku (slovensky) nebo anglický návod níže.
 
  # What GlyphRepair does
-This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair can works around these limitations:
+This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair works around these limitations:
 
 * Meaning of each character (glyph) is manually defined (mapped) by user, which allows for 100% text fidelity.
 * GlyphRepair preserves original document data, only adds new text encoding tables to it.
@@ -127,9 +127,20 @@ When you map all glyphs in entire document, you'll get this message window:
 
 ## Where to find and copy special characters
 
-GlyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. There are also several other sites with searchable lists of Unicode characters:
+GlyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. But of course there are many other sites with searchable lists of Unicode characters:
 
-However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Old characters sets vary between languages and operating systems, but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Czech language. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du)
+https://unicodeplus.com/
+https://www.compart.com/en/unicode
+https://unicode.org/charts/
+
+However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues which they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European language. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du)
+
+## Deciding between uppercase and lowercase characters
+
+Whenever possible, GlyphRepair displays two thin blue guidelines that should help you decide whether glyphs are uppercase or lowercase characters. Another clue may be glyph order in the work area, because they as we'll [explain later](#how-glyphrepair-works-internally), the order frequently represents first words in the given font. Unfortunately, there are also fonts which have undefined character height, so displaying the blue lines is impossible. In these cases, GlyphRepair displays only glyph's baseline in red. That makes the decision harder for certain characters like C, O, S, V, X or Z:
+
+<img width="827" height="446" alt="Character height guidelines" src="https://github.com/user-attachments/assets/f1e2fdb4-8bab-4ad7-8ecd-84943ebd73aa" />
+
 
 # Glyph database and its impact on auto-suggestion
 
@@ -174,7 +185,7 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
  # Saving repaired documents
 
-**Important! Always load and repair only original documents!** While you can re-load documents that were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work progress is saved in glyph_mappings.psv, so you don't need to save unfinished documents. 
+**Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents.
 
 As you've probably guessed, you have to use Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
 
@@ -182,13 +193,17 @@ As you've probably guessed, you have to use Repair PDF button in the top left co
 <img width="552" height="432" alt="Repair with missing glyphs" src="https://github.com/user-attachments/assets/0daa912d-cf6d-4893-a23d-f26eeec3dce2" />
 </p>
 
-The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffix _Repaired to their name.
+The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffixes _Repaired or _Partially_Repaired to their name.
 
  **TBD**
 
  # What is AGL?
 
-You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Scaron" should always represent letter "Š" and so on, you can see [the full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current version **does not** support it leaves all such fonts untouched.
+You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it leaves all such fonts untouched.
+
+<p>
+<img width="1202" height="855" alt="AGL font example" src="https://github.com/user-attachments/assets/95c85c04-2f77-444c-82a0-b6267f72c30d" />
+</p>
 
  # How GlyphRepair works internally 
 
