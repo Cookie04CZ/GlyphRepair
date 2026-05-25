@@ -1,5 +1,7 @@
 ## This program was originally created to repair text encoding in popular czech hobby magazines. If you wish to apply it to other PDF files, please skip to the [next chapter](#what-glyphrepair-does).
 
+\color{#f00}{\textsf{lorem ipsum}}
+
 # Keywords
 
 PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnicode table, Python, Windows executable
