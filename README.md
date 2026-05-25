@@ -283,7 +283,7 @@ As we mentioned in previous chapter, Type 1 embedded subset fonts store only gly
 
 GlyphRepair has a command line interface that allows you to repair many files at once. You can display help if you run it with -h or --help option:
 ```
-usage: GlyphRepair_v19.py [-h] [-m] [Target directory] [-r] [-d HASH_DB] [-v]
+usage: GlyphRepair [-h] [-m] [Target directory] [-r] [-d HASH_DB] [-v]
 
 PDF Glyph Repair Tool - GUI & CLI
 
