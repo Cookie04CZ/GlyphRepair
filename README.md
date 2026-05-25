@@ -89,7 +89,7 @@ As we mentioned earlier, GlyphRepair currently supports only one PDF font type w
 <img width="652" height="532" alt="Analysis font list" src="https://github.com/user-attachments/assets/94d41779-0d58-4ddf-b972-a59ceb79aadc" />
 <p>
 
-If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." If that happens, there are other programs that may be able to fix it, but with lower fidelity. We wrote about [one of them here](#other-ways-to-fix-your-documents-but-with-lower-fidelity).
+If your file contains only unsupported fonts, you will get message "This document does not contain any fonts that can be repaired." If that happens, there are other programs that may be able to repair it, but with lower fidelity. We wrote about [one of them here](#other-ways-to-fix-your-documents-but-with-lower-fidelity).
 
 # Mapping your first document
 
