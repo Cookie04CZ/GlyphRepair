@@ -6,9 +6,9 @@ PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnic
 
 # Oprava textu v časopisech AMARO
 
-Většina elektronických vydání (PDF souborů) časopisů A-Radio Praktická Elektronika a Konstrukční elektronika je špatně vygenerovaná, takže v nich nejde hledat ani kopírovat text. To je v dnešním informačním věku dost výrazná vada. Tento Python program je umí hromadně opravit, avšak je nutné ho spustit z příkazové řádky. Abyste nemuseli instalovat Python a nezbytné balíky, je zde připaven hotový Windows program "GlyphRepair.exe", ve kterém už vše je. Program záměrně opravuje pouze originální PDF časopisy z CD a DVD, které byly vydány firmou AMARO, všechny ostatní soubory ignoruje. Na jménech souborů nezáleží, program kontroluje jejich binární obsah. Díky tomu je "blbuvzdorný" a nebude nic dělat, pokud ho třeba omylem spustíte jinde, než jste chtěli. To také znamená, že program ignoruje porůznu upravené nelegální kopie časopisů, které se povalují po Internetu. Pokud originální CD či DVD s časopisy nemáte, můžete je koupit například zde:
+Většina elektronických vydání (PDF souborů) časopisů A-Radio Praktická Elektronika a Konstrukční elektronika je špatně vygenerovaná, takže v nich nejde hledat ani kopírovat text. To je v dnešním informačním věku dost výrazná vada. Tento Python program je umí hromadně opravit, avšak je nutné ho spustit z příkazové řádky. Abyste nemuseli instalovat Python a nezbytné balíky, je zde připaven hotový Windows program "GlyphRepair.exe", ve kterém už vše je. Program záměrně opravuje pouze originální PDF časopisy z CD a DVD, které byly vydány firmou AMARO, všechny ostatní soubory ignoruje. Na jménech souborů nezáleží, program kontroluje jejich binární obsah. Díky tomu je "blbuvzdorný" a nebude nic dělat, pokud ho třeba omylem spustíte jinde, než jste chtěli. To také znamená, že program ignoruje porůznu upravené a nelegální kopie časopisů, které se povalují po Internetu. Pokud originální CD či DVD s časopisy nemáte, můžete je koupit například zde:
 
- https://www.hezkyden.cz/shop/dvd-aradio/
+https://www.hezkyden.cz/shop/dvd-aradio/
 
 https://www.hezkyden.cz/shop/cd-aradio/
 
@@ -27,7 +27,6 @@ Pointa programu je, že každý čtenář si může svoji sbírku opravit sám -
 GlyphRepair.exe -m "c:\Casopisy jsou zde" -r -d known_docs.psv
 ```
 &nbsp;&nbsp;&nbsp;&nbsp; V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, měli byste tam vidět převážně zelené a modré řádky. Když program narazí na nepodporovaný PDF soubor, tak se objeví červený řádek "[BLOCKED] File hash not found in known documents database." To je však správně. Pokud se objevují oranžové řádky o chybějícím mapovaní znaků nebo narazíte na jiné problémy, tak je nahlašte jako bug zde na GitHubu.
-
 
 4. Na disku se objeví opravené PDF soubory s koncovkou _Repaired, vždy ve stejném adresáři jako zdrojové soubory. Zdrojové soubory poté můžete smazat, například tak, že je nejdřív seřadíte podle data (originální PDF soubory jsou vždy starší, než opravené).
 
@@ -203,17 +202,22 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
  # Saving repaired document
 
-**Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents.
+**Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents. **Therefore, don't lose your glyph_mappings.psv database if you plan to repair other documents in the future!**
 
-As you've probably guessed, you have to use Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
+As you've probably guessed, you click on Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
 
 <p>
 <img width="552" height="432" alt="Repair with missing glyphs" src="https://github.com/user-attachments/assets/0daa912d-cf6d-4893-a23d-f26eeec3dce2" />
 </p>
 
-The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffixes _Repaired or _Partially_Repaired to their name.
+The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. The program will also display log of repair steps and final font statistics:
 
- **TBD**
+<p>
+<img width="552" height="432" alt="Repair log with missing glyphs" src="https://github.com/user-attachments/assets/407bbffe-5d11-45fb-aa34-625ecff1c265" />
+</p>
+
+Repaired file will be saved to the same directory as source file; program will attach suffixes _Repaired or _Partially_Repaired to their name. It automatically overwrites files with the same name.
+
 
  # What is AGL?
 
