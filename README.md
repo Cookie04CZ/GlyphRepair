@@ -26,15 +26,15 @@ Pointa programu je, že každý čtenář si může svoji sbírku opravit sám -
 ```
 GlyphRepair.exe -m "c:\Casopisy jsou zde" -r -d known_docs.psv
 ```
- V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, neměli byste tam vidět žádné červené ani oranžové řádky. Zelené a modré řádky jsou v pořádku. Pokud narazíte na problémy, tak je nahlašte jako bug zde na GitHubu.
+ V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, měli byste tam vidět převážně zelená a modrá hlášení. Když program narazí na nepodporovaný PDF soubor, tak se objeví červené hlášení "[BLOCKED] File hash not found in known documents database." To je však správně. Pokud se objevují oranžové řádky nebo narazíte na jiné problémy, tak je nahlašte jako bug zde na GitHubu.
 
 4. Na disku se objeví opravené PDF soubory s koncovkou _Repaired, vždy ve stejném adresáři jako zdrojové soubory. Zdrojové soubory poté můžete smazat, například tak, že je nejdřív seřadíte podle data (originální PDF soubory jsou vždy starší, než opravené).
 
 Program byl vyvíjen a testován pouze na Windows, funkci na jiných OS neznáme. Zde jsou pro ukázku vzorky před a po opravě (snad se firma AMARO nebude zlobit), zkuste si z nich vykopírovat text:
 
-[GR_Sample.zip](https://github.com/user-attachments/files/28198468/GR_Sample.zip)
+[PE_vzorek.zip](https://github.com/user-attachments/files/28258521/PE_vzorek.zip)
 
-Oprava podporovaných časopisů je téměř stoprocentní, včetně řecké abecedy a jiných "exotických" znaků. Většinou nejdou opravit jen stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program umí opravit pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007).** Tyto časopisy mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a nejde v nich vůbec vyhledávat. Zde je přehled podporovaých časopisů:
+Oprava podporovaných časopisů je téměř stoprocentní, pouze je občas pomíchané velké I a malé L (mají přesně stejný tvar a program je nedokáže odlišit). Někdy také nejdou opravit stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program umí opravit pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007). Také opravuje obsahy ročníků.** Jejich PDF soubory mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a tedy má největší smysl je opravit. Zde je přehled podporovaých časopisů:
 
 ![Prehled_AR_v040](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/4dafd779-fbe8-4540-8648-d66c8e9a8c9d)
 
