@@ -3539,7 +3539,7 @@ class FontWidget(QMainWindow):
                     base, ext = os.path.splitext(self.pdf_path)
 
                     # Save PDF in same path as original PDF and add suffix based on success
-                    if success_count == ready_fonts_count:
+                    if success_count == ready_fonts_count and incomplete_fonts_count == 0:
                         out_path = f"{base}_Repaired{ext}"
                     else:
                         out_path = f"{base}_Partially_Repaired{ext}"
@@ -4193,9 +4193,9 @@ def run_cli_mode(args):
 
     # Log number of loaded files
     if len(target_files) == 1:
-        print(f"1 known PDF file found in target directory.\n")
+        print(f"1 PDF file found in target directory.\n")
     else:
-        print(f"{len(target_files)} known PDF files found in target directory.\n")
+        print(f"{len(target_files)} PDF files found in target directory.\n")
 
     glyph_db_map = load_db(GLYPH_DATABASE)
 
