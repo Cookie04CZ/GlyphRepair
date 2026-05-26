@@ -58,7 +58,7 @@ Do you really need to permanently fix your PDF files? Or do you merely need to c
 
 # How to run GlyphRepair
 
-You should download the program and glyph_mappings.psv database and put them to the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary packages, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first. [Here](Windows EXE) are instructions if you want to compile the executable yourself.
+You should download the program and glyph_mappings.psv database and put them to the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary packages, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first. [Here](#building-windows-exe-from-source) are instructions if you wish to compile the executable yourself.
 
 If you want to run Python code, you have to install following packages:
 * NumPy 2.0.2 https://numpy.org/
