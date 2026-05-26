@@ -6,9 +6,9 @@ PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnic
 
 # Oprava textu v časopisech AMARO
 
-Většina elektronických vydání (PDF souborů) časopisů A-Radio Praktická Elektronika a Konstrukční elektronika je špatně vygenerovaná, takže v nich nejde hledat ani kopírovat text. To je v dnešním informačním věku dost výrazná vada. Tento Python program to umí opravit, přičemž je koncipován tak, aby jeho použití bylo co nejjednodušší. Abyste nemuseli instalovat Python a nezbytné balíky, je zde připaven hotový spustitelný program "opravAR.exe", ve kterém už vše je. Program záměrně opravuje pouze originální PDF časopisy z CD a DVD, které byly vydány firmou AMARO, všechny ostatní soubory ignoruje. Díky tomu je "blbuvzdorný" a nebude nic dělat, pokud ho třeba omylem spustíte jinde, než jste chtěli. To také znamená, že program ignoruje porůznu upravené nelegální kopie časopisů, které se povalují po Internetu. Pokud originální CD či DVD s časopisy nemáte, můžete je koupit například zde:
+Většina elektronických vydání (PDF souborů) časopisů A-Radio Praktická Elektronika a Konstrukční elektronika je špatně vygenerovaná, takže v nich nejde hledat ani kopírovat text. To je v dnešním informačním věku dost výrazná vada. Tento Python program je umí hromadně opravit, avšak je nutné ho spustit z příkazové řádky. Abyste nemuseli instalovat Python a nezbytné balíky, je zde připaven hotový Windows program "GlyphRepair.exe", ve kterém už vše je. Program záměrně opravuje pouze originální PDF časopisy z CD a DVD, které byly vydány firmou AMARO, všechny ostatní soubory ignoruje. Na jménech souborů nezáleží, program kontroluje jejich binární obsah. Díky tomu je "blbuvzdorný" a nebude nic dělat, pokud ho třeba omylem spustíte jinde, než jste chtěli. To také znamená, že program ignoruje porůznu upravené a nelegální kopie časopisů, které se povalují po Internetu. Pokud originální CD či DVD s časopisy nemáte, můžete je koupit například zde:
 
- https://www.hezkyden.cz/shop/dvd-aradio/
+https://www.hezkyden.cz/shop/dvd-aradio/
 
 https://www.hezkyden.cz/shop/cd-aradio/
 
@@ -18,19 +18,23 @@ Některá vydání CD jsou hodně stará, ale my máme k dispozici pouze nejnov�
 
 Pointa programu je, že každý čtenář si může svoji sbírku opravit sám - na časopisy se vztahuje autorský zákon a jejich opravené kopie nelze volně šířit. Postup použití je následující:
 
-1. Někam na pevný disk z CD/DVD zkopírujte všechny soubory, které chcete opravit. Nejlepší je zachovat původní adresářovou strukturu po jednotlivých ročnících, program automaticky hledá ve všech podadresářích.
+1. Někam na pevný disk z CD/DVD zkopírujte všechny soubory, které chcete opravit. Nejlepší je zachovat původní adresářovou strukturu po jednotlivých ročnících, protože program automaticky hledá ve všech podadresářích.
 
-2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 4 soubory: [opravAR.exe](opravAR.exe), [magazine_hash.json](magazine_hash.json), [Type1toUnicode.exe](Type1toUnicode.exe) a [to_unicode.json](to_unicode.json). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
+2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 3 soubory: [GlyphRepair.exe](GlyphRepair.exe), [glyph_mappings.psv](glyph_mappings.psv) a [known_docs.psv](known_docs.psv). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
 
-3. Spusťte opravAR.exe. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, budťe proto trpěliví. Výsledky oprav se zobrazují v konzoli, neměli byste tam vidět žádné červené ani oranžové řádky. Zelené a modré řádky jsou v pořádku.
+3. V adresáři GlyphRepairu spusťte příkazovou řádku Windows (příkaz cmd). Do ní vložte příkaz
+```
+GlyphRepair.exe -m "c:\Casopisy jsou zde" -r -d known_docs.psv
+```
+&nbsp;&nbsp;&nbsp;&nbsp; V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, měli byste tam vidět převážně zelené a modré řádky. Když program narazí na nepodporovaný PDF soubor, tak se objeví červený řádek "[BLOCKED] File hash not found in known documents database." To je však správně. Pokud se objevují oranžové řádky o chybějícím mapovaní znaků nebo narazíte na jiné problémy, tak je nahlašte jako bug zde na GitHubu.
 
 4. Na disku se objeví opravené PDF soubory s koncovkou _Repaired, vždy ve stejném adresáři jako zdrojové soubory. Zdrojové soubory poté můžete smazat, například tak, že je nejdřív seřadíte podle data (originální PDF soubory jsou vždy starší, než opravené).
 
 Program byl vyvíjen a testován pouze na Windows, funkci na jiných OS neznáme. Zde jsou pro ukázku vzorky před a po opravě (snad se firma AMARO nebude zlobit), zkuste si z nich vykopírovat text:
 
-[T1tU_sample.zip](https://github.com/user-attachments/files/16921939/T1tU_sample.zip)
+[PE_vzorek.zip](https://github.com/user-attachments/files/28258521/PE_vzorek.zip)
 
-Oprava podporovaných časopisů je téměř stoprocentní, včetně řecké abecedy a jiných "exotických" znaků. Většinou nejdou opravit jen stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program umí opravit pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007).** Tyto časopisy mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a nejde v nich vůbec vyhledávat. Zde je přehled, co program aktuálně umí či neumí opravit:
+Oprava podporovaných časopisů je téměř stoprocentní, pouze je občas pomíchané velké I a malé L (mají přesně stejný tvar a program je nedokáže rozlišit). Někdy také nejdou opravit stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program opravuje pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007). Také opravuje obsahy ročníků PE.** Soubory těchto časopisů mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a tedy má největší smysl je opravit. Zde je podrobnější přehled:
 
 ![Prehled_AR_v040](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/4dafd779-fbe8-4540-8648-d66c8e9a8c9d)
 
@@ -38,7 +42,7 @@ Oprava podporovaných časopisů je téměř stoprocentní, včetně řecké abe
 
 Je nejasné, proč všechny ty časopisy mají špatné kódování textu. Nicméně je/bylo to **Amatérské** radio a ten amatérizmus se holt projevil i tímto způsobem. Naštěstí **po přechodu na nový grafický design od PE 04/2023 je už kódování správně** a v časopisech jde konečně normálně hledat bez ohledu na prohlížečku.
 
-Program vzniknul v rámci bakalářské práce ["XXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Opravná databáze znaků a tento návod byly vytvořeny vedoucím práce. Pokud vás zajímá, jak program interně funguje, přečtěte si tu bakalářku nebo anglický návod níže.
+Program vzniknul v rámci bakalářské práce ["XXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Opravná databáze znaků a tento návod byly vytvořeny vedoucím práce. Pokud vás zajímá, jak program funguje, přečtěte si tu bakalářku nebo anglický návod níže.
 
  # What GlyphRepair does
 This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair works around these limitations:
@@ -46,15 +50,15 @@ This program is designed to repair wrong text encoding ("mojibake") in PDF files
 * Meaning of each character (glyph) is manually defined (mapped) by user, which allows for 100% text fidelity.
 * GlyphRepair preserves original document data, only adds new text encoding tables to it.
 
-However, these advantages come at a price. The program is designed to work only with older PDF documents which use so-called [Type 1 fonts](https://en.wikipedia.org/wiki/PostScript_fonts#Type_1). And manual mapping of the characters can become a time-consuming task, although GlyphRepair auto-suggests them.
+However, these advantages come at a price. The program is designed to work only with older PDF documents which use so-called [Type 1 fonts](https://en.wikipedia.org/wiki/PostScript_fonts#Type_1). And manual mapping of the characters can become a time-consuming task, even though GlyphRepair auto-suggests them.
  
  # Before you start
 
-Do you really need to permanently fix your PDF files? Or do you merely need to copy some text? If so, there may be a faster way: **[open-source viewer Evince](https://wiki.gnome.org/Apps/Evince) can return meaningful text even on files that are completely garbled in other PDF viewers** (we tested Adobe Reader, Sumatra PDF, PDF-XChange Viewer, Mozilla Firefox, Google Chrome and others). It's probably because Evince internally uses some sort of heuristics. Nevertheless, even Evince will usually correctly copy only standard ASCII characters (codes 32 to 126); special characters for foreign languages may still be garbled. And unfortunately, Evince is currently available only on Linux.
+Do you really need to permanently fix your PDF files? Or do you merely need to copy some text? If so, there may be a faster way: **[open-source viewer Evince](https://wiki.gnome.org/Apps/Evince) can return meaningful text even on files that are completely garbled in other PDF viewers** (we tested Adobe Reader, Sumatra PDF, PDF-XChange Viewer, Mozilla Firefox, Google Chrome and others). It's probably because Evince internally uses some sort of heuristics. However, even Evince will usually correctly copy only standard ASCII characters (codes 32 to 126); special characters for foreign languages may still be garbled. And unfortunately, Evince is currently available only on Linux.
 
 # How to run GlyphRepair
 
-You should download the program and glyph_mappings.psv database and put them to the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary packages, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first.
+You should download the program and glyph_mappings.psv database and put them to the same directory. You can run Python code directly or use Windows executable we compiled. The executable already contains all the necessary packages, so it runs right out the box. You will probably encounter [blue SmartScreen filter warning](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345) when you run it for the first time. These warnings vary between Windows versions, either there is "Run anyway" button or you need to click on "More information" first. [Here](#building-windows-exe-from-source) are instructions if you wish to compile the executable yourself.
 
 If you want to run Python code, you have to install following packages:
 * NumPy 2.0.2 https://numpy.org/
@@ -89,13 +93,13 @@ As we mentioned earlier, GlyphRepair currently supports only one PDF font type w
 <img width="652" height="532" alt="Analysis font list" src="https://github.com/user-attachments/assets/94d41779-0d58-4ddf-b972-a59ceb79aadc" />
 <p>
 
-If your file doesn't contain any repairable fonts, you will get message "This document does not contain any fonts that can be repaired." If that happens, there are other programs that may be able to fix it, but with lower fidelity. We wrote about [one of them here](#other-ways-to-fix-your-documents-but-with-lower-fidelity).
+If your file contains only unsupported fonts, you will get message "This document does not contain any fonts that can be repaired." If that happens, there are other programs that may be able to repair it, but with lower fidelity. We wrote about [one of them here](#other-ways-to-fix-your-documents-but-with-lower-fidelity).
 
 # Mapping your first document
 
 You can test GlyphRepair on this sample 2-page document, provided under [fair use](https://en.wikipedia.org/wiki/Fair_use) doctrine:
 
-[GR_Sample.zip](https://github.com/user-attachments/files/28198468/GR_Sample.zip)
+[GR_Sample.zip](https://github.com/user-attachments/files/28260300/GR_Sample.zip)
 
 Note the sample will appear as fully mapped if you load it with default glyph_mappings.psv database from main repository. Therefore, the sample also contains much smaller glyph_mappings.psv which contains mapping only for one font. Simply overwrite it; you can always download full database again.
 
@@ -125,7 +129,7 @@ This will display another input field which accepts only string of 4 or 5 hexade
 <img width="1202" height="855" alt="First document Unicode enabled" src="https://github.com/user-attachments/assets/7b7abc75-50c3-420d-a243-ce87ec42498a" />
 </p>
 
-You track your mapping progress near top of the window. You can click and switch the progress bar between 4 modes: glyphs on current font, glyphs on current page, glyphs in entire document or finished page counter:
+You can track your mapping progress near top of the window. You can click and switch the progress bar between 4 modes: glyphs on current font, glyphs on current page, glyphs in entire document or finished page counter:
 
 <p>
 <img width="262" height="197" alt="Mapping progress bars" src="https://github.com/user-attachments/assets/f0420f3f-e403-4dd2-93c1-10c1dfa4b2f3" />
@@ -198,24 +202,29 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
  # Saving repaired document
 
-**Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents.
+**Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents. **Therefore, don't lose your glyph_mappings.psv database if you plan to repair other documents in the future!**
 
-As you've probably guessed, you have to use Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
+As you've probably guessed, you click on Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
 
 <p>
 <img width="552" height="432" alt="Repair with missing glyphs" src="https://github.com/user-attachments/assets/0daa912d-cf6d-4893-a23d-f26eeec3dce2" />
 </p>
 
-The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. Repaired file will be saved to the same directory as source file; program will attach suffixes _Repaired or _Partially_Repaired to their name.
+The big Start Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. The program will then display log of repair steps and final font statistics:
 
- **TBD**
+<p>
+<img width="552" height="432" alt="Repair log with missing glyphs" src="https://github.com/user-attachments/assets/407bbffe-5d11-45fb-aa34-625ecff1c265" />
+</p>
+
+Repaired file will be saved to the same directory as source file; program will attach suffixes _Repaired or _Partially_Repaired to their name. It automatically overwrites files with the same name.
+
 
  # What is AGL?
 
-You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it and leaves all such fonts untouched.
+You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph whose Glyph Name is "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it and leaves all such fonts untouched.
 
 <p>
-<img width="1202" height="855" alt="AGL font example" src="https://github.com/user-attachments/assets/95c85c04-2f77-444c-82a0-b6267f72c30d" />
+<img width="1202" height="855" alt="AGL font example" src="https://github.com/user-attachments/assets/87be4ea4-cb31-44f7-a2de-929c3e5856a0" />
 </p>
 
  # How GlyphRepair works internally 
@@ -263,7 +272,7 @@ The glyph database is designed to be human-readable and editable. It's a [Pipe-S
 * Name of glyph's source font when mapping was done.
 * Glyph Name copied from the source font.
 * Unicode of character, assigned (mapped) by user.
-* Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
+* Adobe Glyph List name, if the mapped character has one. The program calculates and stores these solely to ease manual searching and editing of the database; they aren't otherwise used.
 
 In practice, it looks like this:
 ```
@@ -275,6 +284,8 @@ In practice, it looks like this:
 0093634fbd7c628df8598147529265de|AFGFPL+Arial.tu.n.0111.125|G106|006a|j
 ```
 GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows in glyph_mappings.psv. You can easily import the file to MS Excel or other similar program to search, sort or otherwise modify it.
+
+You may notice there are many .notdef characters in the database. These are required by PDF standard, but unfortunately they're sometimes missing in real-world fonts. If it happens, GlyphRepair is unable to determine font's height, as we [explained earlier](#deciding-between-uppercase-and-lowercase-characters).
 
 ## Why so many font names start with strings like ABCDEF+ ?
 
@@ -328,6 +339,45 @@ You can also include subdirectories with ```forfiles /s``` option. We currently 
 
 You can further expand these results if you run GlyphRepair with -v or --verbose option.
 
+# Building Windows EXE from source
+To ensure transparency and allow verification of the binary, you can compile the executable directly from the source code. The project uses **PyInstaller** for compilation, optimized by excluding unused PySide6 and standard modules to minimize the final file size. There are two recommended ways to build the executable:
+
+## Standard Build
+This command generates a standalone executable by explicitly stripping away heavy modules that are not required by the application (such as Qml, WebEngine, or Multimedia):
+```
+pyinstaller --console --onefile ^
+--exclude-module PySide6.QtNetwork ^
+--exclude-module PySide6.QtQml ^
+--exclude-module PySide6.QtSql ^
+--exclude-module PySide6.QtQuick ^
+--exclude-module PySide6.QtWebEngine ^
+--exclude-module PySide6.QtWebEngineCore ^
+--exclude-module PySide6.QtBluetooth ^
+--exclude-module PySide6.QtMultimedia ^
+--exclude-module tkinter ^
+--exclude-module unittest ^
+GlyphRepair.py
+```
+Resulting file size: approx. 70 MB
+
+## Compressed Build (Using UPX)
+If you prefer a smaller binary, you can enable compression using UPX (Ultimate Packer for eXecutables). Download UPX and provide the path to its directory using the --upx-dir flag:
+```
+pyinstaller --console --onefile \
+  --exclude-module PySide6.QtNetwork ^
+  --exclude-module PySide6.QtQml ^
+  --exclude-module PySide6.QtSql ^
+  --exclude-module PySide6.QtQuick ^
+  --exclude-module PySide6.QtWebEngine ^
+  --exclude-module PySide6.QtWebEngineCore ^
+  --exclude-module PySide6.QtBluetooth ^
+  --exclude-module PySide6.QtMultimedia ^
+  --exclude-module tkinter ^
+  --exclude-module unittest ^
+  --upx-dir="path\to\upx-folder" ^
+  GlyphRepair.py
+```
+Resulting file size: approx. 60 MB
 
 # Known limitations and issues
 
@@ -347,7 +397,7 @@ GlyphRepair was developed as part of bachelor's thesis ["XXXXXXXXXXXXXXXXXXXXXXX
 
 If you don't need to preserve document's fidelity, garbled text encoding can be permanently fixed via OCR. Each page is rendered as ordinary bitmap image (it's called "flattening") and then fed to OCR. However, most OCR algorithms still struggle with diacritics, math and/or non-latin characters, so the extracted text usually contains errors. Also, vector graphics may not be preserved, depending on how smart the OCR algorithm is. That's usually highly undesirable and may significantly increase output file size. 
 
-There **are** programs that can fix garbled PDFs via OCR while (mostly) preserving vector contents of the document. One of them is open source [Ghostscript by Artifex Software](https://www.ghostscript.com/). A few years ago, they [enhanced its PDFwrite output device](https://ghostscript.readthedocs.io/en/latest/Devices.html#vector-pdf-output-with-ocr-unicode-cmaps) with (also open source) [Tesseract OCR](https://tesseract-ocr.github.io/tessdoc/Installation.html). Sadly, Artifex doesn't advertise this feature much and there were several bugs that prevented it from working properly. You need to install Ghostscript 10.06.0 or newer if you want to use it. It comes bundled with its own copy of Tesseract OCR, so you don't need to install it separately. On Windows, you'll need to [set up TESSDATA_PREFIX environment variable](https://ghostscript.readthedocs.io/en/latest/Devices.html#ocr-text-output) to a directory with [Tesseract language files of your choice](https://tesseract-ocr.github.io/tessdoc/Data-Files.html). Ghostscript has many options and usually requires several parameters to do what you want. For example, to repair our sample file, it's necessary to use
+Nevertherless, there **are** programs that can fix garbled PDFs via OCR while (mostly) preserving vector contents of the document. One of them is open source [Ghostscript by Artifex Software](https://www.ghostscript.com/). A few years ago, they [enhanced its PDFwrite output device](https://ghostscript.readthedocs.io/en/latest/Devices.html#vector-pdf-output-with-ocr-unicode-cmaps) with (also open source) [Tesseract OCR](https://tesseract-ocr.github.io/tessdoc/Installation.html). Sadly, Artifex doesn't advertise this feature much and there were several bugs that prevented it from working properly. You need to install Ghostscript 10.06.0 or newer if you want to use it. It comes bundled with its own copy of Tesseract OCR, so you don't need to install it separately. On Windows, you'll need to [set up TESSDATA_PREFIX environment variable](https://ghostscript.readthedocs.io/en/latest/Devices.html#ocr-text-output) to a directory with [Tesseract language files of your choice](https://tesseract-ocr.github.io/tessdoc/Data-Files.html). Ghostscript has many options and usually requires several parameters to do what you want. For example, to repair our sample file, it's necessary to use
 ```
 gswin64c -dNOPAUSE -sDEVICE=pdfwrite -sUseOCR=AsNeeded -sOCRLanguage="ces" -dAutoFilterColorImages=false -dColorImageFilter=/FlateEncode -dAutoFilterGrayImages=false -dGrayImageFilter=/FlateEncode  -sOutputFile=sample_repaired_Ghostscript.pdf sample_2_pages.pdf -c quit
 ```
