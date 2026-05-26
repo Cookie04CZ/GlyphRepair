@@ -18,15 +18,15 @@ Některá vydání CD jsou hodně stará, ale my máme k dispozici pouze nejnov�
 
 Pointa programu je, že každý čtenář si může svoji sbírku opravit sám - na časopisy se vztahuje autorský zákon a jejich opravené kopie nelze volně šířit. Postup použití je následující:
 
-1. Někam na pevný disk z CD/DVD zkopírujte všechny soubory, které chcete opravit. Nejlepší je zachovat původní adresářovou strukturu po jednotlivých ročnících, program automaticky hledá ve všech podadresářích.
+1. Někam na pevný disk z CD/DVD zkopírujte všechny soubory, které chcete opravit. Nejlepší je zachovat původní adresářovou strukturu po jednotlivých ročnících, protože program automaticky hledá ve všech podadresářích.
 
-2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 4 soubory: [opravAR.exe](opravAR.exe), [magazine_hash.json](magazine_hash.json), [Type1toUnicode.exe](Type1toUnicode.exe) a [to_unicode.json](to_unicode.json). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
+2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 3 soubory: [GlyphRepair.exe](GlyphRepair.exe), [glyph_mappings.psv](glyph_mappings.psv) a [known_docs.psv](known_docs.psv). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
 
 3. V adresáři GlyphRepairu spusťte příkazovou řádku Windows (příkaz cmd). Do ní vložte příkaz
 ```
 GlyphRepair.exe -m "c:\Casopisy jsou zde" -r -d known_docs.psv
 ```
- V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, měli byste tam vidět převážně zelená a modrá hlášení. Když program narazí na nepodporovaný PDF soubor, tak se objeví červené hlášení "[BLOCKED] File hash not found in known documents database." To je však správně. Pokud se objevují oranžové řádky nebo narazíte na jiné problémy, tak je nahlašte jako bug zde na GitHubu.
+</>V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, měli byste tam vidět převážně zelené a modré řádky. Když program narazí na nepodporovaný PDF soubor, tak se objeví červený řádek "[BLOCKED] File hash not found in known documents database." To je však správně. Pokud se objevují oranžové řádky o chybějícím mapovaní znaků nebo narazíte na jiné problémy, tak je nahlašte jako bug zde na GitHubu.
 
 4. Na disku se objeví opravené PDF soubory s koncovkou _Repaired, vždy ve stejném adresáři jako zdrojové soubory. Zdrojové soubory poté můžete smazat, například tak, že je nejdřív seřadíte podle data (originální PDF soubory jsou vždy starší, než opravené).
 
@@ -34,7 +34,7 @@ Program byl vyvíjen a testován pouze na Windows, funkci na jiných OS neznáme
 
 [PE_vzorek.zip](https://github.com/user-attachments/files/28258521/PE_vzorek.zip)
 
-Oprava podporovaných časopisů je téměř stoprocentní, pouze je občas pomíchané velké I a malé L (mají přesně stejný tvar a program je nedokáže odlišit). Někdy také nejdou opravit stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program umí opravit pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007). Také opravuje obsahy ročníků.** Jejich PDF soubory mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a tedy má největší smysl je opravit. Zde je přehled podporovaých časopisů:
+Oprava podporovaných časopisů je téměř stoprocentní, pouze je občas pomíchané velké I a malé L (mají přesně stejný tvar a program je nedokáže rozlišit). Někdy také nejdou opravit stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program opravuje pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007). Také opravuje obsahy ročníků PE.** Soubory těchto časopisů mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a tedy má největší smysl je opravit. Zde je podrobnější přehled:
 
 ![Prehled_AR_v040](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/4dafd779-fbe8-4540-8648-d66c8e9a8c9d)
 
@@ -42,7 +42,7 @@ Oprava podporovaných časopisů je téměř stoprocentní, pouze je občas pom�
 
 Je nejasné, proč všechny ty časopisy mají špatné kódování textu. Nicméně je/bylo to **Amatérské** radio a ten amatérizmus se holt projevil i tímto způsobem. Naštěstí **po přechodu na nový grafický design od PE 04/2023 je už kódování správně** a v časopisech jde konečně normálně hledat bez ohledu na prohlížečku.
 
-Program vzniknul v rámci bakalářské práce ["XXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Opravná databáze znaků a tento návod byly vytvořeny vedoucím práce. Pokud vás zajímá, jak program interně funguje, přečtěte si tu bakalářku nebo anglický návod níže.
+Program vzniknul v rámci bakalářské práce ["XXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Opravná databáze znaků a tento návod byly vytvořeny vedoucím práce. Pokud vás zajímá, jak program funguje, přečtěte si tu bakalářku nebo anglický návod níže.
 
  # What GlyphRepair does
 This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair works around these limitations:
@@ -99,7 +99,7 @@ If your file contains only unsupported fonts, you will get message "This documen
 
 You can test GlyphRepair on this sample 2-page document, provided under [fair use](https://en.wikipedia.org/wiki/Fair_use) doctrine:
 
-[GR_Sample.zip](https://github.com/user-attachments/files/28198468/GR_Sample.zip)
+[GR_Sample.zip](https://github.com/user-attachments/files/28260300/GR_Sample.zip)
 
 Note the sample will appear as fully mapped if you load it with default glyph_mappings.psv database from main repository. Therefore, the sample also contains much smaller glyph_mappings.psv which contains mapping only for one font. Simply overwrite it; you can always download full database again.
 
@@ -332,6 +332,45 @@ You can also include subdirectories with ```forfiles /s``` option. We currently 
 
 You can further expand these results if you run GlyphRepair with -v or --verbose option.
 
+# Building Windows EXE from source
+To ensure transparency and allow verification of the binary, you can compile the executable directly from the source code. The project uses **PyInstaller** for compilation, optimized by excluding unused PySide6 and standard modules to minimize the final file size. There are two recommended ways to build the executable:
+
+## Standard Build
+This command generates a standalone executable by explicitly stripping away heavy modules that are not required by the application (such as Qml, WebEngine, or Multimedia):
+```
+pyinstaller --console --onefile ^
+--exclude-module PySide6.QtNetwork ^
+--exclude-module PySide6.QtQml ^
+--exclude-module PySide6.QtSql ^
+--exclude-module PySide6.QtQuick ^
+--exclude-module PySide6.QtWebEngine ^
+--exclude-module PySide6.QtWebEngineCore ^
+--exclude-module PySide6.QtBluetooth ^
+--exclude-module PySide6.QtMultimedia ^
+--exclude-module tkinter ^
+--exclude-module unittest ^
+GlyphRepair.py
+```
+Resulting file size: approx. 70 MB
+
+## Compressed Build (Using UPX)
+If you prefer a smaller binary, you can enable compression using UPX (Ultimate Packer for eXecutables). Download UPX and provide the path to its directory using the --upx-dir flag:
+```
+pyinstaller --console --onefile \
+  --exclude-module PySide6.QtNetwork ^
+  --exclude-module PySide6.QtQml ^
+  --exclude-module PySide6.QtSql ^
+  --exclude-module PySide6.QtQuick ^
+  --exclude-module PySide6.QtWebEngine ^
+  --exclude-module PySide6.QtWebEngineCore ^
+  --exclude-module PySide6.QtBluetooth ^
+  --exclude-module PySide6.QtMultimedia ^
+  --exclude-module tkinter ^
+  --exclude-module unittest ^
+  --upx-dir="path\to\upx-folder" ^
+  GlyphRepair.py
+```
+Resulting file size: approx. 60 MB
 
 # Known limitations and issues
 
