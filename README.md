@@ -272,7 +272,7 @@ The glyph database is designed to be human-readable and editable. It's a [Pipe-S
 * Name of glyph's source font when mapping was done.
 * Glyph Name copied from the source font.
 * Unicode of character, assigned (mapped) by user.
-* Adobe Glyph List name, if the mapped character has one. The program calculates these solely to ease searching; they aren't otherwise used.
+* Adobe Glyph List name, if the mapped character has one. The program calculates and stores these solely to ease manual searching and editing of the database; they aren't otherwise used.
 
 In practice, it looks like this:
 ```
