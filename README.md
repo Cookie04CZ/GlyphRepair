@@ -6,7 +6,7 @@ PDF copy-paste gibberish, mojibake, PDF font encoding repair, Type1 font, toUnic
 
 # Oprava textu v časopisech AMARO
 
-Většina elektronických vydání (PDF souborů) časopisů A-Radio Praktická Elektronika a Konstrukční elektronika je špatně vygenerovaná, takže v nich nejde hledat ani kopírovat text. To je v dnešním informačním věku dost výrazná vada. Tento Python program to umí opravit, přičemž je koncipován tak, aby jeho použití bylo co nejjednodušší. Abyste nemuseli instalovat Python a nezbytné balíky, je zde připaven hotový spustitelný program "opravAR.exe", ve kterém už vše je. Program záměrně opravuje pouze originální PDF časopisy z CD a DVD, které byly vydány firmou AMARO, všechny ostatní soubory ignoruje. Díky tomu je "blbuvzdorný" a nebude nic dělat, pokud ho třeba omylem spustíte jinde, než jste chtěli. To také znamená, že program ignoruje porůznu upravené nelegální kopie časopisů, které se povalují po Internetu. Pokud originální CD či DVD s časopisy nemáte, můžete je koupit například zde:
+Většina elektronických vydání (PDF souborů) časopisů A-Radio Praktická Elektronika a Konstrukční elektronika je špatně vygenerovaná, takže v nich nejde hledat ani kopírovat text. To je v dnešním informačním věku dost výrazná vada. Tento Python program je umí hromadně opravit, avšak je nutné ho spustit z příkazové řádky. Abyste nemuseli instalovat Python a nezbytné balíky, je zde připaven hotový Windows program "GlyphRepair.exe", ve kterém už vše je. Program záměrně opravuje pouze originální PDF časopisy z CD a DVD, které byly vydány firmou AMARO, všechny ostatní soubory ignoruje. Na jménech souborů nezáleží, program kontroluje jejich binární obsah. Díky tomu je "blbuvzdorný" a nebude nic dělat, pokud ho třeba omylem spustíte jinde, než jste chtěli. To také znamená, že program ignoruje porůznu upravené nelegální kopie časopisů, které se povalují po Internetu. Pokud originální CD či DVD s časopisy nemáte, můžete je koupit například zde:
 
  https://www.hezkyden.cz/shop/dvd-aradio/
 
@@ -22,15 +22,19 @@ Pointa programu je, že každý čtenář si může svoji sbírku opravit sám -
 
 2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 4 soubory: [opravAR.exe](opravAR.exe), [magazine_hash.json](magazine_hash.json), [Type1toUnicode.exe](Type1toUnicode.exe) a [to_unicode.json](to_unicode.json). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
 
-3. Spusťte opravAR.exe. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, budťe proto trpěliví. Výsledky oprav se zobrazují v konzoli, neměli byste tam vidět žádné červené ani oranžové řádky. Zelené a modré řádky jsou v pořádku.
+3. V adresáři GlyphRepairu spusťte příkazovou řádku Windows (příkaz cmd). Do ní vložte příkaz
+```
+GlyphRepair.exe -m "c:\Casopisy jsou zde" -r -d known_docs.psv
+```
+V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, budťe proto trpěliví. Výsledky oprav se zobrazují v konzoli, neměli byste tam vidět žádné červené ani oranžové řádky. Zelené a modré řádky jsou v pořádku.
 
 4. Na disku se objeví opravené PDF soubory s koncovkou _Repaired, vždy ve stejném adresáři jako zdrojové soubory. Zdrojové soubory poté můžete smazat, například tak, že je nejdřív seřadíte podle data (originální PDF soubory jsou vždy starší, než opravené).
 
 Program byl vyvíjen a testován pouze na Windows, funkci na jiných OS neznáme. Zde jsou pro ukázku vzorky před a po opravě (snad se firma AMARO nebude zlobit), zkuste si z nich vykopírovat text:
 
-[T1tU_sample.zip](https://github.com/user-attachments/files/16921939/T1tU_sample.zip)
+[GR_Sample.zip](https://github.com/user-attachments/files/28198468/GR_Sample.zip)
 
-Oprava podporovaných časopisů je téměř stoprocentní, včetně řecké abecedy a jiných "exotických" znaků. Většinou nejdou opravit jen stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program umí opravit pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007).** Tyto časopisy mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a nejde v nich vůbec vyhledávat. Zde je přehled, co program aktuálně umí či neumí opravit:
+Oprava podporovaných časopisů je téměř stoprocentní, včetně řecké abecedy a jiných "exotických" znaků. Většinou nejdou opravit jen stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program umí opravit pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007).** Tyto časopisy mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a nejde v nich vůbec vyhledávat. Zde je přehled podporovaých časopisů:
 
 ![Prehled_AR_v040](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/4dafd779-fbe8-4540-8648-d66c8e9a8c9d)
 
