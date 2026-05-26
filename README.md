@@ -210,7 +210,7 @@ As you've probably guessed, you click on Repair PDF button in the top left corne
 <img width="552" height="432" alt="Repair with missing glyphs" src="https://github.com/user-attachments/assets/0daa912d-cf6d-4893-a23d-f26eeec3dce2" />
 </p>
 
-The big Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. The program will also display log of repair steps and final font statistics:
+The big Start Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. The program will then display log of repair steps and final font statistics:
 
 <p>
 <img width="552" height="432" alt="Repair log with missing glyphs" src="https://github.com/user-attachments/assets/407bbffe-5d11-45fb-aa34-625ecff1c265" />
