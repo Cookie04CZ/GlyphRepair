@@ -285,6 +285,8 @@ In practice, it looks like this:
 ```
 GlyphRepair has no way to "unmap" or "forget" fonts. If you want to delete them from the database, you have to search and delete their rows in glyph_mappings.psv. You can easily import the file to MS Excel or other similar program to search, sort or otherwise modify it.
 
+You may notice there are many .notdef characters in the database. There are required by PDF standard, but unfortunately they are sometimes missing in real-world fonts. If it happens, GlyphRepair is unable to determine font's height, as we [explained earlier](#deciding-between-uppercase-and-lowercase-characters).
+
 ## Why so many font names start with strings like ABCDEF+ ?
 
 As we mentioned in previous chapter, Type 1 embedded subset fonts store only glyphs that are needed to render the given document. The PDF standard stipulates that names of such fonts must start with so-called Font Subset Tag, which is a string of 6 random uppercase letters A-Z, followed by +. You should ignore these tags when searching the fonts, as they don't convey any meaningful information.
