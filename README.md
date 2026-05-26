@@ -221,10 +221,10 @@ Repaired file will be saved to the same directory as source file; program will a
 
  # What is AGL?
 
-You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph named "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it and leaves all such fonts untouched.
+You may notice that GlyphRepair automatically skips glyphs and fonts that are displayed blue in the GUI. These are Type 1 fonts whose glyphs have special naming scheme [Adobe Glyph List](https://en.wikipedia.org/wiki/Adobe_Glyph_List). Theoretically, glyph whose Glyph Name is "Aacute" should always represent letter "Á" and so on, you can see [their full list here](https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt). Unfortunately, it's not always true in practice, so we played with the idea that GlyphRepair could remap AGL glyphs, too. But the current GlyphRepair version **does not** support it and leaves all such fonts untouched.
 
 <p>
-<img width="1202" height="855" alt="AGL font example" src="https://github.com/user-attachments/assets/95c85c04-2f77-444c-82a0-b6267f72c30d" />
+<img width="1202" height="855" alt="AGL font example" src="https://github.com/user-attachments/assets/87be4ea4-cb31-44f7-a2de-929c3e5856a0" />
 </p>
 
  # How GlyphRepair works internally 
