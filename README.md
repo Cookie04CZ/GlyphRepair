@@ -147,9 +147,15 @@ Whenever possible, GlyphRepair displays two thin blue guidelines that should hel
 
 <img width="827" height="446" alt="Character height guidelines" src="https://github.com/user-attachments/assets/f1e2fdb4-8bab-4ad7-8ecd-84943ebd73aa" />
 
-## Where to find and copy special characters
+## Where to find and copy characters
 
-GlyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. But of course there are many other sites with searchable lists of Unicode characters:
+You may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European languages. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du):
+
+<p>
+<img width="831" height="804" alt="Windows-1250 character table" src="https://github.com/user-attachments/assets/79ad5665-93a7-4c54-b0c1-54832fb9e08a" />
+</p>
+
+Apart from that, glyphRepair has button Special Characters which links to a [web page of common scientific, typographical and dingbat symbols](https://www.vertex42.com/ExcelTips/unicode-symbols.html), so you could easily copy and paste them. But of course there are many other sites with searchable lists of Unicode characters:
 
 https://unicodeplus.com/
 
@@ -157,7 +163,6 @@ https://www.compart.com/en/unicode
 
 https://unicode.org/charts/
 
-However, you may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European languages. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du).
 
 # Glyph database and its impact on auto-suggestion
 
