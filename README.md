@@ -20,7 +20,7 @@ Pointa programu je, že každý čtenář si může svoji sbírku opravit sám -
 
 1. Někam na pevný disk z CD/DVD zkopírujte všechny soubory, které chcete opravit. Nejlepší je zachovat původní adresářovou strukturu po jednotlivých ročnících, protože program automaticky hledá ve všech podadresářích.
 
-2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 3 soubory: [GlyphRepair.exe](GlyphRepair.exe), [glyph_mappings.psv](glyph_mappings.psv) a [known_docs.psv](known_docs.psv). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
+2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 3 soubory: [GlyphRepair.exe](https://github.com/Cookie04CZ/GlyphRepair/releases/download/GlyphRepair/GlyphRepair.exe), [glyph_mappings.psv](glyph_mappings.psv) a [known_docs.psv](known_docs.psv). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
 
 3. V adresáři GlyphRepairu spusťte příkazovou řádku Windows (příkaz cmd). Do ní vložte příkaz
 ```
@@ -149,7 +149,7 @@ Whenever possible, GlyphRepair displays two thin blue guidelines that should hel
 
 ## Where to find and copy characters
 
-You may find all the characters you need in once place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European languages. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du):
+You may find all the characters you need in one place. Type 1 fonts are usually based on legacy character sets, so it could be useful to check your file's metadata for clues what they may be. Legacy character sets [varied between languages and operating systems](https://en.wikipedia.org/wiki/Code_page), but usually they're easy to guess. In our case, the magazines were authored in a Windows program and therefore they are based on Windows-1250 code page for Central European languages. So we simply found a web page with a table of all Windows-1250 characters, like [this one](https://cs.wikipedia.org/wiki/Windows-1250#Mapov%C3%A1n%C3%AD_do_Unik%C3%B3du):
 
 <p>
 <img width="831" height="804" alt="Windows-1250 character table" src="https://github.com/user-attachments/assets/79ad5665-93a7-4c54-b0c1-54832fb9e08a" />
@@ -347,7 +347,7 @@ You can also include subdirectories with ```forfiles /s``` option. We currently 
 You can further expand these results if you run GlyphRepair with -v or --verbose option.
 
 # Building Windows EXE from source
-To ensure transparency and allow verification of the binary, you can compile the executable directly from the source code. The project uses **PyInstaller** for compilation, optimized by excluding unused PySide6 and standard modules to minimize the final file size. There are two recommended ways to build the executable:
+To ensure transparency and to allow for verification of the binary, you can compile the executable directly from the source code. The project uses **PyInstaller** for compilation, optimized by excluding unused PySide6 and standard modules to minimize the final file size. There are two recommended ways to build the executable:
 
 ## Standard Build
 This command generates a standalone executable by explicitly stripping away heavy modules that are not required by the application (such as Qml, WebEngine, or Multimedia):
@@ -368,7 +368,7 @@ GlyphRepair.py
 Resulting file size: approx. 70 MB
 
 ## Compressed Build (Using UPX)
-If you prefer a smaller binary, you can enable compression using UPX (Ultimate Packer for eXecutables). Download UPX and provide the path to its directory using the --upx-dir flag:
+If you prefer even smaller binary, you can enable compression using UPX (Ultimate Packer for eXecutables). Download UPX and provide the path to its directory using the --upx-dir flag:
 ```
 pyinstaller --console --onefile \
   --exclude-module PySide6.QtNetwork ^
