@@ -1271,7 +1271,7 @@ class FontWidget(QMainWindow):
         self.user_glyph_to_char = {}  # Stores current session mappings
         self.font_cache = {}  # Caches extracted font data to avoid re-parsing
         self.known_glyph_hashes = set()  # Stores hashes already in the PSV database
-        self.history_stack = [] # Last repaired glyphs
+        self.history_stack = []  # Last repaired glyphs
 
         # Setup GUI components
         self._setup_menus()
@@ -3496,44 +3496,62 @@ class FontWidget(QMainWindow):
                 with fitz.open(self.pdf_path) as doc_final:
                     success_count = 0
 
-                    # Loop through fonts and match sequences
-                    for idx, (xref, v_seq) in enumerate(visual_sequence.items(), 1):
+                    for idx, xref in enumerate(visual_sequence.keys(), 1):
                         i_seq = internal_sequence.get(xref, [])
-                        font_name = font_cache_local.get(xref, {}).get("name", "Not found")
+                        f_data = font_cache_local.get(xref)
+                        font_name = f_data.get("name", "Not found")
 
                         dialog.log(f"  [{idx}/{ready_fonts_count}] Processing font: '{font_name}'")
-                        dialog.log(f"      -> Characters detected - Visual: {len(v_seq)} | Internal: {len(i_seq)}", "#aaaaaa")
 
-                        # For matching sequences generate mapping and ToUnicode
-                        if len(v_seq) == len(i_seq):
-                            mapping = {}
-                            # Match sequences
-                            for v_hex, i_id in zip(v_seq, i_seq):
-                                if v_hex == "IGNORE_AGL":
-                                    continue
-                                if i_id not in mapping:
-                                    mapping[i_id] = v_hex
+                        if not i_seq:
+                            continue
 
-                            # Skip full AGL fonts
-                            if not mapping:
-                                dialog.log(f"      -> [INFO] Only standard AGL characters used, skipping ToUnicode.", "#aaaaaa")
-                                success_count += 1
+                        mapping = {}
+                        unique_cids = set(i_seq)
+
+                        if "hash_to_names" not in f_data:
+                            htn = {}
+                            for gn in f_data["glyph_set"].keys():
+                                gh = get_standalone_glyph_hash(f_data["glyph_set"], gn)
+                                if gh:
+                                    htn.setdefault(gh, set()).add(gn)
+                            f_data["hash_to_names"] = htn
+
+                        for cid in unique_cids:
+                            # Get gyph name using internal sequence
+                            g_name = f_data["diffs"].get(cid, f_data["enc"].get(cid, ".notdef"))
+
+                            if g_name == ".notdef":
                                 continue
 
-                            # Generate ToUnicode from mapping
-                            real_cmap = generate_real_tounicode(mapping)
-                            new_xref = doc_final.get_new_xref()
-                            doc_final.update_object(new_xref, "<<>>")
-                            doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
-                            doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+                            # Get hash using glyph set
+                            g_hash = get_standalone_glyph_hash(f_data["glyph_set"], g_name)
+                            same_hash_names = f_data["hash_to_names"].get(g_hash, set())
+                            u_hex = find_best_unicode(g_hash, g_name, db_map, same_hash_names)
 
-                            # Log success
+                            # Create mapping
+                            if u_hex:
+                                mapping[cid] = u_hex
+                            elif g_name in EXTENDED_AGL:
+                                mapping[cid] = format(EXTENDED_AGL[g_name], '04X')
+
+                        if not mapping:
+                            dialog.log(f"      -> [INFO] Only standard mappings found, skipping ToUnicode.", "#aaaaaa")
                             success_count += 1
-                            dialog.log(f"      -> ToUnicode generated (Size: {len(real_cmap)} bytes)", "#aaaaaa")
-                            dialog.log(f"      -> Injected under xref: {new_xref}", "#aaaaaa")
-                            dialog.log(f"      -> [SUCCESS] {len(mapping)} unique glyphs mapped", "#00ff00")
-                        else:
-                            dialog.log(f"      -> [ERROR] Sequence lengths do not match, skipping font...", "#ff4444")
+                            continue
+
+                        # Generate ToUnicode from mapping and inject it
+                        real_cmap = generate_real_tounicode(mapping)
+                        new_xref = doc_final.get_new_xref()
+                        doc_final.update_object(new_xref, "<<>>")
+                        doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
+                        doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+
+                        # Log success
+                        success_count += 1
+                        dialog.log(f"      -> ToUnicode generated (Size: {len(real_cmap)} bytes)", "#aaaaaa")
+                        dialog.log(f"      -> Injected under xref: {new_xref}", "#aaaaaa")
+                        dialog.log(f"      -> [SUCCESS] {len(mapping)} unique glyphs mapped", "#00ff00")
 
                     dialog.log("\n[INFO] Cleanup and file saving to disk...", "#aaaaaa")
                     base, ext = os.path.splitext(self.pdf_path)
@@ -3684,7 +3702,6 @@ def get_differences(doc, xref):
         # Extract differences
         diff_type, diff_val = doc.xref_get_key(xref, "Encoding/Differences")
 
-
         if diff_type != "array":
             return {}
 
@@ -3709,6 +3726,7 @@ def get_differences(doc, xref):
     except Exception as e:
         print(f"Error while loading differences: {e}")
         return {}
+
 
 # Generate temporary ToUnicode cmap
 def generate_temp_tounicode():
@@ -3793,18 +3811,34 @@ def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callba
                             try:
                                 cff = CFFFontSet()
                                 cff.decompile(BytesIO(buffer), None)
-                                glyph_set = cff[0].CharStrings
+                                glyph_set = cff.topDictIndex[0].CharStrings
                                 pdf_diffs = get_differences(doc, xref)
-                                try:
+
+                                internal_enc = {}
+                                topDict = cff.topDictIndex[0]
+
+                                # Use default encoding if avalible
+                                if hasattr(topDict, "Encoding"):
+                                    enc = topDict.Encoding
+                                    if isinstance(enc, list):
+                                        internal_enc = {i: name for i, name in enumerate(enc)}
+                                    elif isinstance(enc, str) and enc == "StandardEncoding":
+                                        from fontTools.encodings.StandardEncoding import StandardEncoding
+                                        internal_enc = {i: name for i, name in enumerate(StandardEncoding)}
+
+                                # Use charset if avalible
+                                if not internal_enc and hasattr(topDict, "charset"):
+                                    if isinstance(topDict.charset, list):
+                                        internal_enc = {i: name for i, name in enumerate(topDict.charset)}
+
+                                # Normal order if no encoding
+                                if not internal_enc:
                                     internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
-                                except:
-                                    internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+
                                 font_cache[xref] = {"glyph_set": glyph_set, "diffs": pdf_diffs, "enc": internal_enc,
                                                     "name": f_name}
-                            except:
+                            except Exception as e:
                                 font_cache[xref] = None
-                        else:
-                            font_cache[xref] = None
 
                     # Map each raw character to either its target Unicode or its internal ID
                     for char_obj in span.get("chars", []):
@@ -3969,10 +4003,27 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                                 if u_hex: mapped_count += 1
 
                         pdf_diffs = get_differences(doc, xref)
-                        try:
-                            internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
-                        except:
-                            internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
+
+                        internal_enc = {}
+                        topDict = cff.topDictIndex[0]
+
+                        if hasattr(topDict, "Encoding"):
+                            enc = topDict.Encoding
+                            if isinstance(enc, list):
+                                internal_enc = {i: name for i, name in enumerate(enc)}
+                            elif isinstance(enc, str) and enc == "StandardEncoding":
+                                from fontTools.encodings.StandardEncoding import StandardEncoding
+                                internal_enc = {i: name for i, name in enumerate(StandardEncoding)}
+
+                        if not internal_enc and hasattr(topDict, "charset"):
+                            if isinstance(topDict.charset, list):
+                                internal_enc = {i: name for i, name in enumerate(topDict.charset)}
+
+                        if not internal_enc:
+                            try:
+                                internal_enc = {gid: n for gid, n in enumerate(cff.getGlyphOrder())}
+                            except:
+                                internal_enc = {gid: gname for gid, gname in enumerate(glyph_set.keys())}
 
                         font_cache_local[xref] = {
                             "name": name,
@@ -4046,30 +4097,53 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                 vprint("  [DEBUG] Step 5/5: Final ToUnicode generation")
                 with fitz.open(pdf_path) as doc_final:
 
-                    for xref, v_seq in visual_sequence.items():
+                    for xref in visual_sequence.keys():
                         i_seq = internal_sequence.get(xref, [])
-                        if len(v_seq) == len(i_seq):
-                            mapping = {}
-                            for v_hex, i_id in zip(v_seq, i_seq):
-                                if v_hex == "IGNORE_AGL":
-                                    continue
-                                if i_id not in mapping:
-                                    mapping[i_id] = v_hex
+                        f_data = font_cache_local.get(xref)
 
-                            if not mapping:
-                                vprint(f"    -> [INFO] Skipping font {xref} (only standard AGL characters used in text)")
-                                success_count += 1
+                        if not i_seq:
+                            continue
+
+                        mapping = {}
+                        unique_cids = set(i_seq)
+
+                        if "hash_to_names" not in f_data:
+                            htn = {}
+                            for gn in f_data["glyph_set"].keys():
+                                gh = get_standalone_glyph_hash(f_data["glyph_set"], gn)
+                                if gh:
+                                    htn.setdefault(gh, set()).add(gn)
+                            f_data["hash_to_names"] = htn
+
+                        for cid in unique_cids:
+                            # Get correct name using differences
+                            g_name = f_data["diffs"].get(cid, f_data["enc"].get(cid, ".notdef"))
+
+                            if g_name == ".notdef":
                                 continue
 
-                            # Inject the correct mapping into the final PDF
-                            real_cmap = generate_real_tounicode(mapping)
-                            new_xref = doc_final.get_new_xref()
-                            doc_final.update_object(new_xref, "<<>>")
-                            doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
-                            doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+                            g_hash = get_standalone_glyph_hash(f_data["glyph_set"], g_name)
+                            same_hash_names = f_data["hash_to_names"].get(g_hash, set())
+
+                            u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
+
+                            if u_hex:
+                                mapping[cid] = u_hex
+                            elif g_name in EXTENDED_AGL:
+                                mapping[cid] = format(EXTENDED_AGL[g_name], '04X')
+
+                        if not mapping:
+                            vprint(f"    -> [INFO] Skipping font {xref} (only standard mappings found)")
                             success_count += 1
-                        else:
-                            vprint(f"    -> [ERROR] Skipping font {xref}! Length mismatch (Visual: {len(v_seq)} | Internal: {len(i_seq)})")
+                            continue
+
+                        # Inject the correct mapping into the final PDF
+                        real_cmap = generate_real_tounicode(mapping)
+                        new_xref = doc_final.get_new_xref()
+                        doc_final.update_object(new_xref, "<<>>")
+                        doc_final.update_stream(new_xref, real_cmap.encode("utf-8"))
+                        doc_final.xref_set_key(xref, "ToUnicode", f"{new_xref} 0 R")
+                        success_count += 1
 
                     repaired_completely = success_count
 
