@@ -1015,7 +1015,7 @@ class IntegratedRepairDialog(QDialog):
             for f_info in page_font_map[p_num]:
                 is_ok = f_info['mapped'] >= f_info['total'] and f_info['total'] > 0
                 font_item = QTreeWidgetItem([f_info['name'], ""])
-                font_item.setData(0, QtCore.Qt.UserRole, (p_num, f_info['name']))
+                font_item.setData(0, QtCore.Qt.UserRole, (p_num, f_info['xref']))
 
                 font_item.setSizeHint(0, QtCore.QSize(0, 26))
 
@@ -2758,10 +2758,11 @@ class FontWidget(QMainWindow):
             self.font_cache.clear()
 
             processed_xrefs = {}
+            failed_xrefs = set()
 
             # Open the PDF file
             with fitz.open(file_path) as doc:
-                first_page = first_name = None
+                first_page = first_xref = None
 
                 # Initialize variables for global document statistics
                 self.stats_total_fonts = 0
@@ -2804,51 +2805,61 @@ class FontWidget(QMainWindow):
                             if has_tounicode(doc, xref):
                                 continue
 
-                            cff_xrefs_on_page.append(xref)
-
                             # For each font uniquely
-                            if xref not in processed_xrefs:
-                                tmp_font = CFFFontSet()
-                                tmp_font.decompile(BytesIO(buffer), None)
-                                glyph_set = tmp_font.topDictIndex[0].CharStrings
+                            if xref not in processed_xrefs and xref not in failed_xrefs:
+                                try:
+                                    tmp_font = CFFFontSet()
+                                    tmp_font.decompile(BytesIO(buffer), None)
+                                    glyph_set = tmp_font.topDictIndex[0].CharStrings
 
-                                # Filter out .notdef
-                                valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
-                                total_glyphs = len(valid_glyph_names)
+                                    # Filter out .notdef
+                                    valid_glyph_names = [g for g in glyph_set.keys() if g != '.notdef']
+                                    total_glyphs = len(valid_glyph_names)
 
-                                current_font_hashes = {}
-                                agl_count = 0
-                                for gname in valid_glyph_names:
-                                    if gname in EXTENDED_AGL:
-                                        agl_count += 1
+                                    current_font_hashes = {}
+                                    agl_count = 0
+                                    for gname in valid_glyph_names:
+                                        if gname in EXTENDED_AGL:
+                                            agl_count += 1
 
-                                    glyph = glyph_set[gname]
-                                    pen = SignaturePen(glyph_set)
-                                    glyph.draw(pen)
+                                        glyph = glyph_set[gname]
+                                        pen = SignaturePen(glyph_set)
+                                        glyph.draw(pen)
 
-                                    # Detect completely empty glyphs and assign a special hash
-                                    if not pen.signature:
-                                        ghash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
-                                    else:
-                                        sig = pen.get_signature()
-                                        ghash = md5(sig.encode('utf-8')).hexdigest()
-                                    current_font_hashes[gname] = ghash
+                                        # Detect completely empty glyphs and assign a special hash
+                                        if not pen.signature:
+                                            ghash = md5("EMPTY_SPACE".encode('utf-8')).hexdigest()
+                                        else:
+                                            sig = pen.get_signature()
+                                            ghash = md5(sig.encode('utf-8')).hexdigest()
+                                        current_font_hashes[gname] = ghash
 
-                                # Add font info to cache
-                                processed_xrefs[xref] = {
-                                    'name': name,
-                                    'glyph_count': total_glyphs,
-                                    'mapped_count': 0,
-                                    'agl_count': agl_count,
-                                    'glyph_hashes': current_font_hashes,
-                                    'data': buffer
-                                }
+                                    # Add font info to cache
+                                    processed_xrefs[xref] = {
+                                        'name': name,
+                                        'glyph_count': total_glyphs,
+                                        'mapped_count': 0,
+                                        'agl_count': agl_count,
+                                        'glyph_hashes': current_font_hashes,
+                                        'data': buffer
+                                    }
+                                except Exception as e:
+                                    print(f"Error parsing font {name}: {e}")
+                                    self.stats_cff_repairable -= 1
+                                    self.stats_not_supported += 1
+                                    failed_xrefs.add(xref)
 
                             self.font_cache = processed_xrefs
 
-                            # Assign first page found
-                            if first_page is None:
-                                first_page, first_xref = page_num, xref
+                            # Add font to page ONLY if it was successfully parsed
+                            if xref in processed_xrefs:
+                                cff_xrefs_on_page.append(xref)
+
+                                # Assign first page found
+                                if first_page is None:
+                                    first_page = page_num
+                                    first_xref = xref
+
                         except Exception as e:
                             print(f"Error parsing font {name}: {e}")
 
@@ -3399,14 +3410,15 @@ class FontWidget(QMainWindow):
 
         # Jump to font/page from dialog
         if result == QDialog.Accepted + 1:
-            p_num, f_name = dialog.jump_target
-            if f_name:
-                self.load_font(p_num, f_name)
+            p_num, target_xref = dialog.jump_target
+            if target_xref:
+                self.load_font(p_num, target_xref)
             else:
                 fonts_on_page = self.menu_structure.get(p_num, [])
                 if fonts_on_page:
                     self.load_font(p_num, fonts_on_page[0])
-            self.statusBar().showMessage(f"Jump to font/page {f_name}", 3000)
+            display_name = self.font_cache.get(target_xref, {}).get('name', 'selected font') if target_xref else 'page'
+            self.statusBar().showMessage(f"Jumped to {display_name}", 3000)
             return
 
         # Run rapair
@@ -3818,18 +3830,24 @@ def load_sequence(doc, flags, db_map, font_cache, mode="visual", progress_callba
                                 topDict = cff.topDictIndex[0]
 
                                 # Use default encoding if avalible
-                                if hasattr(topDict, "Encoding"):
-                                    enc = topDict.Encoding
-                                    if isinstance(enc, list):
-                                        internal_enc = {i: name for i, name in enumerate(enc)}
-                                    elif isinstance(enc, str) and enc == "StandardEncoding":
-                                        from fontTools.encodings.StandardEncoding import StandardEncoding
-                                        internal_enc = {i: name for i, name in enumerate(StandardEncoding)}
+                                try:
+                                    if hasattr(topDict, "Encoding"):
+                                        enc = topDict.Encoding
+                                        if isinstance(enc, list):
+                                            internal_enc = {i: name for i, name in enumerate(enc)}
+                                        elif isinstance(enc, str) and enc == "StandardEncoding":
+                                            from fontTools.encodings.StandardEncoding import StandardEncoding
+                                            internal_enc = {i: name for i, name in enumerate(StandardEncoding)}
+                                except Exception:
+                                    pass
 
                                 # Use charset if avalible
-                                if not internal_enc and hasattr(topDict, "charset"):
-                                    if isinstance(topDict.charset, list):
-                                        internal_enc = {i: name for i, name in enumerate(topDict.charset)}
+                                try:
+                                    if not internal_enc and hasattr(topDict, "charset"):
+                                        if isinstance(topDict.charset, list):
+                                            internal_enc = {i: name for i, name in enumerate(topDict.charset)}
+                                except Exception:
+                                    pass
 
                                 # Normal order if no encoding
                                 if not internal_enc:
@@ -4007,17 +4025,23 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                         internal_enc = {}
                         topDict = cff.topDictIndex[0]
 
-                        if hasattr(topDict, "Encoding"):
-                            enc = topDict.Encoding
-                            if isinstance(enc, list):
-                                internal_enc = {i: name for i, name in enumerate(enc)}
-                            elif isinstance(enc, str) and enc == "StandardEncoding":
-                                from fontTools.encodings.StandardEncoding import StandardEncoding
-                                internal_enc = {i: name for i, name in enumerate(StandardEncoding)}
+                        try:
+                            if hasattr(topDict, "Encoding"):
+                                enc = topDict.Encoding
+                                if isinstance(enc, list):
+                                    internal_enc = {i: name for i, name in enumerate(enc)}
+                                elif isinstance(enc, str) and enc == "StandardEncoding":
+                                    from fontTools.encodings.StandardEncoding import StandardEncoding
+                                    internal_enc = {i: name for i, name in enumerate(StandardEncoding)}
+                        except Exception:
+                            pass
 
-                        if not internal_enc and hasattr(topDict, "charset"):
-                            if isinstance(topDict.charset, list):
-                                internal_enc = {i: name for i, name in enumerate(topDict.charset)}
+                        try:
+                            if not internal_enc and hasattr(topDict, "charset"):
+                                if isinstance(topDict.charset, list):
+                                    internal_enc = {i: name for i, name in enumerate(topDict.charset)}
+                        except Exception:
+                            pass
 
                         if not internal_enc:
                             try:
