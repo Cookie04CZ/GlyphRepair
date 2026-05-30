@@ -748,15 +748,10 @@ class FontSelectionDialog(QDialog):
         if doc_stats is None:
             doc_stats = {'total': 0, 'repairable': 0, 'tounicode': 0, 'unsupported': 0}
 
-        lbl_sum_total = QLabel(f"<b>Total Fonts:</b> {doc_stats['total']}")
-        lbl_sum_repair = QLabel(
-            f"<b>Repairable (CFF):</b> <span style='color:#3d7eff;'>{doc_stats['repairable']}</span>")
-        lbl_sum_touni = QLabel(f"<b>Ignored (Has ToUnicode):</b> {doc_stats['tounicode']}")
-
-        # Color unsupported red only if there are any
-        unsupp_color = "#ff4444" if doc_stats['unsupported'] > 0 else "#aaaaaa"
-        lbl_sum_unsupp = QLabel(
-            f"<b>Unsupported (Not CFF):</b> <span style='color:{unsupp_color};'>{doc_stats['unsupported']}</span>")
+        lbl_sum_total = QLabel(f"<b>Total fonts found:</b> {doc_stats['total']}")
+        lbl_sum_repair = QLabel(f"<b>Repairable (CFF):</b> {doc_stats['repairable']}")
+        lbl_sum_touni = QLabel(f"<b>Ignored (Has ToUnicode):</b> <span style='color:#aaaaaa;'>{doc_stats['tounicode']}</span>")
+        lbl_sum_unsupp = QLabel(f"<b>Unsupported (Not CFF):</b> <span style='color:#aaaaaa;'>{doc_stats['unsupported']}</span>")
 
         s_layout.addWidget(lbl_sum_total)
         s_layout.addWidget(lbl_sum_repair)
@@ -3464,7 +3459,7 @@ class FontWidget(QMainWindow):
                         dialog.log(f"  -> Incomplete (skipped):   {incomplete_fonts_count}", "#FF8C00")
 
                     if ghost_xrefs:
-                        dialog.log(f"  -> Ghost fonts (no text):  {len(ghost_xrefs)}", "#FF8C00")
+                        dialog.log(f"  -> Not used (ignored):     {len(ghost_xrefs)}", "#aaaaaa")
                         for gxref in ghost_xrefs:
                             gx_name = "Unknown"
                             for p_num, f_list in page_font_map.items():
@@ -3472,7 +3467,7 @@ class FontWidget(QMainWindow):
                                     if f_info['xref'] == gxref:
                                         gx_name = f_info['name']
                                         break
-                            dialog.log(f"      - '{gx_name}' (skipped)", "#888888")
+                            dialog.log(f"      - '{gx_name}' (ignored)", "#888888")
 
                     dialog.log(f"\n[INFO] Proceeding to repair {ready_fonts_count} fully mapped fonts.\n", "#3d7eff")
 
@@ -3586,33 +3581,33 @@ class FontWidget(QMainWindow):
 
                 dialog.log(f"Repaired file: {os.path.basename(out_path)}")
 
-                # Log success
-                dialog.log(f"Fonts successfully repaired: {success_count} / {ready_fonts_count}", "#228B22" if success_count == ready_fonts_count else "#ff4444")
+                # Log global document summary to match CLI exactly
+                dialog.log("\n[INFO] Global document summary:", "#aaaaaa")
+                dialog.log(f"  -> {self.stats_total_fonts} fonts found", "#ffffff")
 
+                if success_count > 0:
+                    dialog.log(f"  -> {success_count} fonts repaired completely", "#228B22")
                 if incomplete_fonts_count > 0:
-                    dialog.log(f"Fonts skipped due to incomplete mapping: {incomplete_fonts_count}", "#FF8C00")
+                    dialog.log(f"  -> {incomplete_fonts_count} fonts skipped due to incomplete mapping", "#FF8C00")
                 if ghost_xrefs:
-                    dialog.log(f"Fonts skipped because they contain no text: {len(ghost_xrefs)}", "#FF8C00")
-
-                # Log global document summary
-                dialog.log("\n[INFO] Global PDF font summary:", "#aaaaaa")
-                dialog.log(f"  -> Total fonts evaluated:    {self.stats_total_fonts}", "#aaaaaa")
-                dialog.log(f"  -> Unsupported (not CFF):    {self.stats_not_supported}", "#ff4444" if self.stats_not_supported > 0 else "#aaaaaa")
-                dialog.log(f"  -> Ignored (already have ToUnicode):  {self.stats_has_tounicode}", "#aaaaaa")
+                    dialog.log(f"  -> {len(ghost_xrefs)} fonts ignored because they're not used", "#aaaaaa")
+                if self.stats_has_tounicode > 0:
+                    dialog.log(f"  -> {self.stats_has_tounicode} fonts ignored due to existing ToUnicode", "#aaaaaa")
+                if self.stats_not_supported > 0:
+                    dialog.log(f"  -> {self.stats_not_supported} fonts not supported", "#aaaaaa")
 
                 # Log final status
                 if is_completely_perfect:
                     if ghost_xrefs:
-                        dialog.log(f"[STATUS] Success! (Ignored {len(ghost_xrefs)} ghost fonts without text)",
-                                   "#00ff00")
+                        dialog.log(f"\n[STATUS] Success! (Ignored {len(ghost_xrefs)} fonts without text)", "#00ff00")
                     else:
-                        dialog.log("[STATUS] All fonts in pdf were repaired successfully.", "#00ff00")
+                        dialog.log("\n[STATUS] All fonts in pdf were repaired successfully.", "#00ff00")
                     self.play_sound(success=True)
                 else:
                     if success_count < ready_fonts_count:
-                        dialog.log("[STATUS] Finished with errors, some fonts failed to repair...", "#FF8C00")
+                        dialog.log("\n[STATUS] Finished with errors, some fonts failed to repair...", "#FF8C00")
                     else:
-                        dialog.log("[STATUS] File repaired partially, incomplete fonts were skipped.", "#FF8C00")
+                        dialog.log("\n[STATUS] File repaired partially, incomplete fonts were skipped.", "#FF8C00")
                     self.play_sound(success=False)
 
                 dialog.finish()
@@ -4218,6 +4213,10 @@ def print_inline_progress(iteration, total, prefix='', length=30, fill='█', ve
 # Initializes the GUI application and applies styling
 def run_gui_mode():
     app = QApplication(sys.argv)
+
+    if hasattr(app.styleHints(), 'setColorScheme'):
+        app.styleHints().setColorScheme(QtCore.Qt.ColorScheme.Dark)
+
     apply_dark_theme(app)
 
     window = FontWidget()
@@ -4329,7 +4328,6 @@ class CleanSelectionDelegate(QStyledItemDelegate):
 # and a dark QPalette, explicitly targeting dialogs to override native Windows Light Mode
 def apply_dark_theme(app):
     # Create a completely dark palette as a fallback for standard widgets
-    # We omit setStyle("Fusion"), so native style is preserved but darkened where possible
     dark_palette = QtGui.QPalette()
     dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor(30, 30, 30))
     dark_palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
@@ -4358,7 +4356,7 @@ def apply_dark_theme(app):
             padding: 4px;
         }
 
-        QWidget, QDialog, QMessageBox {
+        QDialog, QMessageBox {
             background-color: #1e1e1e;
             color: #f0f0f0;
             outline: none; /* Globally removes the dotted focus rectangle */
@@ -4466,78 +4464,6 @@ def apply_dark_theme(app):
             color: #aaaaaa;
         }
 
-        QComboBox {
-            background-color: #2a2a2a;
-            border: 1px solid #444;
-            border-radius: 6px;
-            padding: 3px 10px;
-            color: white;
-        }
-
-        QComboBox QAbstractItemView {
-            background-color: #1a1a1a;
-            border: 1px solid #444;
-            border-radius: 6px;
-            selection-background-color: #2a2a2a;
-            outline: 0;
-            color: white;
-        }
-
-        QScrollBar:vertical {
-            border: none;
-            background-color: transparent; /* Zruší jakýkoliv základní rámeček */
-            width: 12px;
-            margin: 2px 0px 2px 0px;
-        }
-
-        QScrollBar::handle:vertical {
-            background-color: #555555;
-            min-height: 30px;
-            border-radius: 4px; /* Zaoblení jezdce */
-            margin: 0px 2px 0px 2px; /* Drobné odsazení od okrajů */
-        }
-
-        QScrollBar::handle:vertical:hover {
-            background-color: #777777; /* Zesvětlení při najetí myší */
-        }
-
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-            height: 0px;
-            background: none;
-        }
-
-        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-            background: none;
-        }
-
-        /* --- HORIZONTAL SCROLLBAR --- */
-        QScrollBar:horizontal {
-            border: none;
-            background: transparent;
-            height: 12px;
-            margin: 0px 2px 0px 2px;
-        }
-
-        QScrollBar::handle:horizontal {
-            background-color: #555555;
-            min-width: 30px;
-            border-radius: 4px;
-            margin: 2px 0px 2px 0px;
-        }
-
-        QScrollBar::handle:horizontal:hover {
-            background-color: #777777;
-        }
-
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-            width: 0px;
-            background: none;
-        }
-
-        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-            background: none;
-        }
-        
         QHeaderView::section {
             background-color: #2a2a2a;
             color: #ffffff;
