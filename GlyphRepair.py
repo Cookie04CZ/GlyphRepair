@@ -2751,6 +2751,7 @@ class FontWidget(QMainWindow):
             self.load_db_cache()
             self.menu_structure = {}
             self.font_cache.clear()
+            self.history_stack.clear()
 
             processed_xrefs = {}
             failed_xrefs = set()
