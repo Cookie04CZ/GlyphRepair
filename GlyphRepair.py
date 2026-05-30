@@ -4359,7 +4359,7 @@ def apply_dark_theme(app):
         QDialog, QMessageBox {
             background-color: #1e1e1e;
             color: #f0f0f0;
-            outline: none; /* Globally removes the dotted focus rectangle */
+            outline: none;
         }
 
         QMessageBox QLabel {
@@ -4412,7 +4412,7 @@ def apply_dark_theme(app):
         }
 
         QPushButton:pressed, QToolButton:pressed {
-            background-color: #2a2a2a; /* Pozadí zůstane tmavé */
+            background-color: #2a2a2a;
             color: white;
         }
 
