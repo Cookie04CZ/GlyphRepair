@@ -50,7 +50,7 @@ This program is designed to repair wrong text encoding ("mojibake") in PDF files
 * Meaning of each character (glyph) is manually defined (mapped) by user, which allows for 100% text fidelity.
 * GlyphRepair preserves original document data, only adds new text encoding tables to it.
 
-However, these advantages come at a price. The program is designed to work only with older PDF documents which use so-called [Type 1 fonts](https://en.wikipedia.org/wiki/PostScript_fonts#Type_1). And manual mapping of the characters can become a time-consuming task, even though GlyphRepair auto-suggests them.
+However, these advantages come at a price. The program is designed to work only with older PDF documents which use so-called [Type 1 fonts](https://en.wikipedia.org/wiki/PostScript_fonts#Type_1). And manual mapping of the characters can become a time-consuming task, even though GlyphRepair has an automatic propmpter which streamlines the process.
  
  # Before you start
 
@@ -115,7 +115,7 @@ You have to assign character mapping for **all** fonts you wish to repair, becau
 <img width="1202" height="855" alt="First document prompter" src="https://github.com/user-attachments/assets/58e57a5d-ed25-4153-b7be-278eb6088f6f" />
 <p>
 
-If the suggested character matches the glyph, simply press Enter to confirm it. GlyphRepair offers up to 4 suggestions; you may choose between them with left and right cursor keys (+Enter) or simply click on them. That immediately maps them. In ideal case, you will have to map each character only once and then it will be auto-suggested for all other fonts. If you do it right, you will just keep pressing the Enter key, only ocassionally stopping to fill the gaps. The working area is designed to streamline the process: the active glyph is usually right above the suggestions, so you'll just gaze into the bottom-left corner and press Enter. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts! Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This is necessary due to internal limitations of the repair method.
+If the suggested character matches the glyph, simply press Enter to confirm it. GlyphRepair offers up to 4 suggestions; you may choose between them with left and right cursor keys (+Enter) or simply click on them. That immediately maps them. In ideal case, you will have to map each character only once and then it will be offered for all other fonts. If you do it right, you will just keep pressing the Enter key, only ocassionally stopping to fill the gaps. The working area is designed to streamline the process: the active glyph is usually right above the suggestion list, so you'll just gaze into the bottom-left corner and keep pressing Enter. Therefore, **try to do the initial mapping as accuarately as you can,** because mistakes may then propagate to other fonts! Also, **you have to map all glyphs in a given font, otherwise program will be unable to repair it**. This is necessary due to internal limitations of the repair method.
 
 Notice that GlyphRepair automatically recognizes and maps spaces (U+0020). If you encounter an unmapped empty glyph, it usually means it's no-break space (NBSP, U+00A0) or other special character. But that's rarely relevant when you copy+paste text from PDF, so you may map them to ordinary spaces (U+0020). Such special characters are sometimes hard to enter into the Character field. However, you may find their [Unicode](https://en.wikipedia.org/wiki/Unicode) encoding on various web pages. GlyphRepair allows to enter Unicode directly if you enable it in settings:
 
@@ -164,9 +164,9 @@ https://www.compart.com/en/unicode
 https://unicode.org/charts/
 
 
-# Glyph database and its impact on auto-suggestion
+# Glyph database and its impact on prompter suggestions
 
-As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 38 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the auto-suggestion feature may offer wrong characters. If it keeps happening, it may be best if you start with a blank database. Also, the program will work a bit faster when the database is smaller. You can simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
+As we already mentioned, the database is stored in glyph_mappings.psv file. It currently contains about 38 thousand glyphs, most of them for Arial, Times New Roman and Courier fonts by [Monotype Corporation](https://en.wikipedia.org/wiki/Monotype_Imaging), which used to be bundled with legacy Adobe products. If your documents use other fonts, the prompter may keep suggesting wrong characters. If it keeps happening, it may be best if you start with a blank database. Also, the program will work a bit faster when the database is smaller. You can simply delete the glyph_mappings.psv file, because GlyphRepair will create an empty database if it doesn't find it upon start.
 
 By default, GlyphRepair auto-saves the database whenever you finish mapping a font or entire document. This auto-saving feature can be disabled in the Settings. You can also save the database manually at any time with Save All to DB button.
 
