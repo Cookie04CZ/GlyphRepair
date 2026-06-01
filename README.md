@@ -120,7 +120,7 @@ If the suggested character matches the glyph, simply press Enter to confirm it. 
 Notice that GlyphRepair automatically recognizes and maps spaces (U+0020). If you encounter an unmapped empty glyph, it usually means it's no-break space (NBSP, U+00A0) or other special character. But that's rarely relevant when you copy+paste text from PDF, so you may map them to ordinary spaces (U+0020). Such special characters are sometimes hard to enter into the Character field. However, you may find their [Unicode](https://en.wikipedia.org/wiki/Unicode) encoding on various web pages. GlyphRepair allows to enter Unicode directly if you enable it in settings:
 
 <p>
-<img width="452" height="626" alt="Settings Unicode hex enable" src="https://github.com/user-attachments/assets/a92ad410-a5d4-4178-9518-1c424827db68" />
+<img width="565" height="782" alt="Settings Unicode hex enable" src="https://github.com/user-attachments/assets/5281ed14-9630-40be-a22f-11848947366b" />
 </p>
 
 This will display another input field which accepts only string of 4 or 5 hexadecimal characters (0-9, a-f, A-F). In other words, you must **not** enter the U+ prefix that's customary with Unicode.
@@ -198,7 +198,7 @@ Note that Next Unmapped button is **not** limited to selected page -- it always 
 If you want to repair only a specific font, you don't need the Page Mode Navigation. Instead, you can switch to it with font selector as explained in previous chapters. Also, you can switch fonts with left and right cursor keys while you hold Ctrl key. The real trick is to know which font you actually need to select, because most PDF viewers won't tell you which parts use which font. You will have to use a 3rd party program for that. We've been using two programs, [Infix PDF Editor](https://infix-pdf-editor.en.softonic.com/) and [PDF-XChange Editor](https://www.pdf-xchange.com/product/downloads/enduser/pdf-xchange-editor), both have free trial versions. They both work similarly -- activate their text editing mode, click somewhere into text and they will display its font:
 
 <p>
-<img width="880" height="570" alt="Select font in Infix" src="https://github.com/user-attachments/assets/eff8d2dc-4191-488c-aef6-3d7287ba870d" />
+<img width="880" height="570" alt="Select font in Infix" src="https://github.com/user-attachments/assets/92eb9d4e-756d-4d6d-9601-6b4a0aa76847" />
 </p>
 <p>
 <img width="1026" height="716" alt="Select font in XChange" src="https://github.com/user-attachments/assets/97777af8-ad07-4cba-85f2-bd52db3c3957" />
@@ -209,16 +209,16 @@ If you want to repair only a specific font, you don't need the Page Mode Navigat
 
 **Important! Always load and repair only original documents!** While you can re-load documents which were already processed by GlyphRepair, it may lead to unpredictable results. You mapping work is actually saved in glyph_mappings.psv, so there is no need to also save unfinished documents. **Therefore, don't lose your glyph_mappings.psv database if you plan to repair other documents in the future!**
 
-As you've probably guessed, you click on Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors:
+As you've probably guessed, you click on Repair PDF button in the top left corner. Remember: you have to always map **all** glyphs in a font, otherwise the repair algorithm will skip it. That's why the repair menu displays list of all pages again, with their mapping status indicated by colors. You can also click on small **>** icon to display list of fonts on each page:
 
 <p>
-<img width="552" height="432" alt="Repair with missing glyphs" src="https://github.com/user-attachments/assets/0daa912d-cf6d-4893-a23d-f26eeec3dce2" />
+<img width="691" height="555" alt="Repair list with missing glyphs" src="https://github.com/user-attachments/assets/3c4712f5-2cf0-4e9b-8412-bc8591307ff7" />
 </p>
 
 The big Start Repair button will be green only if all fonts are 100% mapped. If it's orange, it will repair only fonts that have all glyphs mapped. The program will then display log of repair steps and final font statistics:
 
 <p>
-<img width="552" height="432" alt="Repair log with missing glyphs" src="https://github.com/user-attachments/assets/407bbffe-5d11-45fb-aa34-625ecff1c265" />
+<img width="690" height="539" alt="Repair log with missing glyphs" src="https://github.com/user-attachments/assets/6af2b2bb-d93d-4728-b6ac-3e296f186e6e" />
 </p>
 
 Repaired file will be saved to the same directory as source file; program will attach suffixes _Repaired or _Partially_Repaired to their name. It automatically overwrites files with the same name.
