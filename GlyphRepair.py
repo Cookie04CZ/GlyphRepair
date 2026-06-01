@@ -3553,7 +3553,7 @@ class FontWidget(QMainWindow):
                             continue
 
                         mapping = {}
-                        unique_cids = set(i_seq)
+                        unique_ccs = set(i_seq)
 
                         if "hash_to_names" not in f_data:
                             htn = {}
@@ -3563,9 +3563,9 @@ class FontWidget(QMainWindow):
                                     htn.setdefault(gh, set()).add(gn)
                             f_data["hash_to_names"] = htn
 
-                        for cid in unique_cids:
+                        for cc in unique_ccs:
                             # Get gyph name using internal sequence
-                            g_name = f_data["diffs"].get(cid, f_data["enc"].get(cid, ".notdef"))
+                            g_name = f_data["diffs"].get(cc, f_data["enc"].get(cc, ".notdef"))
 
                             if g_name == ".notdef":
                                 continue
@@ -3577,9 +3577,9 @@ class FontWidget(QMainWindow):
 
                             # Create mapping
                             if u_hex:
-                                mapping[cid] = u_hex
+                                mapping[cc] = u_hex
                             elif g_name in EXTENDED_AGL:
-                                mapping[cid] = format(EXTENDED_AGL[g_name], '04X')
+                                mapping[cc] = format(EXTENDED_AGL[g_name], '04X')
 
                         if not mapping:
                             dialog.log(f"      -> [INFO] Only standard mappings found, skipping ToUnicode.", "#aaaaaa")
@@ -3806,8 +3806,8 @@ def generate_real_tounicode(mapping_dict):
     chunks = [items[i:i + 100] for i in range(0, len(items), 100)]
     for chunk in chunks:
         cmap.append(f"{len(chunk)} beginbfchar")
-        for cid, u_hex in chunk:
-            cmap.append(f"<{cid:02X}> <{u_hex}>")
+        for cc, u_hex in chunk:
+            cmap.append(f"<{cc:02X}> <{u_hex}>")
         cmap.append("endbfchar")
     cmap.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
     return "\n".join(cmap)
@@ -4106,7 +4106,7 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                             continue
 
                         mapping = {}
-                        unique_cids = set(i_seq)
+                        unique_ccs = set(i_seq)
 
                         if "hash_to_names" not in f_data:
                             htn = {}
@@ -4116,9 +4116,9 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                                     htn.setdefault(gh, set()).add(gn)
                             f_data["hash_to_names"] = htn
 
-                        for cid in unique_cids:
+                        for cc in unique_ccs:
                             # Get correct name using differences
-                            g_name = f_data["diffs"].get(cid, f_data["enc"].get(cid, ".notdef"))
+                            g_name = f_data["diffs"].get(cc, f_data["enc"].get(cc, ".notdef"))
 
                             if g_name == ".notdef":
                                 continue
@@ -4129,9 +4129,9 @@ def headless_repair(pdf_path, glyph_db_map, verbose=False):
                             u_hex = find_best_unicode(g_hash, g_name, glyph_db_map, same_hash_names)
 
                             if u_hex:
-                                mapping[cid] = u_hex
+                                mapping[cc] = u_hex
                             elif g_name in EXTENDED_AGL:
-                                mapping[cid] = format(EXTENDED_AGL[g_name], '04X')
+                                mapping[cc] = format(EXTENDED_AGL[g_name], '04X')
 
                         if not mapping:
                             vprint(f"    -> [INFO] Skipping font {xref} (only standard mappings found)")
