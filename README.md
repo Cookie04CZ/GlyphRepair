@@ -54,7 +54,13 @@ However, these advantages come at a price. The program is designed to work only 
  
  # Before you start
 
-Do you really need to permanently fix your PDF files? Or do you merely need to copy some text? If so, there may be a faster way: **[open-source viewer Evince](https://wiki.gnome.org/Apps/Evince) can return meaningful text even on files that are completely garbled in other PDF viewers**. It's probably because Evince internally uses some sort of heuristics. However, even Evince will usually correctly copy only standard ASCII characters (codes 32 to 126); special characters for foreign languages may still be garbled. And unfortunately, Evince is currently available only on Linux.
+Do you really need to permanently fix your PDF files? Or do you merely need to copy some text? If so, there may be a faster way: **[open source viewer Evince](https://wiki.gnome.org/Apps/Evince) can return meaningful text even on files that are completely garbled in other PDF viewers**. It's probably because it internally uses some sort of heuristics. However, even Evince will usually correctly copy only standard ASCII characters (codes 32 to 126); special characters for foreign languages may still be garbled. And unfortunately, it is currently available only on Linux.
+
+If you don't use Linux or need to extract text from many files, there is command line program **pdftotext** which uses the same heuristics as Evince. It's part of open source package [Poppler](https://poppler.freedesktop.org/) which is also available for Windows [here](https://github.com/oschwartz10612/poppler-windows/releases). Simply run ```pdftotext.exe ABCD.pdf``` and it will dump all text into a new plaintext file. If you need to process many files, you can copy them into one directory and run this command in it: 
+```
+forfiles /m *.pdf /c "cmd /c c:\poppler_path\pdftotext.exe @file"
+```
+You can also include subdirectories with ```forfiles /s``` option.
 
 # How to run GlyphRepair
 
