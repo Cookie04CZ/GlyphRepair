@@ -14,19 +14,19 @@ https://www.hezkyden.cz/shop/cd-aradio/
 
 https://www.magnetpress.cz/cd-a-dvd/
 
-Některá vydání CD jsou hodně stará, ale my máme k dispozici pouze nejnovější verzi časopisů z DVD. Může se stát, že program odmítne staré oficiální soubory opravit, protože je nerozpozná. Pokud na to narazíte, tak to nahlašte jako bug zde na GitHubu.
+Některá vydání CD jsou hodně stará, ale my máme k dispozici pouze nejnovější verzi časopisů z DVD. Může se stát, že GlyphRepair odmítne staré oficiální soubory opravit, protože je nerozpozná. Pokud na to narazíte, tak to nahlašte jako bug zde na GitHubu.
 
-Pointa programu je, že každý čtenář si může svoji sbírku opravit sám - na časopisy se vztahuje autorský zákon a jejich opravené kopie nelze volně šířit. Postup použití je následující:
+**Pointa programu je, že každý čtenář si může svoji sbírku opravit sám** - na časopisy se vztahuje autorský zákon a jejich opravené kopie nelze volně šířit. Postup použití je následující:
 
 1. Někam na pevný disk z CD/DVD zkopírujte všechny soubory, které chcete opravit. Nejlepší je zachovat původní adresářovou strukturu po jednotlivých ročnících, protože program automaticky hledá ve všech podadresářích.
 
-2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 3 soubory: [GlyphRepair.exe](https://github.com/Cookie04CZ/GlyphRepair/releases/download/GlyphRepair/GlyphRepair.exe), [glyph_mappings.psv](glyph_mappings.psv) a [known_docs.psv](known_docs.psv). Stahování se bohužel nespustí automaticky, u každého souboru musíte kliknout na "Download raw file" vpravo nad obsahem souboru. Alternativně můžete stáhnout všechny soubory najednou jako ZIP archív, dělá se to zeleným tlačítkem Code -> Download ZIP.
+2. Zde z Githubu stáhněte a do stejného adresáře uložte tyto 3 soubory: [GlyphRepair.exe](https://github.com/Cookie04CZ/GlyphRepair/releases/download/GlyphRepair/GlyphRepair.exe), [glyph_mappings.psv](glyph_mappings.psv) a [known_docs.psv](known_docs.psv). U posledních dvou se stahování nespustí automaticky, musíte u nich kliknout na "Download raw file" vpravo nad obsahem souboru.
 
 3. V adresáři GlyphRepairu spusťte příkazovou řádku Windows (příkaz cmd). Do ní vložte příkaz
 ```
 GlyphRepair.exe -m "c:\Casopisy jsou zde" -r -d known_docs.psv
 ```
-&nbsp;&nbsp;&nbsp;&nbsp; V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, měli byste tam vidět převážně zelené a modré řádky. Když program narazí na nepodporovaný PDF soubor, tak se objeví červený řádek "[BLOCKED] File hash not found in known documents database." To je však správně. Pokud se objevují oranžové řádky o chybějícím mapovaní znaků nebo narazíte na jiné problémy, tak je nahlašte jako bug zde na GitHubu.
+&nbsp;&nbsp;&nbsp;&nbsp; V příkazu samozřejmě musíte adekvátně upravit cestu k časopisům. Pravděpodobně se objeví [modré okno s varováním SmartScreen](https://github.com/user-attachments/assets/a067c6a6-d85b-4f68-8123-b2fc8f61d345), to musíte potvrdit. Tato okna se liší podle verze Windows, buď je tam přímo tlačítko "Přesto spustit" nebo nejdřív musíte kliknout na "Další informace". Oprava jednoho časopisu zabere okolo 30 sekund, buďte proto trpěliví. Výsledky oprav se zobrazují v konzoli, měli byste tam vidět převážně zelené a modré řádky. Když program narazí na nepodporovaný PDF soubor, tak se objeví červený řádek "[BLOCKED] File hash not found in known documents database." To je však správně a pokud na disk zkopíujete celý obsah DVD, tak se červené řadky budou objevovat velmi často. Pokud se objevují oranžové řádky o chybějícím mapovaní znaků nebo narazíte na jiné problémy, tak je nahlašte jako bug zde na GitHubu.
 
 4. Na disku se objeví opravené PDF soubory s koncovkou _Repaired, vždy ve stejném adresáři jako zdrojové soubory. Zdrojové soubory poté můžete smazat, například tak, že je nejdřív seřadíte podle data (originální PDF soubory jsou vždy starší, než opravené).
 
@@ -34,11 +34,11 @@ Program byl vyvíjen a testován pouze na Windows, funkci na jiných OS neznáme
 
 [PE_vzorek.zip](https://github.com/user-attachments/files/28258521/PE_vzorek.zip)
 
-Oprava podporovaných časopisů je téměř stoprocentní, pouze je občas pomíchané velké I a malé L (mají přesně stejný tvar a program je nedokáže rozlišit). Někdy také nejdou opravit stránky s reklamami, ale ty jsou irelevantní. Je nutné zdůraznit, že **program opravuje pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011) a Electus (2000-2007). Také opravuje obsahy ročníků PE.** Soubory těchto časopisů mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a tedy má největší smysl je opravit. Zde je podrobnější přehled:
+Oprava podporovaných časopisů je téměř stoprocentní, pouze jsou občas pomíchaná velká I a malá L či jiné vizuálně podobné znaky. Často nejdou opravit stránky s reklamami, ale na těch nezáleží. Je nutné zdůraznit, že **program opravuje pouze časopisy A-Radio Praktická Elektronika (2000-2023), Konstrukční elektronika (2000-2011), Electus (2000-2007) a obsahy těchto ročníků.** Tyto soubory mají totálně špatné kódování, takže text je v nich "rozsypaný čaj" a tedy má největší smysl je opravit. Zde je podrobnější přehled:
 
 ![Prehled_AR_v040](https://github.com/xgmitt00-220814/Type1toUnicode/assets/169207159/4dafd779-fbe8-4540-8648-d66c8e9a8c9d)
 
-Časopisy Amatérské rádio (řada A + řada B, později Stavebnice a konstrukce) sice také mají špatné kódování, ale projevuje se to jen v některých PDF prohlížečkách. Hlavně v Adobe Readeru se nesprávně kopírují české znaky, naštěstí jiné prohlížečky (Mozilla Firefox, Evince, Google Chrome a jeho klony) je dekódují správně. Při jejich čtení se proto Adobe Readeru vyhýbejte, je obecně dost háklivý na správnou syntaxi PDF. Kódování Amatérských rádií by šlo sice šlo opravit také, ale byla by to zbytečná práce.
+Časopisy Amatérské rádio (řada A + řada B, později Stavebnice a konstrukce) sice také mají špatné kódování, ale projevuje se to jen v některých PDF prohlížečkách. Hlavně v Adobe Readeru se nesprávně kopírují české znaky, naštěstí jiné prohlížečky (Mozilla Firefox, Evince, Google Chrome a jeho klony) fungují lépe. Při jejich čtení se proto Adobe Readeru vyhýbejte, je obecně dost háklivý na správnou syntaxi PDF. Kódování Amatérských rádií by šlo sice šlo opravit také, ale současná verze programu to nepodporuje. Podobné je to s Praktickou elektronikou v letech 1996-1999, u které by byla oprava velmi pracné. Nicméně možná se k nim v budoucnu vrátíme, pokud GlyphRepair vylepšíme.
 
 Je nejasné, proč všechny ty časopisy mají špatné kódování textu. Nicméně je/bylo to **Amatérské** radio a ten amatérizmus se holt projevil i tímto způsobem. Naštěstí **po přechodu na nový grafický design od PE 04/2023 je už kódování správně** a v časopisech jde konečně normálně hledat bez ohledu na prohlížečku.
 
@@ -50,7 +50,7 @@ This program is designed to repair wrong text encoding ("mojibake") in PDF files
 * Meaning of each character (glyph) is manually defined (mapped) by user, which allows for 100% text fidelity.
 * GlyphRepair preserves original document data, only adds new text encoding tables to it.
 
-However, these advantages come at a price. The program is designed to work only with older PDF documents which use so-called [Type 1 fonts](https://en.wikipedia.org/wiki/PostScript_fonts#Type_1). And manual mapping of the characters can become a time-consuming task, even though GlyphRepair has an automatic propmpter which streamlines the process.
+However, these advantages come at a price. The program is designed to work only with older PDF documents which use so-called [Type 1 fonts](https://en.wikipedia.org/wiki/PostScript_fonts#Type_1). And manual mapping of the characters can become a time-consuming task, even though GlyphRepair has an automatic prompter which streamlines the process.
  
  # Before you start
 
