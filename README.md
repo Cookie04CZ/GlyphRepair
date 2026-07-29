@@ -42,7 +42,7 @@ Oprava podporovaných časopisů je téměř stoprocentní, pouze jsou občas po
 
 Je nejasné, proč všechny ty časopisy mají špatné kódování textu. Nicméně je/bylo to **Amatérské** radio a ten amatérizmus se holt projevil i tímto způsobem. Naštěstí **po přechodu na nový grafický design od PE 04/2023 je už kódování správně** a v časopisech jde konečně normálně hledat bez ohledu na prohlížečku.
 
-Program vzniknul v rámci bakalářské práce ["XXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Opravná databáze znaků a tento návod byly vytvořeny vedoucím práce. Pokud vás zajímá, jak program funguje, přečtěte si tu bakalářku nebo anglický návod níže.
+Program vzniknul v rámci bakalářské práce ["Rozšíření opravných Python skriptů pro PDF dokumenty"](https://www.vut.cz/studenti/zav-prace/detail/175324) na [Ústavu telekomunikací](https://www.utko.fekt.vut.cz/) na [Vysokém učení technickém v Brně](https://www.vut.cz/). Opravná databáze znaků a tento návod byly vytvořeny vedoucím práce. Pokud vás zajímá, jak program funguje, přečtěte si tu bakalářku nebo anglický návod níže.
 
  # What GlyphRepair does
 This program is designed to repair wrong text encoding ("mojibake") in PDF files -- text looks fine on screen, but you get only gibberish when you try to copy+paste it. This may be fixed via OCR (Optical Character Recognition), but it always recognizes some characters wrong, particularly in multi-lingual and/or scientific texts which contain special symbols. OCR also usually destroys ("flattens") original vector content of the source PDF, which is generally undesirable. GlyphRepair works around these limitations:
@@ -404,7 +404,7 @@ Resulting file size: approx. 60 MB
 * Use Tesseract OCR to recognize glyphs instead of manual mapping. Then use Tesseract Confidence Score to filter out problematic glyphs and allow the user to correct (remap) them manually.
 
 # Credits
-GlyphRepair was developed as part of bachelor's thesis ["XXXXXXXXXXXXXXXXXXXXXXXXXXX"](https://hdl.handle.net/11012/246071) at [Brno University of Technology](https://www.vut.cz/en/), Faculty of Electrical Engineering and Communications, [Dept. of Telecommunications](https://www.utko.fekt.vut.cz/en). Glyph mapping database and this manual was created by [thesis advisor](https://www.vut.cz/en/people/pavel-hanak-11679).
+GlyphRepair was developed as part of bachelor's thesis ["Rozšíření opravných Python skriptů pro PDF dokumenty"](https://www.vut.cz/studenti/zav-prace/detail/175324) at [Brno University of Technology](https://www.vut.cz/en/), Faculty of Electrical Engineering and Communications, [Dept. of Telecommunications](https://www.utko.fekt.vut.cz/en). Glyph mapping database and this manual was created by [thesis advisor](https://www.vut.cz/en/people/pavel-hanak-11679).
  
  # Other ways to fix your documents, but with lower fidelity
 
